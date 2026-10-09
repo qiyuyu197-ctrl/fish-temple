@@ -1286,6 +1286,9 @@ async function handleApi(req, res, url, opts = {}) {
       netease: { enabled: true, endpoints: ['search', 'songs', 'playlist', 'album', 'lyric', 'resolve', 'playable', 'audio', 'status'] },
       pixiv: { enabled: true, endpoints: ['random', 'image', 'illust', 'status'], mirror: PIXIV.mirror },
       writable,
+      // Serverless 诊断：把平台给的原始 event（以及函数是"怎么还原路径"的）回显出来。
+      // 线上 /api/health 看一眼就知道 event 语义对不对，不用猜。
+      ...(opts.meta ? { netlifyEvent: opts.meta } : {}),
       time: new Date().toISOString(),
     });
   }

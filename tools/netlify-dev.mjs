@@ -87,6 +87,11 @@ async function handleApi(req, res, url, started) {
     body: bodyBuf.length ? bodyBuf.toString('base64') : null,
     isBase64Encoded: bodyBuf.length > 0,
   };
+  // 想验「Netlify 给的是函数自己的路径」那种语义时：NETLIFY_FAKE_FN_PATH=1
+  if (process.env.NETLIFY_FAKE_FN_PATH === '1' && url.pathname.startsWith('/api')) {
+    event.path = `/.netlify/functions/api${url.pathname.slice(4)}`;
+    event.rawUrl = `http://${req.headers.host || `127.0.0.1:${PORT}`}/.netlify/functions/api${url.pathname.slice(4)}${url.search}`;
+  }
 
   let out;
   try {
@@ -148,8 +153,14 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || `127.0.0.1:${PORT}`}`);
   const started = Date.now();
   try {
-    if (url.pathname.startsWith('/api')) await handleApi(req, res, url, started);
-    else await serveStatic(req, res, url, started);
+    // 与线上一致：函数既可以从 /api/*（走 netlify.toml 的重写）进，
+    // 也可以从它自己的地址 /.netlify/functions/api/... 进 —— 两条都要能跑，
+    // 免得"本地测的是重写路径、线上走的是函数路径"这种差异漏过去
+    if (url.pathname.startsWith('/api') || url.pathname.startsWith('/.netlify/functions/api')) {
+      await handleApi(req, res, url, started);
+    } else {
+      await serveStatic(req, res, url, started);
+    }
   } catch (err) {
     console.error('[error]', err);
     if (!res.headersSent) { res.writeHead(500); res.end('500'); }

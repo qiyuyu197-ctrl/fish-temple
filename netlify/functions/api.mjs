@@ -17,16 +17,51 @@
  *   3. 图片不落盘：交给 Netlify 边缘缓存（Netlify-CDN-Cache-Control），
  *      等价于本地那份磁盘缓存。
  *
+ * ⚠️ 路径还原（这里踩过坑，别再简化）：
+ *   /api/* 是通过 netlify.toml 的 **rewrite** 转到本函数的，而 Netlify 在这种
+ *   重写下给 `event.path` / `event.rawUrl` 的到底是「客户端请求的原始路径」还是
+ *   「函数自己的路径」（/.netlify/functions/api/...），官方文档与 netlify dev 的历史
+ *   行为并不一致（见 netlify/cli#559、#3316、#3620 这几处修正）。
+ *   所以这里不赌：两种形状都认，并把自己最终怎么还原的记录在 meta 里，
+ *   /api/health 会回显出来 —— 线上到底给的是哪一种，一个请求就能看到。
+ *
  * 为什么用 v1 的 event/context 签名：它在 Netlify 上稳定多年、不挑 Functions 版本，
  * 配合 netlify.toml 里 /api/* 的重写即可。二进制响应（图片）用 base64 回。
  */
 
 import { handleApiRequest } from '../../server.mjs';
 
+/** 把「函数自己的路径」也还原成 /api/xxx，兼容两种 event 语义 */
+function resolveApiPath(event) {
+  const paths = [];
+  if (event.rawUrl) {
+    try { paths.push(new URL(event.rawUrl).pathname); } catch { /* rawUrl 不合法就用下面的 */ }
+  }
+  if (typeof event.path === 'string' && event.path) paths.push(event.path);
+
+  // ① 已经是 /api/...（Netlify 给的是原始路径）
+  for (const p of paths) {
+    if (/^\/api(\/|$)/.test(p)) return { path: p, by: 'original' };
+  }
+  // ② 是函数自己的路径（/.netlify/functions/api/...）→ 还原成 /api/...
+  for (const p of paths) {
+    const m = /^\/\.netlify\/functions\/api(\/.*)?$/.exec(p);
+    if (m) return { path: `/api${m[1] || ''}`, by: 'normalized' };
+  }
+  // ③ 都不是（例如函数被直接以别的路径调用）：交给 server.mjs 去回 404，别猜
+  return { path: paths[0] || '/api', by: paths.length ? 'unrecognized' : 'missing' };
+}
+
 export async function handler(event) {
-  // 重写之后 event.path 可能是函数自己的路径，所以优先用 rawUrl 还原**原始**请求
-  const raw = event.rawUrl
-    || `https://${event.headers?.host || 'localhost'}${event.path || '/'}${event.rawQuery ? `?${event.rawQuery}` : ''}`;
+  const host = event.headers?.host || 'localhost';
+  const rawUrl = event.rawUrl || `https://${host}${event.path || '/'}`;
+
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch { parsed = new URL(`https://${host}${event.path || '/'}`); }
+
+  const { path: apiPath, by } = resolveApiPath(event);
+  const search = parsed.search || (event.rawQuery ? `?${event.rawQuery}` : '');
+  const target = `${parsed.origin}${apiPath}${search}`;
 
   const headers = new Headers();
   for (const [k, v] of Object.entries(event.headers || {})) {
@@ -40,8 +75,12 @@ export async function handler(event) {
     : undefined;
 
   const response = await handleApiRequest(
-    new Request(raw, { method, headers, body }),
-    { serverless: true },
+    new Request(target, { method, headers, body }),
+    {
+      serverless: true,
+      // 诊断信息：/api/health 会把它回显出来，用来确认线上事件语义
+      meta: { rawUrl: event.rawUrl || null, path: event.path || null, rawQuery: event.rawQuery || null, resolvedPath: apiPath, resolvedBy: by },
+    },
   );
 
   const buf = Buffer.from(await response.arrayBuffer());

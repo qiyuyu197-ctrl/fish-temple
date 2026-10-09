@@ -125,10 +125,31 @@ async function main() {
     console.log('\n\x1b[31m站点打不开，后面的检查没法做。\x1b[0m');
     return;
   }
+
+  // 先排除"访问保护"这一类平台级的门：它会把整个站（含 /api/*）换成登录页，
+  // 请求根本到不了函数 —— 这时报 404/500 之类的都是假象，先去后台关掉它。
+  const gated = health.res.status === 401 && /Login Redirect|edge-access/i.test(health.text || '');
+  if (gated) {
+    check('站点没有开访问保护（Edge Access 登录门）', false,
+      'HTTP 401 + Login Redirect：Netlify 的访问保护把整个站点（含 /api/*）挡在外面，请求到不了函数。'
+      + '请到 Site configuration → Access & security 关掉它，或把它改成只保护首页 / 排除 /api/*。');
+    console.log('\n\x1b[33m访问保护挡着，后面的检查没法做（这不是代码问题）。\x1b[0m');
+    return;
+  }
+
   check('服务器可达', health.res.ok === true, `HTTP ${health.res.status}`);
   const h = health.json || {};
   check('部署形态：/api/* 由 Functions 提供（不是本地 server.mjs）',
     h.deploy === 'netlify', `deploy=${h.deploy}`);
+  check('health 回显了平台 event（路径还原可诊断）',
+    !!h.netlifyEvent?.resolvedPath, JSON.stringify(h.netlifyEvent || null));
+
+  // 函数两种调用形状都要能跑：netlify.toml 的重写路径，以及函数自己的地址。
+  // 线上到底给哪一种 event 语义，各家版本/文档并不一致，所以两条都验。
+  const fnPath = await get('/.netlify/functions/api/health');
+  check('从函数自己的地址调用时也能还原成 /api/*（两种 event 语义都兼容）',
+    fnPath.res.ok && fnPath.json?.ok === true && fnPath.json?.deploy === 'netlify',
+    `HTTP ${fnPath.res.status} resolvedBy=${fnPath.json?.netlifyEvent?.resolvedBy || '—'}`);
   check('只读部署：readonly=true / writable=false（没有可写磁盘）',
     h.readonly === true && h.writable === false, `readonly=${h.readonly} writable=${h.writable}`);
   check('代理能力清单里带着 audio 端点',

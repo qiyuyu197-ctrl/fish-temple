@@ -14,9 +14,12 @@
 
 [functions]
   directory = "netlify/functions"
-  # esbuild 会把 server.mjs 及其相对 import 一起打进来（函数目录之外的文件也能被跟踪），
-  # 用默认的 zisi 打包器时外部相对 import 不一定被打进去
+  # esbuild 会把 server.mjs 及其相对 import 一起打进来（函数目录之外的文件也能被跟踪）；
+  # included_files 是"万一没打包"的兜底：把 server.mjs 原样放到函数根目录，
+  # 那样 `import '../../server.mjs'` 依然能解析到（/var/task/server.mjs）。
+  # 两条同时存在没有副作用，只是多带一个文件。
   node_bundler = "esbuild"
+  included_files = ["server.mjs"]
 
 # /api/xxx → /.netlify/functions/api/xxx （status 200 = 重写，不改浏览器地址）
 [[redirects]]
