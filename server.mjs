@@ -1511,9 +1511,25 @@ class WebResponseSink extends Writable {
   }
 }
 
-/** 把一个 Web Request 交给同一套 /api 实现，返回 Web Response（Netlify Functions 用） */
+/**
+ * 把一个 Web Request 交给同一套 /api 实现，返回 Web Response。
+ *
+ * 两种调用形状都认（这是踩过坑的地方，别简化）：
+ *   · v2 函数（netlify/functions/api.mjs 的 `config.path = '/api/*'`）给的是**客户端原始 URL**；
+ *   · 走 netlify.toml 那条重写时，URL 可能是函数自己的地址
+ *     （/.netlify/functions/api/xxx）——那时要还原成 /api/xxx，否则一条路由都匹配不上。
+ * 还原结果一起放进 meta，/api/health 会回显，线上一个请求就能看清平台给的是哪种。
+ */
 export async function handleApiRequest(request, opts = {}) {
-  const url = new URL(request.url);
+  const raw = new URL(request.url);
+  let pathname = raw.pathname;
+  let resolvedBy = 'original';
+  const m = /^\/\.netlify\/functions\/api(\/.*)?$/.exec(pathname);
+  if (m) {
+    pathname = `/api${m[1] || ''}`;
+    resolvedBy = 'normalized';
+  }
+  const url = new URL(`${pathname}${raw.search}`, raw.origin);
   const sink = new WebResponseSink();
 
   const reqLike = {
@@ -1534,7 +1550,12 @@ export async function handleApiRequest(request, opts = {}) {
   if (reqLike.method === 'OPTIONS') { sink.writeHead(204); sink.end(); return sink.toResponse(); }
 
   try {
-    await handleApi(reqLike, sink, url, { serverless: true, ...opts });
+    await handleApi(reqLike, sink, url, {
+      serverless: true,
+      ...opts,
+      // 诊断：v2 下 meta 由这里生成（v1 适配层也会传自己的）
+      meta: opts.meta || { requestUrl: request.url, resolvedPath: pathname, resolvedBy },
+    });
   } catch (err) {
     console.error('[api]', err);
     if (!sink.headersSent) {

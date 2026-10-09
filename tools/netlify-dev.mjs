@@ -28,7 +28,7 @@ import { createServer } from 'node:http';
 import { promises as fs, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { handler as apiHandler } from '../netlify/functions/api.mjs';
+import apiHandler from '../netlify/functions/api.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.argv[2] || process.env.PORT || 5199);
@@ -69,33 +69,34 @@ async function readBody(req, limit = 8 * 1024 * 1024) {
   return Buffer.concat(chunks);
 }
 
-/** 把 /api/* 交给 Netlify 函数（event 形状与线上一致） */
+/** 把 /api/* 交给 Netlify 函数（v2 形态：Web Request → Web Response，与线上一致） */
 async function handleApi(req, res, url, started) {
   const bodyBuf = await readBody(req).catch(() => Buffer.alloc(0));
-  const headers = {};
+  const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
-    headers[k] = Array.isArray(v) ? v.join(', ') : String(v ?? '');
+    if (typeof v === 'string') headers.set(k, v);
+    else if (Array.isArray(v)) headers.set(k, v.join(', '));
   }
 
-  const event = {
-    rawUrl: `http://${req.headers.host || `127.0.0.1:${PORT}`}${req.url}`,
-    path: url.pathname,
-    httpMethod: req.method,
-    headers,
-    queryStringParameters: Object.fromEntries(url.searchParams),
-    rawQuery: url.searchParams.toString(),
-    body: bodyBuf.length ? bodyBuf.toString('base64') : null,
-    isBase64Encoded: bodyBuf.length > 0,
-  };
-  // 想验「Netlify 给的是函数自己的路径」那种语义时：NETLIFY_FAKE_FN_PATH=1
+  const host = req.headers.host || `127.0.0.1:${PORT}`;
+  // 与线上一致：v2 函数拿到的是**客户端请求的 URL**
+  let target = `http://${host}${req.url}`;
+  // 想验「平台给的是函数自己的路径」那种情况：NETLIFY_FAKE_FN_PATH=1
   if (process.env.NETLIFY_FAKE_FN_PATH === '1' && url.pathname.startsWith('/api')) {
-    event.path = `/.netlify/functions/api${url.pathname.slice(4)}`;
-    event.rawUrl = `http://${req.headers.host || `127.0.0.1:${PORT}`}/.netlify/functions/api${url.pathname.slice(4)}${url.search}`;
+    target = `http://${host}/.netlify/functions/api${url.pathname.slice(4)}${url.search}`;
   }
 
-  let out;
+  const method = req.method;
+  const hasBody = !['GET', 'HEAD'].includes(method) && bodyBuf.length > 0;
+
+  let response;
   try {
-    out = await apiHandler(event);
+    // v2 形态：直接收 Request / 返回 Response
+    response = await apiHandler(new Request(target, {
+      method,
+      headers,
+      body: hasBody ? bodyBuf : undefined,
+    }));
   } catch (err) {
     console.error('  [function] 抛错：', err);
     res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -103,17 +104,19 @@ async function handleApi(req, res, url, started) {
     return log(req, url, 500, started);
   }
 
-  const buf = out.isBase64Encoded
-    ? Buffer.from(out.body || '', 'base64')
-    : Buffer.from(out.body ?? '', 'utf8');
-  const outHeaders = { ...(out.headers || {}) };
+  const buf = Buffer.from(await response.arrayBuffer());
+  // ⚠️ 头名统一小写：Response 里本来就有 content-length，再用大写写一遍会发出两个
+  //    Content-Length，Node 的 fetch（undici）会直接判为协议错误（curl 只是忍着），
+  //    结果就变成"curl 能通、自检报 fetch failed"。
+  const outHeaders = {};
+  response.headers.forEach((v, k) => { outHeaders[k.toLowerCase()] = v; });
   // 302 之类不带正文的响应不要硬塞 Content-Length
-  if (buf.length || !/^(204|304)$/.test(String(out.statusCode))) {
-    outHeaders['Content-Length'] = String(buf.length);
+  if (buf.length || !/^(204|304)$/.test(String(response.status))) {
+    outHeaders['content-length'] = String(buf.length);
   }
-  res.writeHead(out.statusCode || 200, outHeaders);
+  res.writeHead(response.status, outHeaders);
   res.end(buf);
-  log(req, url, out.statusCode || 200, started);
+  log(req, url, response.status, started);
 }
 
 /** 静态文件：与 Netlify 一致的"命中就发，否则 404"（不做 SPA 通配回退） */
