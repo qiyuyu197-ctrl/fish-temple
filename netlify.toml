@@ -3,10 +3,18 @@
 # 站点本身是"零构建"的静态站：仓库根目录就是发布内容，
 # 所以 publish = "."，没有 build 命令。
 #
-# 唯一需要平台帮忙的是 /api/*：那些接口要访问外部网站
+# 需要平台帮忙的只有 /api/*：那些接口要访问外部网站
 # （Pixiv 抽卡与图片、网易云搜索与试听），浏览器直连会被 CORS / 镜像策略挡掉，
-# 本地是靠 server.mjs 代理的。这里把 /api/* 重写到 netlify/functions/api.mjs，
-# 由它 import 同一个 server.mjs 复用同一份实现。
+# 本地是靠 server.mjs 代理的；线上由 netlify/functions/api.mjs 复用同一份实现。
+#
+# ⚠️ 这里**故意不写** /api/* 的 [[redirects]]，这一条踩过坑，别再"补"回来：
+#   函数用 config.path = '/api/*' 自己声明路由（Functions v2 的官方做法）。
+#   官方文档明确写了 —— 一旦设了 config.path，函数**只**在该路径可用，
+#   默认地址 /.netlify/functions/<name> 不再存在（见 docs.netlify.com
+#   「Configuration for functions → Routing」）。
+#   而那条重写正是把 /api/* 转发到 /.netlify/functions/api/* 这个**已不存在**的地址，
+#   于是每个接口都变成 Netlify 的 "Page not found" 404 —— 表现得像"函数根本没部署"。
+#   （线上实测：上一版函数没有 config.path，重写能通；加了 config.path 之后立刻全 404。）
 
 [build]
   publish = "."
@@ -14,19 +22,12 @@
 
 [functions]
   directory = "netlify/functions"
-  # esbuild 会把 server.mjs 及其相对 import 一起打进来（函数目录之外的文件也能被跟踪）；
+  # esbuild 会把 server.mjs 及其相对 import 一起打进来（函数目录之外的文件也能被跟踪）。
   # included_files 是"万一没打包"的兜底：把 server.mjs 原样放到函数根目录，
   # 那样 `import '../../server.mjs'` 依然能解析到（/var/task/server.mjs）。
   # 两条同时存在没有副作用，只是多带一个文件。
   node_bundler = "esbuild"
   included_files = ["server.mjs"]
-
-# /api/xxx → /.netlify/functions/api/xxx （status 200 = 重写，不改浏览器地址）
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
-  status = 200
-  force = true
 
 # 注意：**不要**再加 "/* → /index.html 200" 这种 SPA 通配回退。
 # 本站是 hash 路由（#/music 这种），没有前端路由需要回退；
