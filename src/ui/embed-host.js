@@ -30,6 +30,7 @@ let currentId = '';      // 当前 iframe 里加载的歌曲 id
 let currentAutoplay = -1; // 当前 iframe 的 auto 参数（0 / 1），-1 表示尚未创建
 let dockMode = 'none';
 let cropMode = true;     // 默认只留控制条：官方原皮那圈白色卡片和站内风格冲突
+let pinned = false;      // 是否"固定展开"（移动端请用户点 ▶ 期间，见 pinExpanded）
 
 function host() { return $('#embedHost'); }
 function slotEl() { return $('#embedFrameSlot'); }
@@ -148,14 +149,27 @@ export const EmbedHost = {
      */
     bus.on('embed:needsTap', ({ track } = {}) => {
       if (!frame) return;
-      if (dockMode === 'docked') this.expandBriefly(9000);
-      this.bringIntoView();
+      // 窄屏/触屏：**固定到屏幕底部并保持展开**。手机页面很长，靠滚动把它带进视口
+      // 不可靠（线上实测：布局会随嵌入槽撑开而变长，滚完仍可能停在屏幕外几百像素），
+      // 而贴底全宽一定看得见、点得到 —— 这是"用户必须点 ▶"时唯一稳的做法。
+      const narrow = (window.matchMedia && window.matchMedia('(hover: none)').matches) || window.innerWidth < 720;
+      if (narrow) {
+        this.dock('docked');
+        this.pinExpanded(true);
+      } else {
+        if (dockMode === 'docked') this.expandBriefly(9000);
+        this.bringIntoView();       // 宽屏：音乐台里的内嵌槽位，滚到视口中央
+      }
       bus.emit('toast', {
-        message: `「${track?.title || '这首歌'}」需要在下方官方播放器里点 ▶ 播放（移动端不允许它自动起播）`,
+        message: `「${track?.title || '这首歌'}」需要在${narrow ? '屏幕底部' : '下方'}官方播放器里点 ▶ 播放（移动端不允许它自动起播）`,
         kind: 'warn',
         ttl: 8000,
       });
     });
+
+    // 用户动过官方播放器（点进 iframe / 拖进度）→ 他要的目的达到了，"请点 ▶"状态解除，
+    // 之后按正常的停靠规则走
+    bus.on('embed:touched', () => this.pinExpanded(false));
 
     // 视口变化 / 页面滚动时把内嵌位置重新对齐到槽位
     const realign = () => { if (dockMode === 'inline') this._align(); };
@@ -262,6 +276,8 @@ export const EmbedHost = {
       this._applyAutoplay(want === 1, track);
       return;
     }
+    // 换歌了：上一首"请点 ▶"的固定展开随之作废
+    this.pinExpanded(false);
     // 折叠成小条时它的 frame 是 display:none —— 这种状态下新 iframe 常常起不了播。
     // 自动接播切歌正好会走到这里（用户可能正在别的板块、后台听歌），所以先展开再重建，
     // 让它以"被渲染"的状态完成 auto=1 的加载。
@@ -282,12 +298,30 @@ export const EmbedHost = {
   expandBriefly(ms = 5000) {
     const h = host();
     if (!h || dockMode === 'inline') return;
+    if (pinned) return;                 // 已被 pinExpanded 固定展开，别把它收回去
     h.dataset.expanded = '1';
     clearTimeout(this._expandTimer);
     this._expandTimer = setTimeout(() => {
       delete h.dataset.expanded;
       this._expandTimer = null;
     }, ms);
+  },
+
+  /**
+   * 固定展开（不受 expandBriefly 的定时器影响）。
+   * 移动端"这首需要你去官方播放器点 ▶"期间用它：播放器一直露着，直到换歌 / 收起。
+   */
+  pinExpanded(on) {
+    const h = host();
+    if (!h) return;
+    pinned = !!on;
+    if (on) {
+      clearTimeout(this._expandTimer);
+      this._expandTimer = null;
+      h.dataset.expanded = '1';
+    } else if (!this._expandTimer) {
+      delete h.dataset.expanded;
+    }
   },
 
   /** 当前是不是"折叠成小条"的状态（供外部判断要不要先展开） */
@@ -361,6 +395,7 @@ export const EmbedHost = {
     currentAutoplay = -1;
     clearTimeout(this._expandTimer);
     this._expandTimer = null;
+    pinned = false;
     const h = host();
     if (h) {
       h.hidden = true;
@@ -389,6 +424,7 @@ export const EmbedHost = {
       delete h.dataset.expanded;
       clearTimeout(this._expandTimer);
       this._expandTimer = null;
+      pinned = false;
     }
     document.body.classList.toggle('has-docked-embed', mode === 'docked');
     if (mode === 'inline') this._align();
@@ -397,6 +433,10 @@ export const EmbedHost = {
   /** 路由变化：在音乐台内嵌，其他板块右下角停靠 */
   noteRoute(viewId) {
     if (!frame) return;
+    // 「请用户点 ▶」期间（pinned）**不要**把它从屏幕底部拉回音乐台的内嵌槽：
+    // 音乐台页面很长，一拉回去它就落到视口下方（线上实测滚完仍在屏幕外几百像素），
+    // 用户看不到也就点不到。这条尤其重要 —— 音乐台每次重绘都会调 noteRoute('music')。
+    if (pinned) { this.dock('docked'); return; }
     this.dock(viewId === 'music' ? 'inline' : 'docked');
   },
 };
