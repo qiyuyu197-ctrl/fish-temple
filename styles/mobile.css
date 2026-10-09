@@ -1,0 +1,291 @@
+/* ============================================================
+   mobile.css — 移动端 / 触控适配层
+   ------------------------------------------------------------
+   为什么单独一个文件：
+     tokens.css / base.css / components.css 是"桌面优先"的版面，里面已有的
+     @media 断点（1560…560px）解决的是"窗口变窄"，不是"手指在点"。真正缺的是三件事：
+       1. 安全区：index.html 早就设了 viewport-fit=cover，但没有任何规则消费它 ——
+          iOS 上底栏会压在 home indicator 底下，lightbox 关闭键会顶进刘海。
+       2. 触控目标：.iconbtn 34px、.track__del 24px、.thumb__x 20px …… 手指点不准。
+       3. hover 依赖：一批控件只在 :hover 时才出现（删除、图注、封面播放键），
+          触屏上等于不存在。
+     这个文件在 components.css **之后**加载，同优先级下天然覆盖它，所以
+     原有样式一行都不用改，桌面端完全不受影响（手机版式都关在媒体查询里）。
+
+   断点约定：
+     · (pointer: coarse) / (hover: none) —— 按**输入方式**而不是屏宽判断，触屏笔记本也受益
+     · max-width: 480px —— 手机竖屏（360/390/430）
+     · max-height: 480px + landscape —— 手机横屏（可用高度只有 300 出头）
+     · max-width: 620/860px —— 沿用 components.css 已有的断点做少量补丁
+   ============================================================ */
+
+:root {
+  /* 安全区（viewport-fit=cover 才有值；非全面屏 / 桌面下全是 0px） */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+}
+
+/* ============================================================
+   1. 安全区：别让内容住在 home indicator / 刘海底下
+   ============================================================ */
+
+/* 顶栏：全面屏横屏时状态栏会盖住它；sticky 定位所以 padding 会跟着走 */
+.topbar {
+  padding-top: var(--safe-t);
+  padding-left: max(0px, var(--safe-l));
+  padding-right: max(0px, var(--safe-r));
+  height: calc(var(--topbar-h) + var(--safe-t));
+}
+
+/* 底栏播放条：把 home indicator 那条算进高度，内部内容才不会被压在下面 */
+.miniplayer {
+  height: calc(var(--miniplayer-h) + var(--safe-b));
+  padding-bottom: var(--safe-b);
+  padding-left: max(var(--gutter), var(--safe-l));
+  padding-right: max(var(--gutter), var(--safe-r));
+}
+/* body 的让位高度必须跟着一起长，否则最后一段内容会被底栏永久遮住 */
+body.has-miniplayer { padding-bottom: calc(var(--miniplayer-h) + var(--safe-b)); }
+body.has-miniplayer .footer { padding-bottom: calc(var(--miniplayer-h) + var(--safe-b)); }
+
+/* 提示条：底栏之上再抬一个安全区，否则会被底栏吃掉 */
+.toasts {
+  bottom: calc(var(--miniplayer-h) + var(--safe-b) + var(--sp-5));
+  right: max(var(--sp-5), var(--safe-r));
+}
+
+/* 抽屉：底部按钮不要贴到 home indicator */
+.drawer { padding-bottom: var(--safe-b); }
+.drawer__nav { padding-left: var(--safe-l); padding-right: var(--safe-r); }
+
+/* 灯箱：关闭键 / 左右翻页键避开刘海与圆角 */
+.lightbox__close {
+  top: max(var(--sp-5), calc(var(--safe-t) + var(--sp-3)));
+  right: max(var(--sp-5), calc(var(--safe-r) + var(--sp-3)));
+}
+.lightbox__nav--prev { left: max(0px, var(--safe-l)); }
+.lightbox__nav--next { right: max(0px, var(--safe-r)); }
+
+/* 网易云播放器停靠态：底栏长了多少，它就跟着抬多少（桌面下 --safe-b 是 0，值不变）
+   注意：这里必须**保住 components.css 的两个分段**（宽屏居中在底栏里 / 窄屏停在底栏上方），
+   只是各自补上一个安全区 —— 早先写成一条无条件的规则，把宽屏的居中逻辑顶掉了。 */
+.embed-host[data-dock="docked"] {
+  bottom: calc((var(--miniplayer-h) - var(--embed-dock-h)) / 2 + var(--safe-b));
+}
+@media (max-width: 1080px) {
+  .embed-host[data-dock="docked"] { bottom: calc(var(--miniplayer-h) + var(--safe-b) + var(--sp-3)); }
+}
+
+/* 命令面板：贴着键盘上下都留出安全区 */
+.cmdk__panel {
+  margin-top: max(var(--sp-5), var(--safe-t));
+  margin-bottom: max(var(--sp-5), var(--safe-b));
+}
+
+/* ============================================================
+   2. 触控目标：手指点得准（WCAG 2.5.8 建议 ≥24px，主流规范 ≥44px）
+   ============================================================ */
+
+@media (pointer: coarse) {
+  /* 顶栏按钮 34 → 44：搜索 / 主题 / 菜单三个都在这里 */
+  .iconbtn { width: 44px; height: 44px; }
+  .iconbtn svg { width: 20px; height: 20px; }
+
+  /* 通用按钮：只加最小高度，不改字号与配色，视觉上不会变胖太多 */
+  .btn, .btn--sm { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+  /* 筛选胶囊：40 是"好点"与"不臃肿"之间的折中 */
+  .chip { min-height: 40px; padding: 8px 12px; }
+
+  /* 播放控制：主键 62 → 56（手机上 62 太占地方），副键 38 → 44 */
+  .pbtn { width: 44px; height: 44px; }
+  .ne-now__ctrl .pbtn { width: 44px; height: 44px; }
+  .ne-now__ctrl .pbtn--main { width: 56px; height: 56px; }
+
+  /* 列表里的删除键 24 → 36：再大就把歌名挤没了，36 已经能稳定点中 */
+  .track__del { width: 36px; height: 36px; }
+
+  /* 小动作按钮 30 → 36 */
+  .iconact { width: 36px; height: 36px; }
+  .iconact svg { width: 16px; height: 16px; }
+
+  /* 播放器收起键 24 → 32 */
+  .embed-host__close { width: 32px; height: 32px; }
+
+  /* 底栏封面（就是播放 / 暂停键）42 → 48 */
+  .miniplayer__cover { width: 48px; height: 48px; }
+
+  /* 目录锚点：一整行可点，而不是只有文字那几像素 */
+  .toc a { padding: 10px 0; }
+
+  /* 灯箱翻页 38/52 → 46 */
+  .lightbox__nav { width: 46px; }
+
+  /* 抽屉导航：够高才好点 */
+  .drawer__nav a { padding-top: 14px; padding-bottom: 14px; }
+
+  /* 表单控件 16px：iOS 在字号 < 16px 的输入框聚焦时会自动放大整个页面 */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select, textarea { font-size: 16px; }
+
+  /* 表格 / 列表横向拖动时不要顺带触发浏览器的下拉刷新与页面回弹 */
+  .tracks__list, .ne-results, .preview-pane, .ms-scroll, .prose pre {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ============================================================
+   3. 解除 hover 依赖：触屏上没有"悬停"，这些控件必须自己显形
+   ============================================================ */
+
+@media (hover: none) {
+  /* 画廊缩略图右上角的「移除」：原来只在 hover 时 opacity 1 */
+  .thumb__x { opacity: 1; width: 30px; height: 30px; font-size: 13px; }
+
+  /* 瀑布流图注（标题 / 作者）：原来从底部滑入，只在 hover 时可见 ——
+     触屏上等于永远读不到照片信息，直接常驻 */
+  .masonry__cap { transform: none; }
+
+  /* 底栏封面中间的播放 / 暂停图标：悬停才出现，触屏上给不出反馈 */
+  .miniplayer__cover::after { opacity: 1; }
+  /* 常驻图标要让出对比度，所以封面本身压暗一档（原来是 hover 才压暗） */
+  .miniplayer__cover .miniplayer__disc { filter: brightness(0.6); }
+
+  /* 悬停反馈在触屏上会"粘住"（点完还留着 hover 态），改成按下时给反馈 */
+  .thumb:hover img, .masonry__item:hover img { transform: none; }
+  .thumb:active img, .masonry__item:active img { transform: scale(1.02); }
+}
+
+/* ============================================================
+   4. 手机竖屏（360 / 390 / 430）：版面收窄 + 去掉会互相挤压的排布
+   ============================================================ */
+
+@media (max-width: 480px) {
+  /* 底栏矮一点：60px 在小屏上占掉太多可视区（安全区会自动加回去） */
+  :root { --miniplayer-h: 56px; }
+
+  /* 播放列表标题栏：里面是两个标题 + 最多五个按钮，不换行就会被裁掉 */
+  .tracks__head { flex-wrap: wrap; row-gap: var(--sp-2); }
+  .tracks__head .grow { flex: 1 1 auto; }
+
+  /* 音浪条：components.css 在 ≤620px 直接 display:none，
+     但它是底栏唯一的可视化，手机上留一条窄的比整条消失好 */
+  .mp-wave { display: flex; width: 30%; min-width: 64px; height: 26px; }
+
+  /* 顶栏：窄到 380 以下就把副标题收起来，免得跟三个图标抢位置 */
+  .topbar { gap: var(--sp-3); }
+  .ne-now__ctrl { gap: var(--sp-2); }
+  .ne-now__ctrl .pbtn--main { width: 52px; height: 52px; }
+
+  /* 搜索区标题行：标签 + 一长串说明挤一行，会把「搜索 / 导入」压成两行；
+     窄屏上让标签独占一行，说明另起一行 */
+  .ne-search__head { flex-wrap: wrap; row-gap: 4px; }
+  .ne-search__head .k-label { flex: 1 1 100%; }
+  /* 输入框独占一行，按钮在下一行平分宽度（原来 input 的 flex-basis 320px 会和按钮抢行） */
+  .ne-search__bar { padding: var(--sp-3); }
+  .ne-search__bar input { flex: 1 1 100%; }
+  .ne-search__bar .btn { flex: 1 1 auto; min-width: 0; }
+
+  /* 底栏曲目信息：让标题拿到剩余全部宽度 */
+  .miniplayer__meta { width: auto; flex: 1 1 auto; }
+  .miniplayer__meta b { font-size: var(--fs-xs); }
+
+  /* 定高面板改成"跟视口走"：460/520/620px 的固定上限在小屏上会顶出屏幕 */
+  .tracks__list { max-height: min(460px, 58vh); }
+  .ne-results { max-height: min(520px, 52vh); }
+  .preview-pane { max-height: min(620px, 58vh); }
+
+  /* 首屏插画舞台：原来 min-height 380 是硬值，矮屏上要滚动才能看到图 */
+  .stage { min-height: min(380px, 62vh); }
+
+  /* 宽表只能"横向滚动"，不能被 body 的 overflow-x:hidden 裁掉（裁掉就再也够不着了） */
+  .prose table, .tool-table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 开机动画：logo + 日志 + 进度条叠起来会超过矮屏，允许滚动并压缩日志区 */
+  .boot { overflow-y: auto; }
+  .boot__logo { width: 84px; height: 84px; }
+  .boot__log { min-height: 5em; }
+
+  /* 移动端浏览器地址栏会伸缩：100vh 会算多了，dvh 才是"当前可视高度" */
+  body { min-height: 100vh; min-height: 100dvh; }
+  .shell { min-height: 100vh; min-height: 100dvh; }
+
+  /* 长按选中正文文字时不要弹出"复制"气泡（列表项、按钮这种交互元素上） */
+  .track, .ne-row, .chip, .thumb, .masonry__item { -webkit-touch-callout: none; }
+}
+
+/* 更窄的（≤380px，例如 iPhone SE 一代 / 小屏安卓）：继续让位给品牌标记 */
+@media (max-width: 380px) {
+  .brand__text i { display: none; }
+  .brand__glyph { width: 28px; height: 28px; }
+  .mp-wave { display: none; }
+}
+
+/* 顶栏在手机上要放 4 个图标按钮（搜索 / 黄历 / 主题 / 菜单）+ 品牌标记。
+   ≤430px 时品牌文字让位：标记（logo）留着，站点名在首页大标题里本来就有，
+   不必在顶栏再占掉一百多像素、把图标挤到屏幕外面去。 */
+@media (max-width: 430px) {
+  .brand__text { display: none; }
+}
+
+/* ============================================================
+   5. 手机横屏 / 矮视口：纵向空间只有 300 出头，一切"定高"都要让路
+   ============================================================ */
+
+@media (max-height: 480px) and (orientation: landscape) {
+  .stage { min-height: 200px; }
+  .stage__img { max-height: 62vh; }
+  .boot { overflow-y: auto; }
+  .boot__logo { width: 64px; height: 64px; }
+  .boot__log { min-height: 2.5em; }
+  .tracks__list { max-height: 46vh; }
+  .ne-results { max-height: 46vh; }
+  /* 横屏时底栏很占地方，收到最矮 */
+  :root { --miniplayer-h: 48px; }
+}
+
+/* ============================================================
+   6. 减少动态效果：滚动播报条等常驻动画也要能停
+   （常驻动画在触屏上更烦人，而且持续唤醒 GPU）
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker__run { animation: none; }
+  .miniplayer { animation: none; }
+  .track__eq i { animation: none; }
+}
+
+/* ============================================================
+   7. 黄历小组件（顶栏搜索左边那个按钮）
+   ============================================================ */
+
+/* 手机 / 窄窗口：面板别再算"右对齐按钮"，左右贴边铺满更好读 */
+@media (max-width: 620px) {
+  .almanac {
+    left: var(--sp-3);
+    right: var(--sp-3);
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - var(--topbar-h) - var(--safe-t) - var(--sp-4));
+  }
+  /* 查日期的输入框与按钮在窄屏上各占一行，别互相挤 */
+  .almanac__foot { flex-wrap: wrap; }
+  .almanac__datewrap { flex: 1 1 100%; }
+  .almanac__foot .btn { flex: 1 1 auto; }
+}
+
+/* 触屏：面板里的关闭键等要够点 */
+@media (pointer: coarse) {
+  .almanac__close { width: 40px; height: 40px; font-size: 14px; }
+  .almanac__day { padding: var(--sp-4) var(--sp-3); }
+  .almanac__linkbtn { padding: 4px 0; }
+}

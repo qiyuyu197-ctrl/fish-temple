@@ -1,0 +1,215 @@
+/* ============================================================
+   tokens.css — 设计令牌层
+   参考《明日方舟：终末地》官网视觉语言：
+   奶油纸底 / 墨黑文字 / 信号黄强调 / 全直角工业编辑风
+   所有页面与组件只允许消费这里的变量，禁止硬编码颜色与尺度。
+   扩展方式：新增一套 [data-theme="xxx"] 覆盖下方同名变量即可。
+   ============================================================ */
+
+:root {
+  /* ---------- 色板 · 纸 ---------- */
+  --paper:        #EFEDE6;
+  --paper-2:      #E6E3D9;
+  --paper-3:      #DCD8CB;
+  --paper-sunk:   #E9E6DD;
+  --ink:          #121316;
+  --ink-2:        #1C1E22;
+
+  /* ---------- 色板 · 墨 ---------- */
+  --ink-100:      #121316;
+  --ink-80:       #34363B;
+  --ink-60:       #5A5C62;
+  --ink-40:       #8A8B8F;
+  --ink-25:       #B4B4B1;
+  --ink-12:       #D3D0C6;
+
+  /* ---------- 强调 ---------- */
+  --signal:       #FFD400;   /* 信号黄 · 主强调 */
+  --signal-deep:  #E5BE00;
+  --signal-ink:   #121316;   /* 黄底上的文字 */
+  --alert:        #E2452B;   /* 警示红 */
+  --ok:           #1F7A4D;   /* 通过绿 */
+  --link:         #1B4FD8;
+
+  /* ---------- 线 ---------- */
+  --line:         #C9C5B8;
+  --line-strong:  #121316;
+  --line-soft:    #DAD6C9;
+
+  /* ---------- 语义 ---------- */
+  --bg:           var(--paper);
+  --bg-alt:       var(--paper-2);
+  --bg-sunk:      var(--paper-sunk);
+  --fg:           var(--ink-100);
+  --fg-muted:     var(--ink-60);
+  --fg-faint:     var(--ink-40);
+  --accent:       var(--signal);
+  --accent-fg:    var(--signal-ink);
+  --border:       var(--line);
+  --border-hard:  var(--line-strong);
+  --selection-bg: var(--signal);
+  --selection-fg: var(--ink-100);
+
+  /* ---------- 字体 ---------- */
+  --font-sans: "Inter", "Helvetica Neue", "Segoe UI", "Noto Sans SC",
+               "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace,
+               "SFMono-Regular", "Cascadia Mono", Consolas, "Courier New", monospace;
+  --font-display: var(--font-sans);
+
+  /* ---------- 字号 ---------- */
+  --fs-hero:  clamp(2.6rem, 9.2vw, 9.5rem);
+  --fs-h1:    clamp(2rem, 5.4vw, 4.2rem);
+  --fs-h2:    clamp(1.4rem, 2.9vw, 2.4rem);
+  --fs-h3:    clamp(1.1rem, 1.7vw, 1.5rem);
+  --fs-body:  0.95rem;
+  --fs-sm:    0.82rem;
+  --fs-xs:    0.72rem;
+  --fs-2xs:   0.64rem;
+
+  /* ---------- 字距 ---------- */
+  --ls-tight: -0.03em;
+  --ls-snug:  -0.01em;
+  --ls-wide:  0.08em;
+  --ls-wider: 0.18em;
+  --ls-widest:0.34em;
+
+  /* ---------- 间距 ---------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+  --sp-9: 96px;
+  --sp-10: 140px;
+
+  /* ---------- 布局 ---------- */
+  --shell-max:  1680px;
+  --gutter:     clamp(16px, 3.2vw, 56px);
+  --topbar-h:   64px;
+  --ticker-h:   28px;
+  --radius:     0px;          /* 工业直角：全局零圆角 */
+  --miniplayer-h: 60px;
+
+  /* ---------- 动效 ---------- */
+  --ease:      cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in:   cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-out:  cubic-bezier(0, 0.55, 0.45, 1);
+  --ease-step: steps(6, end);
+  --t-fast:    120ms;
+  --t-mid:     220ms;
+  --t-slow:    420ms;
+
+  /* ---------- 层级 ---------- */
+  --z-grain:   1;
+  --z-content: 10;
+  --z-topbar:  60;
+  --z-mini:    70;
+  --z-drawer:  80;
+  --z-modal:   85;          /* 全屏歌词这类模态覆盖层：高于抽屉，低于命令面板 / 提示 */
+  --z-cmdk:    90;
+  --z-toast:   95;
+  --z-boot:    100;
+
+  /* ---------- 纹理 ---------- */
+  --grid-size: 48px;
+  --grid-line: rgba(18, 19, 22, 0.055);
+  --hatch: repeating-linear-gradient(
+      -45deg,
+      var(--ink-100) 0 1px,
+      transparent 1px 5px
+  );
+
+  color-scheme: light;
+}
+
+/* ============================================================
+   主题 · 夜间终端
+   ============================================================ */
+[data-theme="night"] {
+  --paper:        #0E0F11;
+  --paper-2:      #141619;
+  --paper-3:      #1B1E22;
+  --paper-sunk:   #101215;
+  --ink:          #F1EFE8;
+  --ink-2:        #E4E1D8;
+
+  --ink-100:      #F1EFE8;
+  --ink-80:       #CFCDC6;
+  --ink-60:       #9C9A94;
+  --ink-40:       #74736E;
+  --ink-25:       #4C4C49;
+  --ink-12:       #2A2C30;
+
+  --signal:       #FFD400;
+  --signal-deep:  #FFE04D;
+  --signal-ink:   #0E0F11;
+  --alert:        #FF5A3C;
+  --ok:           #43C08A;
+  --link:         #7AA2FF;
+
+  --line:         #2C2F34;
+  --line-strong:  #F1EFE8;
+  --line-soft:    #23262A;
+
+  --selection-bg: var(--signal);
+  --selection-fg: #0E0F11;
+
+  --grid-line: rgba(241, 239, 232, 0.06);
+  color-scheme: dark;
+}
+
+/* ============================================================
+   主题 · 蓝图 (Blueprint) —— 演示「可扩展主题」的第三套
+   ============================================================ */
+[data-theme="blueprint"] {
+  --paper:        #0B2A4A;
+  --paper-2:      #0A2540;
+  --paper-3:      #0F3357;
+  --paper-sunk:   #09203A;
+  --ink:          #EAF4FF;
+
+  --ink-100:      #EAF4FF;
+  --ink-80:       #BFD8F0;
+  --ink-60:       #8FB1D2;
+  --ink-40:       #6A8DAE;
+  --ink-25:       #3F6284;
+  --ink-12:       #1C3E60;
+
+  --signal:       #6FE3FF;
+  --signal-deep:  #A5EEFF;
+  --signal-ink:   #04203A;
+  --link:         #9ED8FF;
+
+  --line:         #17456F;
+  --line-strong:  #CFE7FA;
+  --line-soft:    #123A60;
+
+  --grid-line: rgba(234, 244, 255, 0.07);
+  color-scheme: dark;
+}
+
+/* ============================================================
+   无障碍 · 降低动效
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-mid: 0ms;
+    --t-slow: 0ms;
+  }
+}
+
+/* ============================================================
+   密度模式：紧凑
+   ============================================================ */
+[data-density="compact"] {
+  --sp-5: 16px;
+  --sp-6: 22px;
+  --sp-7: 32px;
+  --sp-8: 44px;
+  --fs-body: 0.9rem;
+}

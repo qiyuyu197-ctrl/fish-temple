@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="paper">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>FISH 鱼の灵庙 // 终端</title>
+<meta name="description" content="FISH 鱼の灵庙 · 静态站点 · 音乐播放 · 插画画廊 · 公告与文章" />
+<meta name="theme-color" content="#EFEDE6" />
+<!-- 分享卡片：图用品牌插画母版。部署到自己的域名后建议把 content 换成绝对地址 -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="FISH 鱼の灵庙" />
+<meta property="og:description" content="记录、播放、归档。一个零依赖的静态终端。" />
+<meta property="og:image" content="assets/icons/mark-512.png" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="FISH 鱼の灵庙" />
+<meta name="twitter:image" content="assets/icons/mark-512.png" />
+<link rel="icon" href="assets/icons/favicon-32.png?v=3" sizes="32x32" type="image/png" />
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png?v=3" />
+<!-- 装到手机主屏：iOS 用 apple-mobile-web-app-*，Android / 桌面 Chrome 读 manifest。
+     没有这几行，iOS「添加到主屏幕」会用 Safari 的浏览器外壳打开，状态栏和底栏都在。 -->
+<link rel="manifest" href="manifest.webmanifest?v=3" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="鱼の灵庙" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="format-detection" content="telephone=no" />
+<link rel="stylesheet" href="styles/tokens.css" />
+<link rel="stylesheet" href="styles/base.css" />
+<link rel="stylesheet" href="styles/components.css" />
+<!-- 黄历小组件的样式（顶栏那个按钮 + 面板） -->
+<link rel="stylesheet" href="styles/almanac.css" />
+<!-- 移动端 / 触控适配层：必须最后加载（同优先级下靠顺序覆盖上面三个文件，
+     桌面端样式完全不受影响 —— 里面的规则都关在媒体查询里） -->
+<link rel="stylesheet" href="styles/mobile.css" />
+</head>
+<body>
+
+<!-- ============ BOOT SPLASH ============ -->
+<div class="boot" id="boot" aria-hidden="true">
+  <div class="boot__noise"></div>
+  <div class="boot__inner">
+    <div class="boot__brand">
+      <!-- 开机画面用品牌插画母版（mark-512），和页签图标是同一张画 -->
+      <img class="boot__logo" src="assets/icons/mark-512.png" alt="鱼の灵庙 · TEMPLE OF FISH" width="512" height="512" />
+    </div>
+    <div class="boot__mark">
+      <span class="boot__mark-line"></span>
+      <span class="boot__glyph" aria-hidden="true">
+        <img src="assets/icons/mark-64.png" alt="" width="64" height="64" />
+      </span>
+      <span class="boot__mark-code">FISH 鱼の灵庙</span>
+      <span class="boot__mark-line"></span>
+    </div>
+    <div class="boot__log" id="bootLog"></div>
+    <div class="boot__bar"><i id="bootBar"></i></div>
+    <div class="boot__pct" id="bootPct">000%</div>
+  </div>
+</div>
+
+<!-- ============ APP SHELL ============ -->
+<div class="shell" id="shell">
+
+  <div class="grain" aria-hidden="true"></div>
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <!-- corner brackets -->
+  <div class="hud-corner hud-corner--tl" aria-hidden="true"></div>
+  <div class="hud-corner hud-corner--tr" aria-hidden="true"></div>
+  <div class="hud-corner hud-corner--bl" aria-hidden="true"></div>
+  <div class="hud-corner hud-corner--br" aria-hidden="true"></div>
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar" id="topbar">
+    <a class="brand" href="#/" data-nav>
+      <span class="brand__glyph" aria-hidden="true">
+        <!-- 站点标记：墨色外框 + 品牌插画（悬停时外框变信号黄） -->
+        <img src="assets/icons/mark-64.png" alt="" width="64" height="64" />
+      </span>
+      <span class="brand__text">
+        <b id="brandName">FISH 鱼の灵庙</b>
+        <i id="brandSub">FISH TEMPLE / 001</i>
+      </span>
+    </a>
+
+    <nav class="nav" id="nav" aria-label="主导航"></nav>
+
+    <div class="topbar__right">
+      <!-- 黄历：宜忌 / 吉日（今天或明天是吉日就会响起吉日之歌，也可以查某一天） -->
+      <button class="iconbtn iconbtn--almanac" id="almanacBtn" type="button"
+              title="黄历 · 宜忌与吉日" aria-label="打开黄历" aria-expanded="false" aria-controls="almanac">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="3.5" y="5" width="17" height="15" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" stroke="currentColor" stroke-width="1.6"/>
+          <circle cx="12" cy="14.6" r="2.3" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+      </button>
+      <button class="iconbtn" id="searchBtn" title="搜索 / 命令面板 (Ctrl+K)" aria-label="打开命令面板">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8"/></svg>
+      </button>
+      <button class="iconbtn" id="themeBtn" title="切换主题" aria-label="切换主题">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.6"/></svg>
+      </button>
+      <button class="iconbtn iconbtn--menu" id="menuBtn" title="菜单" aria-label="菜单" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="1.8"/></svg>
+      </button>
+      <div class="clock" id="clock" title="本地时间">
+        <b id="clockTime">--:--:--</b>
+        <i id="clockDate">----.--.--</i>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ TICKER ============ -->
+  <div class="ticker" id="ticker" aria-hidden="true">
+    <span class="ticker__tag">LIVE</span>
+    <div class="ticker__track"><div class="ticker__run" id="tickerRun"></div></div>
+  </div>
+
+  <!-- ============ MAIN ============ -->
+  <main class="view" id="view" tabindex="-1"></main>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="footer" id="footer">
+    <div class="footer__grid">
+      <div class="footer__col">
+        <span class="k-label">SITE</span>
+        <div id="footerMeta"></div>
+      </div>
+      <div class="footer__col">
+        <span class="k-label">LINKS</span>
+        <div id="footerLinks" class="footer__links"></div>
+      </div>
+      <div class="footer__col">
+        <span class="k-label">BUILD</span>
+        <div id="footerBuild" class="mono"></div>
+      </div>
+    </div>
+    <div class="footer__bar">
+      <span class="footer__brandline">
+        <span class="footer__logo" aria-hidden="true">
+          <img src="assets/icons/mark-64.png" alt="" width="64" height="64" />
+        </span>
+        <span id="footerCopy">© <span id="year"></span></span>
+      </span>
+      <span class="mono" id="footerNote">STATIC BUILD · ZERO DEPENDENCY</span>
+    </div>
+  </footer>
+
+  <!-- ============ MOBILE DRAWER ============ -->
+  <div class="drawer" id="drawer" hidden>
+    <nav class="drawer__nav" id="drawerNav"></nav>
+    <div class="drawer__foot mono" id="drawerFoot"></div>
+  </div>
+  <div class="drawer-scrim" id="drawerScrim" hidden></div>
+
+  <!-- ============ MINI PLAYER (persistent) ============
+       极简「正在播放」条：只保留封面唱片 / 曲目信息 / 音浪条。
+       传输控制、进度、时间、音量、关闭按钮已按要求移除 ——
+       播放控制统一收在音乐台页面（点封面直达），底栏不再重复一套控件。
+  -->
+  <div class="miniplayer" id="miniplayer" hidden>
+    <!-- 封面：点击即播放 / 暂停（播放时唱片旋转，悬停显示 ▶ / ❚❚） -->
+    <button class="miniplayer__cover" id="mpCover" aria-label="播放 / 暂停" title="播放 / 暂停">
+      <span class="miniplayer__disc" id="mpDisc"></span>
+      <span class="miniplayer__hole" aria-hidden="true"></span>
+      <span class="miniplayer__cover-ring" aria-hidden="true"></span>
+    </button>
+
+    <!-- 曲目信息：点击进入音乐台（搜索 / 列表 / 更多控制都在那里） -->
+    <button class="miniplayer__meta" id="mpMeta" type="button" title="打开音乐台">
+      <b id="mpTitle">—</b>
+      <i id="mpArtist" class="mono">—</i>
+    </button>
+
+    <!-- 音浪条：本地音频走真频谱，网易云曲目走合成音浪 -->
+    <div class="mp-wave" id="mpBars" aria-hidden="true" title="音浪">
+      <span class="mp-wave__mid" aria-hidden="true"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 黄历（顶栏搜索左边的按钮打开） ============
+     刻意放在 #view 之外：切板块时视图会重建，浮层不能被一起销毁。
+     黄历数据在**第一次打开时才按需加载**（assets/vendor/lunar-javascript，懒加载），
+     平时不占首屏；面板内容由 src/ui/almanac.js 渲染。 -->
+<div class="almanac" id="almanac" role="dialog" aria-label="黄历" hidden>
+  <div class="almanac__head">
+    <span class="almanac__title mono">黄历 · 宜忌</span>
+    <span class="almanac__range mono" id="almanacHeadDate">—</span>
+    <button class="almanac__close" id="almanacClose" type="button" title="关闭" aria-label="关闭黄历">✕</button>
+  </div>
+  <div class="almanac__body" id="almanacBody"></div>
+  <div class="almanac__anthem-slot" id="almanacAnthem"></div>
+  <div class="almanac__foot">
+    <label class="almanac__datewrap" for="almanacDate">
+      <span class="k-label">查某一天</span>
+      <input type="date" id="almanacDate" min="1901-01-01" max="2099-12-31" />
+    </label>
+    <button class="btn btn--sm" id="almanacGo" type="button">查询</button>
+  </div>
+  <p class="almanac__hint" id="almanacHint"></p>
+</div>
+
+<!-- ============ COMMAND PALETTE ============ -->
+<div class="cmdk" id="cmdk" hidden>
+  <div class="cmdk__scrim" id="cmdkScrim"></div>
+  <div class="cmdk__panel" role="dialog" aria-modal="true" aria-label="命令面板">
+    <div class="cmdk__head">
+      <span class="mono">⌘</span>
+      <input id="cmdkInput" type="text" placeholder="搜索页面、文章、公告、操作…" autocomplete="off" spellcheck="false" />
+      <kbd>ESC</kbd>
+    </div>
+    <div class="cmdk__list" id="cmdkList"></div>
+    <div class="cmdk__foot mono">
+      <span>↑↓ 选择</span><span>↵ 打开</span><span id="cmdkCount">0 RESULT</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TOASTS ============ -->
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<!-- ============ 网易云播放器常驻宿主 ============
+     这个容器必须放在 #view 之外：视图切换会重建 #view 的内容，
+     而 iframe 一旦被销毁就会中断播放。
+     切板块时只改变它的停靠位置（data-dock），DOM 里始终是同一个 iframe，
+     浏览上下文不重建，播放因此不会断。 -->
+<div id="embedHost" class="embed-host" data-dock="none" hidden>
+  <div class="embed-host__inner">
+    <div class="embed-host__mini" id="embedMini" title="点击回到音乐台">
+      <span class="embed-host__cover" id="embedMiniCover"></span>
+      <span class="embed-host__text">
+        <b id="embedMiniTitle">—</b>
+        <i id="embedMiniArtist">—</i>
+      </span>
+      <span class="embed-host__badge mono">NETEASE</span>
+    </div>
+    <div class="embed-host__frame" id="embedFrameSlot"></div>
+    <button class="embed-host__close" id="embedClose" title="停止并收起播放器">✕</button>
+  </div>
+</div>
+
+<!-- ============ AUDIO ENGINE ============
+     刻意**不加** crossorigin：站内直放走同源 /api/netease/audio（同源本来就不需要 CORS），
+     而回退用的网易云原始外链不带 CORS 头 —— 一旦声明 crossorigin="anonymous"，
+     那条回退路径会被浏览器直接判为加载失败。
+     频谱只在同源音源上建图（见 core/player.js 的 ensureGraph），所以不受影响。 -->
+<audio id="audio" preload="metadata"></audio>
+
+<noscript>
+  <div class="noscript">本站需要启用 JavaScript 才能运行。请在此浏览器中开启脚本后重新载入。</div>
+</noscript>
+
+<!-- ============ 启动兜底提示 ============
+     浏览器不允许通过 file:// 加载 ES 模块，直接双击 index.html 会导致脚本被拦截。
+     这段内联脚本（普通脚本，不受模块限制）会在这种情况下给出明确指引，
+     同时也会在 6 秒内没有任何启动信号时给出提示。 -->
+<script>
+(function () {
+  var shown = false;
+  function warn(title, steps) {
+    if (shown || document.documentElement.dataset.booted === '1') return;
+    shown = true;
+    var boot = document.getElementById('boot');
+    var inner = boot && boot.querySelector('.boot__inner');
+    if (!inner) return;
+    inner.innerHTML =
+      '<div class="boot__mark"><span class="boot__mark-line"></span>' +
+      '<span class="boot__mark-code">RUN A LOCAL SERVER</span>' +
+      '<span class="boot__mark-line"></span></div>' +
+      '<h1 style="font-size:1.6rem;margin:0 0 12px;letter-spacing:-0.02em">' + title + '</h1>' +
+      '<ol style="font-family:var(--font-mono);font-size:13px;line-height:2;color:#EFEDE6;opacity:.85;padding-left:1.4em;margin:0">' +
+      steps.map(function (s) { return '<li>' + s + '</li>'; }).join('') +
+      '</ol>';
+    boot.classList.remove('is-done');
+    boot.removeAttribute('hidden');
+  }
+
+  if (location.protocol === 'file:') {
+    // 模块脚本在 file:// 下必然失败，直接给出指引
+    setTimeout(function () {
+      warn('需要通过本地服务器访问', [
+        '在项目目录打开终端',
+        '执行 <b>node server.mjs</b>（需要 Node.js 18+）',
+        '浏览器访问 <b>http://localhost:5173</b>',
+        '没有 Node.js 时可用 <b>python -m http.server 5173</b>',
+      ]);
+    }, 400);
+  } else {
+    setTimeout(function () {
+      warn('启动超时', [
+        '检查浏览器控制台是否有报错',
+        '确认 <b>src/main.js</b> 与 <b>styles/</b> 能正常加载',
+        '刷新页面重试',
+      ]);
+    }, 6000);
+  }
+})();
+</script>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

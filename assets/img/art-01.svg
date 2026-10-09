@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" role="img" aria-label="本地示例插画 01">
+  <defs>
+    <pattern id="g" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0v48" fill="none" stroke="#121316" stroke-opacity=".12" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EFEDE6"/>
+      <stop offset="1" stop-color="#DCD8CB"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <rect width="1200" height="800" fill="url(#g)"/>
+  <path d="M760 0h440v800H540z" fill="#FFD400" fill-opacity=".85"/>
+  <path d="M900 0h300v800H700z" fill="#121316" fill-opacity=".08"/>
+  <g stroke="#121316" stroke-width="3" fill="none">
+    <rect x="60" y="60" width="1080" height="680"/>
+    <rect x="88" y="88" width="1024" height="624" stroke-width="1" stroke-opacity=".45"/>
+  </g>
+  <g font-family="ui-monospace, Consolas, monospace" fill="#121316">
+    <text x="120" y="200" font-size="92" font-weight="700" letter-spacing="6">LOCAL</text>
+    <text x="120" y="300" font-size="92" font-weight="700" letter-spacing="6" fill="none" stroke="#121316" stroke-width="2">GALLERY</text>
+    <text x="120" y="380" font-size="22" letter-spacing="12" fill="#5A5C62">SAMPLE 01 / GRID &amp; SLASH</text>
+    <text x="120" y="700" font-size="18" letter-spacing="8" fill="#5A5C62">REPLACE WITH YOUR OWN IMAGES IN data/gallery.json</text>
+  </g>
+  <g fill="#121316">
+    <rect x="120" y="430" width="240" height="10"/>
+    <rect x="120" y="458" width="170" height="10" fill="#E2452B"/>
+    <rect x="120" y="486" width="300" height="10"/>
+  </g>
+</svg>

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" role="img" aria-label="鱼の灵庙 · TEMPLE OF FISH">
+  <!--
+    鱼の灵庙 · 完整标识
+    ==================================================================
+    来自用户给的方形标识稿（黑底 / 大字「魚」「鱼」硬边色块 / TEMPLE OF FISH），
+    按本站 UI 语言重做：
+      · 配色换成本站令牌：墨 #121316 · 纸 #EFEDE6 · 信号黄 #FFD400
+      · 全部零圆角、硬边缘，块与块之间留 4 的墨色缝（等于站内的描边/网格）
+      · 顶栏是站名 + 信号色短杠，右侧一条等宽字体编号（站内到处是这种小字）
+      · 底部一条通栏信号色基线，代替花哨的角标（全站 .hud-corner 已经是这个意思）
+      · 字重拉满、字距收紧；Q1 的「魚」刻意出血裁切，保留原稿那种「大字塞满格子」的张力
+  -->
+  <defs>
+    <clipPath id="tf-q1"><rect x="2" y="44" width="116" height="94"/></clipPath>
+    <clipPath id="tf-q2"><rect x="122" y="44" width="116" height="94"/></clipPath>
+    <clipPath id="tf-q3"><rect x="2" y="142" width="116" height="94"/></clipPath>
+    <clipPath id="tf-q4"><rect x="122" y="142" width="116" height="94"/></clipPath>
+  </defs>
+
+  <rect width="240" height="240" fill="#121316"/>
+
+  <g font-family="'Noto Sans SC','Source Han Sans SC','Microsoft YaHei','PingFang SC','Hiragino Sans','Yu Gothic',system-ui,sans-serif" font-weight="900">
+
+    <!-- 顶栏：站名 + 信号色短杠 + 等宽体编号 -->
+    <text x="12" y="26" fill="#EFEDE6" font-size="21" letter-spacing="0.6">鱼の灵庙</text>
+    <rect x="12" y="31" width="42" height="3" fill="#FFD400"/>
+    <text x="234" y="24" fill="#EFEDE6" opacity="0.5" font-size="8" letter-spacing="2"
+          text-anchor="end" font-family="'JetBrains Mono','SFMono-Regular',Consolas,monospace">FISH TEMPLE / 001</text>
+
+    <!-- Q1：墨底 + 出血裁切的「魚」 -->
+    <g clip-path="url(#tf-q1)">
+      <text x="-14" y="134" fill="#EFEDE6" font-size="128" letter-spacing="-4">魚</text>
+    </g>
+
+    <!-- Q2：纸色块 + 墨色「鱼」 -->
+    <g clip-path="url(#tf-q2)">
+      <rect x="122" y="44" width="116" height="94" fill="#EFEDE6"/>
+      <text x="180" y="123" fill="#121316" font-size="88" text-anchor="middle">鱼</text>
+    </g>
+
+    <!-- Q3：纸色块 + 墨色「鱼」 -->
+    <g clip-path="url(#tf-q3)">
+      <rect x="2" y="142" width="116" height="94" fill="#EFEDE6"/>
+      <text x="60" y="221" fill="#121316" font-size="88" text-anchor="middle">鱼</text>
+    </g>
+
+    <!-- Q4：墨底 + TEMPLE OF FISH -->
+    <g clip-path="url(#tf-q4)">
+      <text x="234" y="176" fill="#EFEDE6" font-size="24" letter-spacing="0.4" text-anchor="end">TEMPLE</text>
+      <text x="234" y="196" fill="#FFD400" font-size="15" letter-spacing="3" text-anchor="end">OF</text>
+      <text x="234" y="232" fill="#EFEDE6" font-size="42" letter-spacing="-0.5" text-anchor="end">FISH</text>
+    </g>
+  </g>
+
+  <!-- 底部通栏信号色基线 -->
+  <rect x="0" y="236" width="240" height="4" fill="#FFD400"/>
+</svg>

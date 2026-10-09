@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" role="img" aria-label="本地示例插画 03">
+  <defs>
+    <pattern id="g3" width="34" height="34" patternUnits="userSpaceOnUse">
+      <path d="M34 0H0v34" fill="none" stroke="#EAF4FF" stroke-opacity=".10" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="b3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B2A4A"/>
+      <stop offset="1" stop-color="#0A2540"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#b3)"/>
+  <rect width="1200" height="800" fill="url(#g3)"/>
+  <g stroke="#6FE3FF" stroke-width="1.6" fill="none" stroke-opacity=".9">
+    <rect x="140" y="140" width="920" height="520"/>
+    <path d="M140 196h920"/>
+    <path d="M196 140v520"/>
+  </g>
+  <g fill="#6FE3FF">
+    <circle cx="172" cy="168" r="6"/>
+    <circle cx="196" cy="168" r="6" fill="#EAF4FF" fill-opacity=".5"/>
+    <circle cx="220" cy="168" r="6" fill="#EAF4FF" fill-opacity=".5"/>
+  </g>
+  <g font-family="ui-monospace, Consolas, monospace" fill="#EAF4FF">
+    <text x="196" y="290" font-size="34" letter-spacing="2">&gt; terminal --status</text>
+    <text x="196" y="350" font-size="26" fill="#6FE3FF" letter-spacing="1">[OK] content store ready</text>
+    <text x="196" y="396" font-size="26" fill="#6FE3FF" letter-spacing="1">[OK] audio engine online</text>
+    <text x="196" y="442" font-size="26" fill="#6FE3FF" letter-spacing="1">[OK] gallery providers x4</text>
+    <text x="196" y="500" font-size="26" fill="#8FB1D2" letter-spacing="1">SAMPLE 03 / TERMINAL WINDOW</text>
+    <text x="196" y="600" font-size="22" fill="#6FE3FF">_</text>
+  </g>
+</svg>

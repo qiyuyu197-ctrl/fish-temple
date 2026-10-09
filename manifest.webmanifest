@@ -1,0 +1,32 @@
+{
+  "name": "FISH 鱼の灵庙 · 终端",
+  "short_name": "鱼の灵庙",
+  "description": "记录、播放、归档。一个零依赖的静态终端：站内音乐、插画画廊、公告与文章。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "./#/",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#EFEDE6",
+  "theme_color": "#EFEDE6",
+  "icons": [
+    {
+      "src": "assets/icons/favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/mark-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
