@@ -473,32 +473,109 @@ async function main() {
       const input = document.getElementById('neInput');
       const go = document.getElementById('neGo');
       if (!input || !go) return { ok: false, why: '移动端没渲染出搜索控件' };
-      // 直接找那首"以前只能走官方播放器"的歌
+      // 清空列表：否则上一轮的结果还在 DOM 里，"等 .ne-row 出现"会立刻通过、点到旧行
+      try { Player.clear(); } catch { /* 老版本没有 clear */ }
+      await nap(500);
       input.value = 'No Why 少女前线';
       go.click();
-      for (let i = 0; i < 45 && !document.querySelector('.ne-row'); i++) await nap(400);
-      const row = document.querySelector('.ne-row');
-      if (!row) return { ok: false, why: '移动端搜索结果为空' };
+      // 等到"这一轮的结果"真的回来（按关键词核对），而不是等到"有行"
+      let row = null;
+      for (let i = 0; i < 60; i++) {
+        const r = document.querySelector('.ne-row');
+        if (r && /No Why/i.test(r.textContent || '')) { row = r; break; }
+        await nap(400);
+      }
+      if (!row) return { ok: false, why: '搜索结果里没有 No Why' };
       const name = (row.querySelector('.ne-row__name')?.textContent || '').trim().slice(0, 40);
       row.querySelector('button[data-act="play"]')?.click();
-      await nap(7000);
+      await nap(8000);
       const a = document.getElementById('audio');
+      const host = document.getElementById('embedHost');
       return {
         ok: true,
         name,
+        provider: Player.providerId,
         playing: Player.playing === true,
         embed: Player.isEmbed === true,
         time: Number((Player.currentTime || 0).toFixed(2)),
         ready: a ? a.readyState : null,
         duration: a ? Number((a.duration || 0).toFixed(1)) : null,
         src: a && a.currentSrc ? a.currentSrc.replace(location.origin, '').slice(0, 40) : null,
-        via: null,
+        // 没能直放时，必须"看得见 + 说得清"，不能静默无声
+        frameShown: !!document.getElementById('neFrame') && !!host && host.hidden === false,
+        uncropped: !!host && host.dataset.crop === '0',
+        notice: !!document.getElementById('neSilent'),
       };
     })()`);
-    check('客户端（移动端形态）：以前只能走官方播放器的歌也能站内直放出声',
-      mobilePlay?.ok === true && mobilePlay.playing === true && mobilePlay.embed === false
-        && (mobilePlay.time || 0) > 0.5 && (mobilePlay.ready || 0) >= 3,
+    check('客户端（移动端形态）：要么站内直放出声，要么明确引导去官方播放器点 ▶（不允许静默无声）',
+      mobilePlay?.ok === true && (
+        (mobilePlay.playing === true && mobilePlay.embed === false
+          && (mobilePlay.time || 0) > 0.5 && (mobilePlay.ready || 0) >= 3)
+        || (mobilePlay.embed === true && mobilePlay.frameShown === true && mobilePlay.uncropped === true)
+      ),
       JSON.stringify(mobilePlay));
+
+    // 真 VIP 曲目（如 Taylor Swift《Love Story》，fee=1）在匿名态下**两个入口都拿不到**
+    // （实测 outer:no、enhance@128000:code-110），必须退回官方播放器 ——
+    // 这时唯一不可接受的是"静默无声"，所以要求：官方播放器可见、且展开成完整形态（▶ 露出来）。
+    //
+    // 先刷新一次页面：上一个检查可能正拖着一条 9MB 音频的长流（本地仿真会把大文件
+    // 同源流式转发），新请求排在它后面就会一直 readyState 0 —— 那是本地仿真的产物，
+    // 不是这里要验的东西（线上音频是 302 到 CDN，不存在这种排队）。
+    await page.evalPage('location.reload()').catch(() => { /* 上下文会随刷新销毁 */ });
+    await sleep(3500);
+    for (let i = 0; i < 40; i++) {
+      if (await page.evalPage('!!document.getElementById("neInput")')) break;
+      await sleep(400);
+    }
+
+    const vipGuide = await page.evalPage(`(async () => {
+      const { Player } = await import('/src/core/player.js');
+      const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+      const input = document.getElementById('neInput');
+      const go = document.getElementById('neGo');
+      if (!input || !go) return { ok: false, why: '没有搜索控件' };
+      try { Player.clear(); } catch { /* 老版本没有 clear */ }
+      await nap(500);
+      input.value = 'Love Story Taylor Swift';
+      go.click();
+      let row = null;
+      for (let i = 0; i < 60; i++) {
+        const r = document.querySelector('.ne-row');
+        if (r && /Love Story/i.test(r.textContent || '')) { row = r; break; }
+        await nap(400);
+      }
+      if (!row) return { ok: false, why: '搜索结果里没有 Love Story' };
+      const name = (row.querySelector('.ne-row__name')?.textContent || '').trim().slice(0, 34);
+      row.querySelector('button[data-act="play"]')?.click();
+      // 直放失败 → HEAD 问一句 → 换 iframe，链路稍长；中途多采几次，记录最后状态
+      let last = null;
+      for (let i = 0; i < 10; i++) {
+        await nap(1500);
+        const host = document.getElementById('embedHost');
+        const r = host ? host.getBoundingClientRect() : null;
+        last = {
+          name,
+          provider: Player.providerId,
+          tracks: Player.tracks.length,
+          idx: Player.index,
+          embed: Player.isEmbed === true,
+          playing: Player.playing === true,
+          frameShown: !!document.getElementById('neFrame') && !!host && host.hidden === false,
+          // 「能点到」= 播放器确实落在视口里（不是被折叠成 display:none 或滚出屏幕）。
+          // 注意：紧凑形态本身就保留传输键（▶ 在里面），所以这里**不**要求切成完整形态 ——
+          // 那会写进用户的形态偏好，属于越界。
+          inView: !!r && r.height > 20 && r.top < window.innerHeight && r.bottom > 0,
+          notice: !!document.getElementById('neSilent'),
+        };
+        if (last.embed && last.frameShown && last.inView) return { ok: true, ...last, at: (i + 1) * 1.5 };
+      }
+      return { ok: true, ...last, at: 15, timedOut: true };
+    })()`);
+    check('客户端（移动端形态）：匿名拿不到的 VIP 曲目会展开官方播放器并给出可操作提示',
+      vipGuide?.ok === true && vipGuide.embed === true && vipGuide.frameShown === true
+        && vipGuide.inView === true,
+      JSON.stringify(vipGuide));
 
     // 复位，别影响后面的检查
     await page.send('Emulation.clearDeviceMetricsOverride');

@@ -130,6 +130,8 @@ export const Player = {
   _ending: false,
   /** 运行时覆盖 `PLAYER.directAudio`：null = 用配置值 */
   _directAudioPref: null,
+  /** 「点了播放但音频其实没加载出来」的看门狗定时器（见 _armStallWatch） */
+  _stallTimer: null,
 
   init() {
     this.audio = document.getElementById('audio');
@@ -165,7 +167,8 @@ export const Player = {
       this.playing = false; this._emitState();
     });
     this.audio.addEventListener('waiting', () => bus.emit('player:state', { buffering: true }));
-    this.audio.addEventListener('playing', () => bus.emit('player:state', { buffering: false }));
+    this.audio.addEventListener('playing', () => { this._clearStallWatch(); bus.emit('player:state', { buffering: false }); });
+    this.audio.addEventListener('loadedmetadata', () => this._clearStallWatch());
     // 一首放完 → 自动接下一首。`ended` 由媒体管线驱动，是后台 / 息屏下最可靠的信号，
     // 所以它必须是把切歌接力下去的**主路径**（不再是按时长估算的定时器）。
     this.audio.addEventListener('ended', () => this._advanceFromEnd());
@@ -307,6 +310,7 @@ export const Player = {
     const prevProvider = this.providerId;
     this.providerId = this.resolveProviderId(track);
     this._failCount = 0;
+    this._clearStallWatch();             // 换歌 = 旧的看门狗作废
     this._clearAdvance();
     this._primedUrl = '';                // 换歌 = 该为新的"下一首"重新预取
     this._advanceSuspended = false;      // 换歌 = 位置重新可知，恢复估算
@@ -388,11 +392,53 @@ export const Player = {
       }
       this._failCount = 0;
       this._scheduleGraph();
+      // 起播成功了，但"成功"只代表浏览器接受了 play() —— 源可能随后才 404/加载不出来。
+      // 挂个看门狗，杜绝"界面显示在放、既没声音也没提示"的死状态。
+      this._armStallWatch(track);
       return true;
     } catch (err) {
       console.warn('[player] 播放被拒绝或失败', err);
       bus.emit('toast', { message: '无法播放：请确认音频路径可访问，或先与页面交互一次', kind: 'err' });
       return false;
+    }
+  },
+
+  /**
+   * 播放看门狗：点下播放后，若 <audio> 明确"加载不出来"
+   * （`networkState === 3` 没有可用源，或已经带 `error`）却始终 `readyState === 0`，
+   * 而且**错误事件没有把失败处理走完**，就补一次失败处理。
+   *
+   * 为什么必须有：换 src 造成的 abort（error.code === 1）有时会把紧随其后的 404
+   * 盖掉，_onError 于是整条被跳过 —— 界面显示"正在播放"，实际既没声音也没有任何提示。
+   * 网易云曲目遇到这种状态本该回退官方播放器（并提示用户点 ▶），跳过就等于"手机上这首不响
+   * 也不告诉我为什么"。
+   *
+   * 只认"明确没源/有错误"，所以正常缓冲（networkState === 2）不会被误判。
+   */
+  _armStallWatch(track) {
+    this._clearStallWatch();
+    const startedAt = Date.now();
+    const tick = () => {
+      this._stallTimer = null;
+      const a = this.audio;
+      if (!a) return;
+      if (this.isEmbed || !this._intent || this.current !== track) return;  // 已换路 / 换歌 / 用户暂停
+      if (a.readyState > 0) return;                                          // 已经在出声或至少拿到元数据
+      // 三种"确实不行"：
+      //   ① 已经带 error；② 明确没有可用源；③ 声称在播却**十秒**一个字节都没拿到
+      //（③ 是实测踩到的：换歌时新请求被挂在上一首大文件的长流后面，既没 error 也一直
+      //  readyState 0 —— 只认前两条就会漏掉它，界面就一直显示"正在播放"却没有声音）
+      const dead = !!a.error || a.networkState === 3 || (Date.now() - startedAt > 10000);
+      if (!dead) { this._stallTimer = setTimeout(tick, 2000); return; }
+      this._onError({ force: true });                                        // 状态已确认，绕开 abort 去抖
+    };
+    this._stallTimer = setTimeout(tick, 2500);
+  },
+
+  _clearStallWatch() {
+    if (this._stallTimer) {
+      clearTimeout(this._stallTimer);
+      this._stallTimer = null;
     }
   },
 
@@ -1092,11 +1138,16 @@ export const Player = {
     if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
   },
 
-  _onError() {
+  /**
+   * 音频加载失败。
+   * `force` = 已经**另行确认**过状态确实加载不出来（看门狗），此时不要再被
+   * abort（code 1）去抖挡掉 —— 那个去抖正是导致"跳过整条回退链"的原因。
+   */
+  _onError({ force = false } = {}) {
     const t = this.current;
     if (!t) return;
     // 我们自己换 src / 主动取消加载不算失败（换歌、预取、拖动进度都会触发 code 1）
-    if ((this.audio?.error?.code || 0) === 1) return;
+    if (!force && (this.audio?.error?.code || 0) === 1) return;
 
     // 先让来源处理：网易云直放失败会依次尝试「原始外链 → 官方外链播放器」，
     // 处理掉了就不要弹错误、更不要跳下一首 —— 用户点的是这首，就该把这首放出来

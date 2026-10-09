@@ -133,6 +133,30 @@ export const EmbedHost = {
       location.hash = '#/music';
     });
 
+    /**
+     * 「这首只能靠官方播放器」时把它推到你眼前。
+     *
+     * 为什么必须有这一步：跨域 iframe 的自动播放由**对方页面 + 浏览器策略**决定。
+     * PC 上通常能自动起播（所以 PC 听着一切正常），而移动端 iOS/Android 一律要求
+     * 用户点 iframe 自己的 ▶ —— 只把 iframe 静默切过去，手机上就是"显示在播放、
+     * 却一点声音没有"。所以这里：确保它被渲染出来（折叠态会 display:none）、
+     * 滚到视口中央、再明确告诉用户点哪儿。
+     *
+     * ⚠️ 刻意**不**调用 setCrop(false)：紧凑形态保留的就是「进度条 + 传输键」那一条，
+     *    ▶ 本来就在里面，够点了；而 setCrop 会把用户的形态偏好写进 localStorage ——
+     *    为了提示一次就永久改掉用户的界面选择，是越界的。
+     */
+    bus.on('embed:needsTap', ({ track } = {}) => {
+      if (!frame) return;
+      if (dockMode === 'docked') this.expandBriefly(9000);
+      this.bringIntoView();
+      bus.emit('toast', {
+        message: `「${track?.title || '这首歌'}」需要在下方官方播放器里点 ▶ 播放（移动端不允许它自动起播）`,
+        kind: 'warn',
+        ttl: 8000,
+      });
+    });
+
     // 视口变化 / 页面滚动时把内嵌位置重新对齐到槽位
     const realign = () => { if (dockMode === 'inline') this._align(); };
     window.addEventListener('resize', realign, { passive: true });
@@ -272,10 +296,42 @@ export const EmbedHost = {
     return dockMode === 'docked' && !!h && h.dataset.expanded !== '1';
   },
 
+  /**
+   * 把播放器带进视口（移动端"要点 ▶"时必须真的看得见）。
+   *
+   * 为什么不能只 scrollIntoView 一次：宿主是 `position: fixed`，靠 `--embed-slot-y`
+   * 对齐槽位；而**嵌入槽一撑开，页面就变长**（实测 2669 → 3604），于是"按旧布局滚过去"
+   * 之后槽位仍在视口下方几百像素 —— 播放器渲染了，但用户根本看不到、点不到。
+   * 所以这里：先看是否已在视口内，不在就居中滚过去，布局还在变就再确认一次。
+   */
+  bringIntoView(tries = 0) {
+    const el = slotEl();
+    if (!el) return false;
+    const vh = window.innerHeight || 0;
+    const r = el.getBoundingClientRect();
+    if (r.height < 20) {
+      if (tries < 3) setTimeout(() => this.bringIntoView(tries + 1), 400);
+      return false;
+    }
+    const visible = r.top >= 0 && r.bottom <= vh;
+    if (!visible) {
+      try {
+        window.scrollBy({ top: r.top - (vh - r.height) / 2, behavior: 'smooth' });
+      } catch {
+        window.scrollBy(0, r.top - (vh - r.height) / 2);   // 老浏览器不支持 options
+      }
+    }
+    // 布局刚变化（槽位撑开、字体/图片落位）时再确认一次，最多三次
+    if (tries < 3) setTimeout(() => {
+      const rr = slotEl()?.getBoundingClientRect();
+      if (!rr || rr.top < 0 || rr.bottom > (window.innerHeight || 0)) this.bringIntoView(tries + 1);
+    }, 450);
+    return !visible;
+  },
+
   /** 切换播放器的 auto 参数（从外部实现暂停 / 播放）。
    * 注意：这必然重建 iframe，因此播放位置会回到起点。
-   */
-  _applyAutoplay(autoplay, track) {
+   */  _applyAutoplay(autoplay, track) {
     const t = track || Player.current;
     if (!t?.neteaseId) return;
     rebuild(t, autoplay);

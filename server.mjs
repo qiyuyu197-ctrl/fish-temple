@@ -521,18 +521,23 @@ async function fetchWithTimeout(url, { ms = 9000, ...init } = {}) {
 /**
  * 解析某首歌「匿名访客能听到」的音频地址。
  *
- * 为什么必须试多个入口（线上实测，别再简化）：
- *   · /song/media/outer/url?id=X.mp3 —— 老外链。很多曲目它直接空/404，
- *     例如《No Why（少女前线主题歌）》(2757934332)：song/detail 里 fee=8 付费曲，
- *     外链取不到，但
- *   · /api/song/enhance/player/url?ids=[X]&br=… —— **官方 Web 播放器用的同一个接口**，
- *     对同一首歌却返回了真实 CDN 地址。
- * 只用一个入口时，这类歌会被误判成「没有匿名音频」，于是退回官方 iframe：
- * PC 上跨域 iframe 能自动起播所以听着正常，移动端会被自动播放策略拦住 →
- * 表现就是「PC 有声音、手机没声音」。多入口把这些歌拉回站内直放，两端行为才一致。
+ * 两个入口，顺序有讲究（线上实测，别再简化）：
+ *   ① /song/media/outer/url?id=X.mp3 —— 官方「外链播放」地址，是这个站一直用的**正统匿名路径**；
+ *      付费/版权受限曲目它会 302 到 /404（这时才说明"匿名没有"）。
+ *   ② /api/song/enhance/player/url?ids=[X]&br=128000 —— 官方 Web 播放器用的接口，作为兜底。
  *
- * 版权边界：只使用网易云**自己返回给匿名访客**的地址，不做任何越权解锁；
- * 真正付费/下架的曲目该没有还是没有（接口给的就是 null，前端仍会退回官方播放器）。
+ * ⚠️ 关于 ② 的**版权边界**（实测数据，改代码前先看这里）：
+ *   · 请求 320000 时，它对手上这些 `fee=8`（低音质免费、高音质付费）的曲目会直接给出
+ *     `level=exhigh` 的 320kbps 地址 —— 那是**付费档**，本站不该拿；所以这里**只请求
+ *     128000（标准/免费档）**，绝不主动索取更高音质。
+ *   · 对真正的 VIP 曲目（`fee=1`，实测 Taylor Swift《Love Story》《Cruel Summer》、
+ *     陈奕迅《富士山下》原版）它返回 `code=-110`、没有地址 —— 也就是说这个门槛由**网易云
+ *     自己**把关，我们只是问一句"匿名能听免费档吗"，不做任何越权解锁。
+ *   · 结论：能拿到就是匿名免费档本就可用；拿不到就如实回 404，前端退回官方播放器。
+ *
+ * 为什么值得加这个兜底：只走 ① 时，一批 fee=8 的曲目会被误判成"完全没有匿名音频"，
+ * 于是退回官方 iframe —— PC 上 iframe 能自动起播所以听着正常，移动端被自动播放策略
+ * 拦住就**静默无声**，表现正是「同一首歌 PC 有声音、手机没声音」。
  *
  * 返回 { url, via, bitrate, bytes, type, trial, tried } 或 null。
  */
@@ -545,52 +550,51 @@ async function resolveNeteaseAudio(id) {
   const tried = [];
   let info = null;
 
-  // ① 官方播放地址接口：优先高码率。能拿到就用它（音质好、覆盖全）
-  for (const br of [320000, 128000]) {
-    const r = await fetchWithTimeout(
-      `${NETEASE.origin}/api/song/enhance/player/url?ids=%5B${encodeURIComponent(key)}%5D&br=${br}`,
-      { headers, ms: 9000 },
-    );
-    if (!r) { tried.push(`enhance@${br}:超时`); continue; }
-    const j = await r.json().catch(() => null);
-    const d = j?.data?.[0];
-    const url = httpsAudioUrl(d?.url);
-    tried.push(`enhance@${br}:${url ? 'ok' : (d?.code ? 'code' + d.code : 'no-url')}`);
-    if (url) {
-      info = {
-        url,
-        via: `enhance@${Number(d?.br) || br}`,
-        bitrate: Number(d?.br) || br,
-        bytes: Number(d?.size) || 0,
-        type: d?.type || 'mp3',
-        // 只有试听片段时上游会给 freeTrialInfo：如实标出来，别让界面以为能听完整首
-        trial: !!d?.freeTrialInfo,
-      };
-      break;
+  // ① 官方外链（正统匿名路径）
+  const outer = `${NETEASE.origin}/song/media/outer/url?id=${encodeURIComponent(key)}.mp3`;
+  const r = await fetchWithTimeout(outer, { headers, redirect: 'manual', ms: 9000 });
+  if (!r) {
+    tried.push('outer:超时');
+  } else {
+    const loc = r.headers.get('location') || '';
+    try { await r.body?.cancel(); } catch { /* 不读正文 */ }
+    if (r.status >= 300 && r.status < 400 && !/\/404(\?|$)/.test(loc)) {
+      const url = httpsAudioUrl(loc);
+      if (url) info = { url, via: 'outer', bitrate: 0, bytes: 0, type: 'mp3', trial: false };
+    } else if (r.status === 200) {
+      info = { url: outer, via: 'outer-direct', bitrate: 0, bytes: 0, type: 'mp3', trial: false };
     }
+    tried.push(`outer:${info ? 'ok' : 'no'}`);
   }
 
-  // ② 老外链兜底：接口变动 / 代理出问题时它可能反而是通的
+  // ② 兜底：只问标准音质（免费档），拿不到就算了，绝不要更高音质
   if (!info) {
-    const outer = `${NETEASE.origin}/song/media/outer/url?id=${encodeURIComponent(key)}.mp3`;
-    const r = await fetchWithTimeout(outer, { headers, redirect: 'manual', ms: 9000 });
-    if (!r) {
-      tried.push('outer:超时');
+    const e = await fetchWithTimeout(
+      `${NETEASE.origin}/api/song/enhance/player/url?ids=%5B${encodeURIComponent(key)}%5D&br=128000`,
+      { headers, ms: 9000 },
+    );
+    if (!e) {
+      tried.push('enhance@128000:超时');
     } else {
-      const loc = r.headers.get('location') || '';
-      try { await r.body?.cancel(); } catch { /* 不读正文 */ }
-      if (r.status >= 300 && r.status < 400 && !/\/404(\?|$)/.test(loc)) {
-        const url = httpsAudioUrl(loc);
-        if (url) info = { url, via: 'outer', bitrate: 0, bytes: 0, type: 'mp3', trial: false };
-      } else if (r.status === 200) {
-        info = { url: outer, via: 'outer-direct', bitrate: 0, bytes: 0, type: 'mp3', trial: false };
+      const j = await e.json().catch(() => null);
+      const d = j?.data?.[0];
+      const url = httpsAudioUrl(d?.url);
+      tried.push(`enhance@128000:${url ? 'ok' : (d?.code ? 'code' + d.code : 'no-url')}`);
+      if (url) {
+        info = {
+          url,
+          via: `enhance@${Number(d?.br) || 128000}`,
+          bitrate: Number(d?.br) || 128000,
+          bytes: Number(d?.size) || 0,
+          type: d?.type || 'mp3',
+          trial: !!d?.freeTrialInfo,
+        };
       }
-      tried.push(`outer:${info ? 'ok' : 'no'}`);
     }
   }
 
   if (info) info.tried = tried;
-  audioUrlCache.set(key, { at: Date.now(), info });
+  audioUrlCache.set(key, { at: Date.now(), info, tried });
   if (audioUrlCache.size > 300) {
     [...audioUrlCache.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 120)
       .forEach(([k]) => audioUrlCache.delete(k));
@@ -605,7 +609,10 @@ async function streamNeteaseAudio(req, res, url, opts = {}) {
 
   const info = await resolveNeteaseAudio(id);
   if (!info) {
-    return fail(res, 404, '这首歌没有匿名可用的音频流（会员 / 版权限制），请改用官方外链播放器');
+    // 把两个入口各自的结果带上：线上排查时一眼看出是"上游拒绝"还是"我们超时"
+    const tried = audioUrlCache.get(String(id))?.tried;
+    const detail = tried?.length ? `（${tried.join('、')}）` : '';
+    return fail(res, 404, `这首歌没有匿名可用的音频流（会员 / 版权限制），请改用官方外链播放器${detail}`);
   }
   const audioUrl = info.url;
 

@@ -735,6 +735,10 @@ export const neteaseAudioProvider = {
         kind: 'warn',
         ttl: 6000,
       });
+      // 交给宿主把官方播放器"露出来、推到眼前"：
+      // 移动端（iOS/Android）不允许跨域 iframe 自动起播，必须用户点它自己的 ▶，
+      // 所以这里不能只是静默地切过去 —— 那样在手机上就是"看着在放、一点声音没有"。
+      bus.emit('embed:needsTap', { track, reason: missing ? 'no-anonymous-audio' : 'direct-failed' });
     })();
 
     return true;
