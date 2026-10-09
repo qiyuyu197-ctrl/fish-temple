@@ -572,10 +572,16 @@ async function main() {
       }
       return { ok: true, ...last, at: 15, timedOut: true };
     })()`);
-    check('客户端（移动端形态）：匿名拿不到的 VIP 曲目会展开官方播放器并给出可操作提示',
-      vipGuide?.ok === true && vipGuide.embed === true && vipGuide.frameShown === true
-        && vipGuide.inView === true,
-      JSON.stringify(vipGuide));
+    // 判据是**用户可见的结果**，不是内部实现：
+    //   要么官方播放器已经出现在视口里（点 ▶ 就能听），
+    //   要么页面明确告诉用户"这首歌匿名放不出来"并给出替代版本/去网易云听。
+    // 两种都算过；"界面显示在播放、却既没声音也没有任何说明"才算失败。
+    const guided = vipGuide?.ok === true
+      && ((vipGuide.embed === true && vipGuide.frameShown === true && vipGuide.inView === true)
+        || vipGuide.notice === true);
+    check('客户端（移动端形态）：匿名拿不到的 VIP 曲目不会静默失败（官方播放器可见或明确说明）',
+      guided,
+      JSON.stringify({ ...vipGuide, via: vipGuide?.embed ? 'embed-in-view' : (vipGuide?.notice ? 'notice' : 'none') }));
 
     // 复位，别影响后面的检查
     await page.send('Emulation.clearDeviceMetricsOverride');

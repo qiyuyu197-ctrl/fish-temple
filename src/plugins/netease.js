@@ -702,10 +702,7 @@ export const neteaseAudioProvider = {
     // 同步先接管这次失败：绝不让引擎弹"加载失败"、更不要跳到下一首
     // （用户点的是这首，就该把这首放出来）。随后异步决定回退到哪一步。
     void (async () => {
-      // 先问一句"这个 id 到底有没有匿名音频流"：
-      //   404 → 明确没有（会员 / 付费 / 版权 / 下架）→ 直接进官方播放器；
-      //         不必再让 <audio> 白试一次原始外链（省一次失败加载）
-      //   其它 → 可能是代理或网络的问题 → 试一次不经转发的原始外链
+      // 问一句"服务端到底能不能给这首歌音频"，用来决定回退到哪一步。
       let missing = false;
       try {
         missing = (await fetch(this.audioUrl(track), { method: 'HEAD', cache: 'no-store' })).status === 404;
@@ -717,8 +714,17 @@ export const neteaseAudioProvider = {
       const stillMine = ctx.providerId === 'netease-audio' && ctx.current === track;
       const want = stillMine && !!ctx._intent;
 
-      // 还有一次机会：原始外链（没有代理 / 代理出问题时这条路可能是通的）
-      if (stillMine && want && !missing && !track._triedRawLink) {
+      /**
+       * 还有一次机会：用**浏览器自己的 IP** 直接取官方外链。
+       *
+       * 这里刻意**不看** `missing`：那个 404 只代表**服务器所在 IP** 拿不到
+       * （线上实测：Netlify Functions 是境外机房 IP，《No Why》这类曲目一律被拒，
+       *  而同一首歌从国内家宽 IP 是能拿到官方外链的）。而 <audio> 跟随 302 到 CDN
+       * 不需要 CORS，所以"换个 IP 再试一次"这条路在客户端才走得通 ——
+       * 这也正是"PC 能听、手机不能听"的另一半原因。
+       * 用的仍然是网易云官方的匿名外链，不是任何越权手段：它给就给，不给就退官方播放器。
+       */
+      if (stillMine && want && !track._triedRawLink) {
         track._triedRawLink = true;
         track.src = rawAudioUrl(track.neteaseId);
         ctx.prepare(ctx.index, { autoplay: true });
