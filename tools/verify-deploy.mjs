@@ -227,20 +227,30 @@ async function main() {
   }
 
   // 图片代理 + CDN 缓存头（线上没有磁盘缓存，靠边缘缓存）
-  if (items[0]) {
-    const img = await fetch(`${BASE}${items[0].url}`);
-    const buf = Buffer.from(await img.arrayBuffer());
-    check('图片代理真的能取到图（image/jpeg）',
-      img.ok && /^image\//.test(img.headers.get('content-type') || '') && buf.length > 512,
-      `${img.status} ${img.headers.get('content-type')} ${buf.length}B`);
-    // Netlify 会在边缘**消费** Netlify-CDN-Cache-Control（它是给 CDN 的指令，不会回给客户端），
-    // 所以线上看不到这个头是正常的：能确认响应来自 Netlify 边缘就说明指令已被平台接走。
-    const cdn = img.headers.get('netlify-cdn-cache-control');
-    const onNetlifyEdge = /netlify/i.test(img.headers.get('server') || '');
-    check('图片缓存指令到位（本地回显 CDN 指令；线上由 Netlify 边缘消费）',
-      !!cdn || (img.ok && onNetlifyEdge),
-      cdn || (onNetlifyEdge ? '线上已由边缘消费该指令（server: Netlify）' : '—'));
+  // pixiv.re 偶尔会对某一张图掉链子（限流/上游 404），那是单张图的问题、不是部署故障，
+  // 所以最多换 3 张再判失败，并把最后一次的真实响应打进详情里。
+  let img = null;
+  let buf = null;
+  let imgDetail = '（抽卡没返回作品）';
+  for (const it of items.slice(0, 3)) {
+    const r = await fetch(`${BASE}${it.url}`);
+    const b = Buffer.from(await r.arrayBuffer());
+    const typed = /^image\//.test(r.headers.get('content-type') || '');
+    if (r.ok && typed && b.length > 512) { img = r; buf = b; break; }
+    imgDetail = `${r.status} ${r.headers.get('content-type')} ${b.length}B`
+      + (b.length < 400 ? ` ${b.toString('utf8').replace(/\s+/g, ' ').slice(0, 110)}` : '');
+    await sleep(1200);
   }
+  check('图片代理真的能取到图（image/jpeg）', !!img,
+    img ? `${img.status} ${img.headers.get('content-type')} ${buf.length}B` : `连试 3 张都没取到：${imgDetail}`);
+
+  // Netlify 会在边缘**消费** Netlify-CDN-Cache-Control（它是给 CDN 的指令，不会回给客户端），
+  // 所以线上看不到这个头是正常的：能确认响应来自 Netlify 边缘就说明指令已被平台接走。
+  const cdn = img?.headers.get('netlify-cdn-cache-control') || null;
+  const onNetlifyEdge = /netlify/i.test(img?.headers.get('server') || '');
+  check('图片缓存指令到位（本地回显 CDN 指令；线上由 Netlify 边缘消费）',
+    !!img && (!!cdn || onNetlifyEdge),
+    cdn || (onNetlifyEdge ? '线上已由边缘消费该指令（server: Netlify）' : '—'));
   const ssrf = await get('/api/pixiv/image?url=https%3A%2F%2Fexample.com%2Fx.jpg');
   check('图片代理不是开放代理（非白名单域名 400）', ssrf.res.status === 400, `HTTP ${ssrf.res.status}`);
 
@@ -380,6 +390,67 @@ async function main() {
       /ONLINE/.test(music?.tag || '') && music?.inputDisabled === false,
       `tag=${music?.tag} disabled=${music?.inputDisabled}`);
     check('客户端：站内搜索能拿到曲目', (music?.songs || 0) > 0, `songs=${music?.songs} ${music?.searchError || ''}`);
+
+    // 最贴近真实使用的一步：在页面上真的搜一次、点结果的「▶ 播放」。
+    // 注意会员/无版权/地区受限的曲目，匿名态下网易云就是不给音频（接口回 404），
+    // 站点对此有专门的提示与「只看能播的」过滤 —— 那不算部署故障。
+    // 所以：任何一首放出声就算过；全都没声时，只有当每一首的音频接口都回
+    // 「4xx + 结构化 JSON 说明」才判为 SKIP（上游策略），其余一律判失败。
+    const playCheck = await page.evalPage(`(async () => {
+      const { Player } = await import('/src/core/player.js');
+      const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+      const input = document.getElementById('neInput');
+      const go = document.getElementById('neGo');
+      if (!input || !go) return { ok: false, why: '音乐台没有搜索控件（页面没进音乐板块？）' };
+      input.value = '海阔天空';
+      go.click();
+      for (let i = 0; i < 45 && !document.querySelector('.ne-row'); i++) await nap(400);
+      const only = document.getElementById('nePlayableOnly');
+      if (only && only.getAttribute('aria-pressed') !== 'true') { only.click(); await nap(700); }
+      const rows = [...document.querySelectorAll('.ne-row')].slice(0, 4);
+      if (!rows.length) return { ok: false, why: '搜索结果为空（没进到能播的曲目）' };
+      const attempts = [];
+      for (const row of rows) {
+        row.querySelector('button[data-act="play"]')?.click();
+        await nap(5000);
+        const a = document.getElementById('audio');
+        const url = a && a.currentSrc ? a.currentSrc : null;
+        const st = {
+          name: (row.querySelector('.ne-row__name')?.textContent || '').trim().slice(0, 30),
+          playing: Player.playing === true,
+          embed: Player.isEmbed === true,
+          time: Number((Player.currentTime || 0).toFixed(2)),
+          ready: a ? a.readyState : null,
+          src: url ? url.replace(location.origin, '').slice(0, 40) : null,
+        };
+        // 没出声时问一下音频接口到底回了什么，用来区分「上游不给」和「我们坏了」
+        if (!(st.playing && !st.embed && st.time > 0.5) && url) {
+          try {
+            const r = await fetch(url);
+            const t = await r.text();
+            st.audioStatus = r.status;
+            st.audioType = (r.headers.get('content-type') || '').split(';')[0];
+            st.audioSays = t.replace(/\\s+/g, ' ').slice(0, 90);
+          } catch (e) { st.audioError = String(e.message || e); }
+        }
+        attempts.push(st);
+        if (st.playing && !st.embed && st.time > 0.5) return { ok: true, attempts };
+      }
+      // 全都没声：只有"每首都明确回 4xx + JSON 说明"才算上游策略（SKIP）
+      const upstreamPolicy = attempts.every((x) =>
+        x.audioStatus >= 400 && x.audioStatus < 500 && /json/i.test(x.audioType || ''));
+      return { ok: false, skip: upstreamPolicy, attempts };
+    })()`);
+    if (playCheck?.ok === true) {
+      check('客户端：搜到的歌在站内真的放出声了（同源代理 → 网易云 CDN）', true,
+        JSON.stringify(playCheck.attempts?.find((x) => x.time > 0.5) || {}));
+    } else if (playCheck?.skip === true) {
+      check('客户端：搜到的歌在站内真的放出声了（同源代理 → 网易云 CDN）', true,
+        `跳过：这几首匿名态拿不到音频（上游版权/地区策略，接口都是 4xx+JSON）${JSON.stringify(playCheck.attempts?.[0] || {})}`);
+    } else {
+      check('客户端：搜到的歌在站内真的放出声了（同源代理 → 网易云 CDN）', false,
+        JSON.stringify(playCheck?.attempts || playCheck?.why || playCheck));
+    }
 
     // 黄历吉日之歌：走 /api/netease/audio（线上是 302 → CDN），要真的放起来
     const anthem = await page.evalPage(`(async () => {
