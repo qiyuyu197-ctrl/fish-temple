@@ -169,7 +169,7 @@ const NETEASE = {
   avail: new Map(),
 };
 
-async function neteaseFetch(pathname, { cacheKey } = {}) {
+async function neteaseFetch(pathname, { cacheKey, method = 'GET', form = null } = {}) {
   const key = cacheKey || pathname;
   const hit = NETEASE.cache.get(key);
   if (hit && Date.now() - hit.at < NETEASE.ttl) return { data: hit.data, cached: true };
@@ -184,12 +184,15 @@ async function neteaseFetch(pathname, { cacheKey } = {}) {
   const timer = setTimeout(() => ctrl.abort(), 12000);
   try {
     const res = await fetch(url, {
+      method,
       signal: ctrl.signal,
       headers: {
         'User-Agent': NETEASE.ua,
         Referer: `${NETEASE.origin}/`,
         Accept: 'application/json, text/plain, */*',
+        ...(form ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
       },
+      ...(form ? { body: form } : {}),
     });
     if (!res.ok) throw new Error(`网易云返回 HTTP ${res.status}`);
     const text = await res.text();
@@ -605,6 +608,72 @@ async function streamNeteaseAudio(req, res, url, opts = {}) {
   }
 }
 
+/**
+ * 搜索上游候选 —— 为什么要试这么多个：
+ *
+ * 实测（同一份代码、同一组参数）：
+ *   · 本机（国内 IP）：/api/search/get/web 返回 301 条；
+ *   · Netlify Functions（AWS 机房，境外 IP）：**稳定返回 0 条** ——
+ *     HTTP 200、code 200、songCount 0、songs []，不报错，就是空。
+ *   而详情接口 /api/song/detail 在两边都正常，说明不是整体被墙，而是搜索入口被区别对待。
+ *
+ * 所以搜索改成「按顺序试，谁先给出结果就用谁」，并把尝试过程回显（仅在全空时），
+ * 这样以后哪个入口失效，线上一个请求就能看出来，不用猜。
+ */
+const NETEASE_SEARCH_CANDIDATES = [
+  {
+    id: 'search/get/web·GET',
+    method: 'GET',
+    path: (q, limit, offset) => `/api/search/get/web?csrf_token=&s=${encodeURIComponent(q)}&type=1&offset=${offset}&limit=${limit}`,
+  },
+  {
+    id: 'search/get/web·POST',
+    method: 'POST',
+    path: () => '/api/search/get/web',
+    form: (q, limit, offset) => `s=${encodeURIComponent(q)}&type=1&offset=${offset}&limit=${limit}&csrf_token=`,
+  },
+  {
+    id: 'cloudsearch/pc·POST',
+    method: 'POST',
+    path: () => '/api/cloudsearch/pc',
+    form: (q, limit, offset) => `s=${encodeURIComponent(q)}&type=1&offset=${offset}&limit=${limit}&total=true`,
+  },
+  {
+    id: 'search/complex/get·GET',
+    method: 'GET',
+    path: (q, limit, offset) => `/api/search/complex/get?csrf_token=&s=${encodeURIComponent(q)}&type=1&offset=${offset}&limit=${limit}`,
+  },
+  {
+    id: 'search/suggest/web·GET',
+    method: 'GET',
+    path: (q, limit) => `/api/search/suggest/web?csrf_token=&s=${encodeURIComponent(q)}&limit=${limit}`,
+  },
+];
+
+/** 挨个试搜索入口，返回第一个有结果的；全空时把尝试过程一并带回去 */
+async function neteaseSearch(q, limit, offset) {
+  const tried = [];
+  for (const c of NETEASE_SEARCH_CANDIDATES) {
+    const pathname = c.path(q, limit, offset);
+    const form = c.form ? c.form(q, limit, offset) : null;
+    try {
+      const { data, cached } = await neteaseFetch(pathname, {
+        // 每个入口单独缓存：否则一个入口的空结果会污染另一个
+        cacheKey: `${c.id}|${pathname}|${form || ''}`,
+        method: c.method,
+        form,
+      });
+      const songs = (data?.result?.songs || []).map(shapeSong);
+      const total = data?.result?.songCount ?? songs.length;
+      tried.push({ via: c.id, songs: songs.length, total });
+      if (songs.length) return { songs, total, cached, via: c.id, tried };
+    } catch (err) {
+      tried.push({ via: c.id, error: String(err?.message || err).slice(0, 120) });
+    }
+  }
+  return { songs: [], total: 0, cached: false, via: null, tried };
+}
+
 async function handleNetease(req, res, url, opts = {}) {
   const seg = url.pathname.replace(/^\/api\/netease\/?/, '').split('/').filter(Boolean);
   const action = seg[0] || 'search';
@@ -615,15 +684,17 @@ async function handleNetease(req, res, url, opts = {}) {
     const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
     if (!q) return fail(res, 400, '缺少搜索关键词 q');
     if (q.length > 80) return fail(res, 400, '关键词过长');
-    const path = `/api/search/get/web?csrf_token=&s=${encodeURIComponent(q)}&type=1&offset=${offset}&limit=${limit}`;
-    const { data, cached } = await neteaseFetch(path);
-    const songs = (data?.result?.songs || []).map(shapeSong);
+    const r = await neteaseSearch(q, limit, offset);
     return ok(res, {
       ok: true,
-      cached,
+      cached: r.cached,
       query: q,
-      total: data?.result?.songCount ?? songs.length,
-      songs,
+      total: r.total,
+      songs: r.songs,
+      // 用的是哪个入口（排查时有用）
+      via: r.via,
+      // 全部入口都拿不到结果时，把尝试过程回显出来 —— 客户端的解析不受影响
+      ...(r.songs.length ? {} : { upstreamTried: r.tried }),
     });
   }
 
