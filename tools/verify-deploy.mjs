@@ -53,6 +53,42 @@ const get = async (p, init) => {
   return { res, text, json };
 };
 
+/**
+ * 打包安全性检查（零依赖的静态检查）。
+ *
+ * 线上真踩过：Netlify 用 esbuild 把 server.mjs 打进函数，产物是 **CJS 形态**，
+ * 而 Node 的 CJS 包装函数自带 `__filename` / `__dirname` 两个形参 ——
+ * 顶层再 `const __filename = …` 一次就是
+ *   SyntaxError: Identifier '__filename' has already been declared
+ * 函数**加载阶段**就崩，所有 /api/* 回 502（错误详情就在响应体里）。
+ * 而本地 `node server.mjs` 直接跑 ESM 源码，这一层根本不存在，所以照不出来。
+ * 同一类坑还有顶层 await（CJS 打包会直接失败）。
+ *
+ * 这里只在**本地仓库文件**上做静态检查，因此对着线上 URL 跑也一样有效。
+ */
+const CJS_WRAPPER_NAMES = ['__filename', '__dirname', 'exports', 'require', 'module'];
+
+async function lintBundleSafety() {
+  const targets = ['server.mjs', 'netlify/functions/api.mjs'];
+  const hazards = [];
+  for (const rel of targets) {
+    let src = '';
+    try { src = await fs.readFile(path.join(ROOT, rel), 'utf8'); } catch { continue; }
+    src.split('\n').forEach((line, i) => {
+      const t = line.trim();
+      // 只看顶层（行首不缩进）、跳过注释
+      if (!/^\S/.test(line) || t.startsWith('//') || t.startsWith('/*') || t.startsWith('*')) return;
+      for (const name of CJS_WRAPPER_NAMES) {
+        if (new RegExp(`^(?:const|let|var|function|class)\\s+${name}\\b`).test(line)) {
+          hazards.push(`${rel}:${i + 1} 顶层声明了 ${name}（CJS 打包后会与 Node 包装器形参撞名 → SyntaxError → 502）`);
+        }
+      }
+      if (/^await\b/.test(line)) hazards.push(`${rel}:${i + 1} 顶层 await（CJS 打包会失败）`);
+    });
+  }
+  return hazards;
+}
+
 async function maybeConnect() {
   const port = 9300 + Math.floor(Math.random() * 200);
   const profile = path.join(os.tmpdir(), `ft-deploy-${Date.now()}`);
@@ -117,6 +153,12 @@ async function maybeConnect() {
 
 async function main() {
   console.log(`\n\x1b[1m部署形态自检\x1b[0m  ${BASE}\n`);
+
+  /* ---------------- ⓿ 打包安全性（先查这个：线上 502 的头号原因） ---------------- */
+  const hazards = await lintBundleSafety();
+  check('打包安全性：没有会撞 CJS 包装器的顶层声明 / 顶层 await',
+    hazards.length === 0,
+    hazards.join(' | ') || 'server.mjs 与 netlify/functions/api.mjs 干净');
 
   /* ---------------- ① 函数层 ---------------- */
   const health = await get('/api/health').catch((e) => ({ error: e }));

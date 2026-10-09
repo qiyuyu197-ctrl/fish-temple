@@ -44,9 +44,19 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT = __dirname;
+/**
+ * ⚠️ 这里**不能**用 `__filename` / `__dirname` 这两个名字。
+ *
+ * 部署到 Netlify 时本文件会被 esbuild 打进函数，产物是 CJS 形态 —— 而 Node 的 CJS
+ * 包装函数自带 `__filename` / `__dirname` 两个形参，于是顶层的
+ * `const __filename = …` 会直接变成
+ *   SyntaxError: Identifier '__filename' has already been declared
+ * 函数在 **加载阶段** 就崩，每个 /api/* 都回 502（线上踩过，本地因为直接跑 ESM 源码
+ * 所以照不出来）。换个名字就与打包形态无关了。
+ */
+const THIS_FILE = fileURLToPath(import.meta.url);
+const THIS_DIR = path.dirname(THIS_FILE);
+const ROOT = THIS_DIR;
 const DATA_DIR = path.join(ROOT, 'data');
 const BACKUP_DIR = path.join(DATA_DIR, '.backup');
 
@@ -65,7 +75,7 @@ const IS_MAIN = (() => {
   if (process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY) return false;
   const entry = process.argv[1];
   if (!entry) return false;
-  try { return path.resolve(entry) === __filename; } catch { return false; }
+  try { return path.resolve(entry) === THIS_FILE; } catch { return false; }
 })();
 
 /** 允许通过 API 读写的集合 → 对应文件 */
