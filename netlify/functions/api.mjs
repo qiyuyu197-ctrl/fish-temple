@@ -35,7 +35,15 @@ export default async function api(request) {
 
 /**
  * 声明路由：/api/* 直接打到本函数。
- * netlify.toml 里那条 [[redirects]] 是双保险（万一运行时不认 config.path），
- * 两种情况 handleApiRequest 都能把路径还原成 /api/xxx。
+ *
+ * ⚠️ 有了这个 config.path，**不要**再在 netlify.toml 里加
+ *    `[[redirects]] from = "/api/*" to = "/.netlify/functions/api/:splat"`：
+ *    官方文档写明设了 config.path 之后函数只在该路径可用、默认地址不再存在，
+ *    那条重写会把请求转到一个不存在的地址，于是每个接口都变成 Netlify 的
+ *    "Page not found" 404（线上真踩过，看起来像"函数根本没部署"）。
+ *    原因也写在 netlify.toml 顶部。
+ *
+ * handleApiRequest 仍会把 /.netlify/functions/api/... 还原成 /api/...
+ * 作兜底（本地仿真用 NETLIFY_FAKE_FN_PATH=1 验这条路径）。
  */
 export const config = { path: '/api/*' };

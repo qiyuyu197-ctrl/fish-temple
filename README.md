@@ -42,10 +42,10 @@ python -m http.server 5173
 .
 ├── index.html              页面骨架：顶栏 / 播报条 / 视图容器 / 播放条 / 命令面板
 ├── server.mjs              零依赖本地服务器 + 内容写入 API（导出 handleApiRequest，Netlify Function 复用的就是它）
-├── netlify.toml            Netlify 部署配置：发布根目录 / Functions 目录 / `/api/*` 重写 / 缓存头（图标长缓存、`/data/*` 短缓存）
+├── netlify.toml            Netlify 部署配置：发布根目录 / Functions 目录与打包 / 缓存头；函数路由由 config.path 声明，**故意不写 /api/* 重写**（见「部署」）
 ├── netlify/
 │   └── functions/
-│       └── api.mjs         Netlify Function：把 `/api/*` 交给 server.mjs 的 handleApiRequest
+│       └── api.mjs         Netlify Function（v2：export default + config.path）：把 /api/* 交给 server.mjs 的 handleApiRequest
 ├── src/
 │   ├── main.js             启动流程与扩展点注册（想加功能先看这里）
 │   ├── config/
@@ -104,7 +104,7 @@ python -m http.server 5173
     ├── responsive.mjs      多断点布局溢出检查 + 截图（1920→360）
     ├── verify-playback.mjs 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏黄历按钮不被裁切（43 项）
     ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs（默认 5199）
-    ├── verify-deploy.mjs   线上形态自检：`/api/*` 语义 + 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索 / 黄历吉日之歌）（23 项）
+    ├── verify-deploy.mjs   线上形态自检：打包安全 lint + `/api/*` 语义 + 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）（27 项）
     ├── test-markdown.mjs   Markdown 渲染器单元测试（33 项）
     ├── content-build.mjs   批量写作：tools/content/*.md → data/posts.json & news.json（整份覆盖）
     ├── content/            批量写作的正文源文件（Markdown）
@@ -1106,7 +1106,7 @@ export const Albums = createCollection('albums', { seedFile: 'data/albums.json',
 | `GET` | `/api/content/:collection` | 读取集合（`posts` / `news` / `gallery`） |
 | `POST` | `/api/content/:collection` | 新增或更新（按 `id` 去重合并） |
 | `DELETE` | `/api/content/:collection/:id` | 删除一条 |
-| `GET` | `/api/netease/search?q=关键词&limit=20` | 搜索网易云曲目（元数据） |
+| `GET` | `/api/netease/search?q=关键词&limit=20` | 搜索网易云曲目（元数据）。**按顺序试 5 个搜索入口**，第一个有结果的就用：响应里 `via` 说明命中了哪个入口；只有全都拿不到结果时才回显 `upstreamTried`（每个入口的结果或报错）。见下面的「搜索为什么有 5 个入口」|
 | `GET` | `/api/netease/songs?ids=1,2,3` | 批量取曲目详情（封面 / 时长 / 付费标记，单次最多 50 个 id） |
 | `GET` | `/api/netease/playlist?id=3778678&limit=300` | 公开歌单：元数据 + 完整曲目 id 列表（导入歌单用） |
 | `GET` | `/api/netease/lyric?id=347230` | 歌词 LRC 文本（板块标题栏的跟唱要用） |
@@ -1130,6 +1130,27 @@ export const Albums = createCollection('albums', { seedFile: 'data/albums.json',
 1. **元数据接口只转发元数据**；会碰音频流的只有 `/api/netease/audio`，而且只转发网易云**对匿名访客本来就返回**的那个外链流（302 → CDN）。不登录、不碰 VIP / DRM，**不在磁盘上存任何音频**；拿不到流就回 `404`，前端据此回退官方外链播放器。
 2. 内置 5 分钟内存缓存 + 350ms 最小调用间隔，避免触发对方风控。
 3. 若被限流会返回明确错误（`网易云返回的不是 JSON（可能被风控）`），前端会提示搜索失败。
+
+#### 搜索为什么有 5 个入口（部署到国外机房后暴露出来的）
+
+网易云的搜索接口对**机房 IP** 与家宽 IP 的响应不一样。实测：同一个查询，
+本地（国内家宽）返回 301 条，而线上（Netlify Functions 跑在 AWS）返回
+`ok: true, total: 0, songs: []` —— 而 `/api/netease/songs`（按 id 取详情）两边都正常，
+所以不是"接口挂了"，是这一个入口对那个来源 IP 不给结果。
+
+于是搜索改成依次尝试这 5 个入口（`NETEASE_SEARCH_CANDIDATES`），谁先给出结果就用谁：
+
+| 顺序 | 入口 id | 方法 |
+| --- | --- | --- |
+| 1 | `search/get/web·GET` | GET |
+| 2 | `search/get/web·POST` | POST（表单）|
+| 3 | `cloudsearch/pc·POST` | POST（表单）|
+| 4 | `search/complex/get·GET` | GET |
+| 5 | `search/suggest/web·GET` | GET |
+
+要点：**每个入口单独缓存**（否则一个入口的空结果会污染另一个）；全空时把尝试过程
+放进 `upstreamTried` 回显出来 —— 以后哪个入口失效，线上一个请求就能看出来，不用猜。
+线上实测命中 `via=cloudsearch/pc·POST`，`total=301`。
 
 - 写入前自动备份到 `data/.backup/`（同一集合最多保留 20 份）
 - 采用「写临时文件 + rename」的原子写入，避免中断导致文件损坏
@@ -1170,18 +1191,17 @@ PORT=8080 node server.mjs
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+  included_files = ["server.mjs"]   # 万一没走打包，也能解析到那个相对 import
 
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
-  status = 200
-  force = true
+# ⚠️ 这里**故意没有** [[redirects]]：函数用 config.path 自己声明路由，
+#    再加 /api/* 重写会把请求转到一个已不存在的地址 → 全 404。详见下面第 1 条。
+#    文件里另有 [[headers]]（图标长缓存、/data/* 短缓存），此处省略。
 ```
 
-`netlify/functions/api.mjs` 是一个 v1 签名的 `event`/`context` 处理函数，它**直接 import 同一个
-`server.mjs`**，调用新导出的 `handleApiRequest(new Request(...), { serverless: true })`，
-再把 Web `Response` 转回 `{ statusCode, headers, body, isBase64Encoded }`（二进制走 base64）。
-原始 URL 从 `event.rawUrl` 还原 —— rewrite 之后 `event.path` 不可靠。
+`netlify/functions/api.mjs` 是 **Functions v2 形态**：`export default async function api(request)`
+直接收 Web `Request`、返回 Web `Response`，路由由 `export const config = { path: '/api/*' }` 声明
+（没有 v1 的 `event`/`context` 适配层，也不再往默认地址 `/.netlify/functions/<name>` 上挂）。
+它**直接 import 同一个 `server.mjs`**，调用 `handleApiRequest(request, { serverless: true })` ——
 也就是说：**本地那 1500 行代理实现一行都没有重写**，Netlify 上跑的就是同一份代码。
 
 为了能被 import，`server.mjs` 做了一次**无行为变化**的拆分：`IS_MAIN` 判定（import 不再启动
@@ -1198,7 +1218,64 @@ HTTP 监听）、HTTP 处理抽成 `handleHttp()`、`server.listen()` 与 SIGINT
 | Pixiv 图片缓存 | 磁盘缓存（`data/.cache/pixiv-img/`） | 不写盘（`cachePixivImage(..., { noDisk: true })`，函数目录只读），响应加 `Netlify-CDN-Cache-Control: public, max-age=604800, durable` —— 用 **Netlify 边缘缓存**顶替本地磁盘缓存 |
 
 `/api/health` 会报 `deploy: 'netlify' | 'local'` 与 `readonly`（只读时 `writable: false`），
-pixiv 端点列表里也补上了 `image`。
+pixiv 端点列表里也补上了 `image`；serverless 下还会多一个 `netlifyEvent`
+（`{ requestUrl, resolvedPath, resolvedBy }`），用来确认线上给函数的是哪种路径形状。
+
+#### ⚠️ 1. 函数声明了 `config.path` 之后，不要再加 `/api/*` 重写（最容易误判的一条）
+
+官方文档（docs.netlify.com → Configuration for functions → Routing）写得很明确：
+**一旦设了 `config.path`，函数就只在该路径可用，默认地址 `/.netlify/functions/<name>` 不再存在**。
+而 `[[redirects]] from = "/api/*" to = "/.netlify/functions/api/:splat"` 正是把请求转发到那个
+**已经不存在**的地址 —— 于是每个接口都变成 Netlify 的 `Page not found` 404，看起来就像
+"函数根本没部署"。线上就是这么演进的，时间线最能说明问题：
+
+| 阶段 | 函数形态 | `/api/*` 结果 |
+| --- | --- | --- |
+| 只加了重写 | 没有 `config.path` | ✅ 能通（函数真实的报错都露出来了）|
+| 之后加了 `config.path` | 有 `config.path` | ❌ 全部 404 "Page not found" |
+
+现在 `netlify.toml` 里**没有**这条重写。`handleApiRequest` 仍然会把
+`/.netlify/functions/api/...` 还原成 `/api/...` 作为兜底（本地仿真用 `NETLIFY_FAKE_FN_PATH=1` 验这条）。
+
+#### ⚠️ 2. 顶层 `__filename` / `__dirname` 会让打包后的函数直接 502
+
+线上 `/api/health` 曾经返回：
+
+```json
+502 {"errorType":"SyntaxError","errorMessage":"Identifier '__filename' has already been declared"}
+```
+
+原因：Netlify 把 `server.mjs` **当作 CJS 打进函数**，而 Node 的 CJS 包装器本身就有
+`__filename` / `__dirname` 两个形参 —— 顶层再写 `const __filename = …` 属于**模块加载期**的
+SyntaxError，于是**每一个** `/api/*` 都 502。`server.mjs` 现在改用 `THIS_FILE` / `THIS_DIR`。
+本地 `node server.mjs` 是直接跑 ESM 源码的，所以这一类问题**在本机永远复现不出来**。
+
+`tools/verify-deploy.mjs` 为此加了一条**零依赖的静态检查**：扫 `server.mjs` 与
+`netlify/functions/api.mjs` 的顶层声明有没有撞 CJS 包装器名
+（`__filename` / `__dirname` / `module` / `exports` / `require`），以及有没有顶层 `await`。
+**对着远程 URL 也能跑**，而且拿旧写法试过，确实能报出来。
+
+#### ⚠️ 3. 函数必须是 v2 形态，不能又 `export default` 又返回 v1 的对象
+
+曾经同时存在 `export default` 与 v1 的 `{ statusCode, headers, body }` 返回值，Netlify 按 v2 调用，于是：
+
+```json
+502 {"errorType":"NetlifyUserError","errorMessage":"Function returned an unsupported value. Accepted types are 'Response' or …"}
+```
+
+现在只保留 v2（收 `Request`、返回 `Response`），不再有 event 形状的歧义。
+
+#### 部署踩坑清单（现象 → 原因 → 处理）
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| 所有 `/api/*` **502**，`Identifier '__filename' has already been declared` | 顶层 `__filename` / `__dirname` 与 CJS 包装器形参撞名 | 改名成 `THIS_FILE` / `THIS_DIR`；`verify-deploy` 的静态 lint 会提前拦住 |
+| 所有 `/api/*` **404** `Page not found`，但静态文件正常 | 函数声明了 `config.path`，同时又加了 `/api/*` 重写 → 转发到已不存在的默认地址 | 删掉那条 `[[redirects]]`（**别补回来**）|
+| `/api/*` **502** `Function returned an unsupported value` | 混用 v1 返回值与 v2 调用 | 只保留 v2：`export default` 返回 `Response` |
+| 音乐台连得上、但搜索永远 0 条（`total: 0`），按 id 取详情却正常 | 网易云搜索接口对**机房 IP**（Netlify Functions 在 AWS）与家宽 IP 响应不同 | 已内置 5 个搜索入口依次回退；看响应里的 `via` 判断命中了哪个 |
+| 整个站点（含 `/api/*`）**401** + `Login Redirect` HTML | Netlify 的访问保护（Edge Access / 密码 / visitor access） | 后台 Site configuration → Access & security 关掉，或改成只保护首页、排除 `/api/*` |
+| 线上响应里没有 `netlify-cdn-cache-control` | 该头在 Netlify 边缘被消费掉，不会回给客户端（边缘缓存仍然生效）| 正常现象；本地仿真会把它回显出来 |
+| 搜索接口偶发 `503 上游正在限流` | api.lolicon.app 限流 | 站点如实上报；`verify-deploy` 会等 15 秒重试一次，仍失败记为 SKIP |
 
 #### ⚠️ 不要加 SPA 兜底重定向
 
@@ -1211,7 +1288,8 @@ pixiv 端点列表里也补上了 `image`。
 
 用拖拽上传或 CLI 时要留意：Functions 目录必须一起上传 / 打包（CLI 会自动做）。
 只做纯静态上传 = 退化成上面「纯静态托管」，Pixiv / 音乐台 / 吉日之歌全部不工作。
-线上 `/api/health` 返回 404 时，先怀疑这一条。
+线上 `/api/health` 返回 **404** 时，先怀疑这一条；但如果返回的是 **401 + Login Redirect**，
+那是平台级的访问保护（见上面的踩坑清单），两条要分清。
 
 ### 先在本地把线上形态验一遍
 
@@ -1221,11 +1299,13 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 ```
 
 `netlify-dev.mjs` 按 Netlify 的行为托管仓库：**没有 SPA 兜底**（不存在的路径就 404），
-并把 `/api/*` 交给真实的 `netlify/functions/api.mjs`，`event` 对象按线上形状构造。
-`verify-deploy.mjs` 既查接口语义（`health` / `deploy` / `readonly`、Pixiv 返回的是代理 URL、
-图片代理返回真 JPEG 字节 + CDN 缓存头、SSRF 守卫仍 400、网易云搜索 / 歌词、音频 302 到 CDN、
-内容写入 501、`data/album.json` 仍是 JSON 且相册图能加载），也开真浏览器验客户端端到端。
-实测 **23/23 PASS**。
+并把 `/api/*` 与 `/.netlify/functions/api/*` 两条路都交给真实的 `netlify/functions/api.mjs`
+（v2 形态：直接传 Web `Request`）；`NETLIFY_FAKE_FN_PATH=1` 可以模拟"平台给的是函数自己路径"那种语义。
+`verify-deploy.mjs` 先做**打包安全 lint**（顶层 `__filename` 之类撞 CJS 包装器 = 线上 502），
+再查接口语义（`health` / `deploy` / `readonly`、Pixiv 返回的是代理 URL、图片代理返回真 JPEG 字节、
+SSRF 守卫仍 400、网易云搜索 / 歌词、音频 302 到 CDN、内容写入 501、`data/album.json` 仍是 JSON
+且相册图能加载），也开真浏览器验客户端端到端（含"搜到的歌真的放出声"）。
+实测 **27/27 PASS**（本地仿真与线上 https://yumiao.netlify.app 都跑过）。
 
 ### 本地 / 线上能力对照
 
@@ -1251,7 +1331,7 @@ node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导
 node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢出检查（1920→360）+ 截图
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（43 项）
 node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs）
-node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：/api/* 语义 + 客户端端到端（23 项）
+node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 客户端端到端（27 项）
 node tools/make-audio.mjs                 # 生成示例音频（可选，本地播放列表用）
 
 # 相册导入（需要手机连线 / Pillow）
@@ -1279,15 +1359,42 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 面板完整落在视口内、关闭键 ≥ 40px、面板打开时无横向滚动，以及吉日之歌会让站点播放器让路），
 并把截图写进 `.shots/`；失败退出码 1（实测 **43/43 PASS**）。
 `netlify-dev.mjs [port]` 用来在本地把**线上形态**跑起来：按 Netlify 的行为托管仓库
-（静态文件、**没有 SPA 兜底**，不存在的路径就 404），并把 `/api/*` 转给真实的
-`netlify/functions/api.mjs`，`event` 对象按线上形状构造；默认端口 5199。
-`verify-deploy.mjs [baseUrl]` 就是对着它（或真实站点 URL）验"部署完之后到底能不能用"：
-先查接口语义 —— `/api/health` 的 `deploy` / `readonly`、Pixiv 返回的是代理 URL、
-图片代理给的是真 JPEG 字节并带 CDN 缓存头、SSRF 守卫仍然 400、网易云搜索与歌词可用、
-音频在 serverless 下答 `302` 到 CDN、内容写入答 `501`、`data/album.json` 仍是 JSON 且相册图能加载 ——
-再开一个真浏览器验客户端端到端：Pixiv 抽卡出真图、相册抽卡出图、音乐台显示 `PROXY ONLINE`
-并能搜索、黄历在已知吉日 2026-10-10 真的把吉日之歌放出来（实测 **23/23 PASS**）。
+（静态文件、**没有 SPA 兜底**，不存在的路径就 404），并把 `/api/*` 与
+`/.netlify/functions/api/*` 两条路都转给真实的 `netlify/functions/api.mjs`
+（v2 形态：直接传 Web `Request`、收 Web `Response`，与线上同一个入口）；默认端口 5199。
+`NETLIFY_FAKE_FN_PATH=1` 可模拟"平台给的是函数自己的路径"那种语义。
+`verify-deploy.mjs [baseUrl]` 就是对着它（或真实站点 URL）验"部署完之后到底能不能用"，
+一共 **27 项**，分两层：
+
+**① 静态 + 接口层**
+- **打包安全 lint（零依赖，先跑）**：扫 `server.mjs` 与 `netlify/functions/api.mjs` 的顶层声明
+  有没有撞 CJS 包装器名（`__filename` / `__dirname` / `module` / `exports` / `require`）以及顶层 `await` ——
+  这是线上 502 的头号原因，而本地跑的是 ESM 源码，**永远发现不了**；对着远程 URL 也能跑；
+- **访问保护检测**：整站被 Netlify 的 Edge Access / 密码保护换成 `401 + Login Redirect` 时，
+  直接说明"这不是代码问题"并给出后台路径；
+- **`config.path` 路由预期**：设了 `config.path` 之后默认地址 `/.netlify/functions/<name>` 应当 404
+  （本地仿真两条路都挂着，则两条都应通）；
+- `/api/health` 的 `deploy` / `readonly`、Pixiv 抽卡返回的是**代理 URL**、图片代理给的是真 JPEG 字节
+  （缓存指令本地回显、线上由 Netlify 边缘消费，两种都接受）、SSRF 守卫仍然 400、
+  网易云搜索与歌词可用、音频在 serverless 下答 `302` 到 CDN、内容写入答 `501`、
+  `data/album.json` 仍是 JSON 且相册图能加载。
+
+**② 真浏览器端到端**：Pixiv 抽卡出真图、相册抽卡出图、音乐台显示 `PROXY ONLINE` 并能搜索、
+**搜到的歌真的放出声**（`<audio>` 起播且进度在走）、黄历在已知吉日 2026-10-10 真的把吉日之歌放出来。
+
+线上实测：**27/27 PASS against https://yumiao.netlify.app**。
 它的价值在于：**相册 / 音乐台 / 吉日之歌 这三件事一旦线上失效，最先坏的就是这里**。
+
+有几件事**看起来像失败、其实不是**，别把数字读歪：
+
+| 现象 | 说明 |
+| --- | --- |
+| 线上响应里没有 `netlify-cdn-cache-control` | 这个头在 Netlify 边缘就被消费掉了，不会回给客户端（边缘缓存照样生效）。工具接受"本地仿真回显该头"或"线上响应带 `server: Netlify`" |
+| Pixiv 图片偶尔取不到 | `i.pixiv.re` 会限流，也可能某张图上游已经没了。工具**最多换 3 张图重试**，全失败才判失败 |
+| 搜到歌了但"没声音" | 很多曲目匿名态本来就没有音频（会员 / 无版权 / 地区）。站点会提示并给替代版本；工具**最多试 4 首**，任一能放即通过；一首都不行时，只有"每首都回 4xx + JSON 说明"才算上游策略，记为 SKIP |
+| 整个站点 401 + `Login Redirect` | 是 Netlify 的访问保护，不是代码问题（工具会明说，并给出后台路径）|
+| 搜索接口回 `503 上游正在限流` | api.lolicon.app 限流，站点如实上报。工具等 15 秒重试一次，仍失败记为 SKIP |
+
 修改核心代码或 CSS 后建议都跑一遍。
 
 ---
