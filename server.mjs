@@ -410,21 +410,19 @@ async function neteaseAudioInfo(id) {
 
   let value = null;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 9000);
+  const timer = setTimeout(() => ctrl.abort(), 20000);
   const headers = { 'User-Agent': NETEASE.ua, Referer: `${NETEASE.origin}/` };
   try {
-    // ① 外链 → 真实音频地址
-    const r1 = await fetch(`${NETEASE.origin}/song/media/outer/url?id=${encodeURIComponent(key.slice(5))}.mp3`, {
-      signal: ctrl.signal, redirect: 'manual', headers,
-    });
-    const loc = r1.headers.get('location') || '';
-    if (r1.status >= 300 && r1.status < 400 && /\/404(\?|$)/.test(loc)) {
+    // ① 用**同一个**多入口解析器拿地址：判定和实际播放必须走同一条路，
+    //    否则会出现「这里说能播、点下去 404」或者反过来的错判。
+    const info = await resolveNeteaseAudio(id);
+    if (!info) {
       value = { playable: false };
-    } else if (r1.status === 200 || (loc && !/\/404(\?|$)/.test(loc))) {
-      const audioUrl = r1.status === 200 ? `${NETEASE.origin}/song/media/outer/url?id=${key.slice(5)}.mp3` : new URL(loc, NETEASE.origin).href;
+    } else {
+      const audioUrl = info.url;
       // ② HEAD 拿长度
       const head = await fetch(audioUrl, { signal: ctrl.signal, headers });
-      const bytes = Number(head.headers.get('content-length')) || 0;
+      const bytes = Number(head.headers.get('content-length')) || info.bytes || 0;
       // ③ 取头部 8KB 解析帧
       const part = await fetch(audioUrl, { signal: ctrl.signal, headers: { ...headers, Range: 'bytes=0-8191' } });
       const buf = new Uint8Array(await part.arrayBuffer());
@@ -444,12 +442,14 @@ async function neteaseAudioInfo(id) {
       value = {
         playable: true,
         bytes,
-        bitrate: frame?.bitrate || 0,
+        bitrate: frame?.bitrate || info.bitrate || 0,
         seconds: seconds ? Math.round(seconds * 10) / 10 : 0,
         mode,
+        // 诊断 / 展示用：哪个入口解析出来的、上游标称码率、是否只是试听片段
+        via: info.via,
+        upstreamBitrate: info.bitrate || 0,
+        trial: !!info.trial,
       };
-    } else {
-      value = { playable: false };
     }
   } catch {
     value = null;
@@ -476,16 +476,15 @@ async function neteaseAudioInfo(id) {
  *
  * Range：拖动进度条必需，原样转发给上游并透传 206 / Content-Range。
  */
+/** 解析真实音频地址：多入口依次尝试。放不出来返回 null（并缓存结论） */
 const AUDIO_TTL = 15 * 60 * 1000;
-const audioUrlCache = new Map();          // id → { at, url }
+const audioUrlCache = new Map();          // id → { at, info }
 /** 允许跟随的音频主机（必须是网易云的 CDN，防 SSRF） */
 const NETEASE_AUDIO_HOSTS = [/(^|\.)music\.126\.net$/i, /(^|\.)126\.net$/i, /(^|\.)163\.com$/i];
 
 function audioHostAllowed(raw) {
   try {
     const u = new URL(String(raw));
-    // 外链 302 给的是 http://m10.music.126.net/...，但 CDN 同时支持 https。
-    // 统一升级成 https：本站可能是 https 部署，混用会被浏览器当混合内容拦掉。
     return (u.protocol === 'http:' || u.protocol === 'https:')
       && NETEASE_AUDIO_HOSTS.some((re) => re.test(u.hostname));
   } catch {
@@ -493,42 +492,110 @@ function audioHostAllowed(raw) {
   }
 }
 
-/** 解析真实音频地址：外链 302 → CDN。放不出来返回 null（并缓存结论） */
-async function neteaseAudioUrl(id) {
-  const key = String(id);
-  const hit = audioUrlCache.get(key);
-  if (hit && Date.now() - hit.at < AUDIO_TTL) return hit.url;
-
-  const headers = { 'User-Agent': NETEASE.ua, Referer: `${NETEASE.origin}/` };
-  const outer = `${NETEASE.origin}/song/media/outer/url?id=${encodeURIComponent(key)}.mp3`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10000);
-  let url = null;
+/** 把上游给的音频地址规范化：必须在网易云 CDN 白名单内，且统一升级成 https */
+function httpsAudioUrl(raw) {
+  if (!raw) return null;
   try {
-    const r = await fetch(outer, { signal: ctrl.signal, redirect: 'manual', headers });
-    const loc = r.headers.get('location') || '';
-    try { await r.body?.cancel(); } catch { /* 不读正文，放掉连接 */ }
-    if (r.status >= 300 && r.status < 400) {
-      const abs = new URL(loc, NETEASE.origin);
-      if (!/\/404(\?|$)/.test(loc) && audioHostAllowed(abs.href)) {
-        abs.protocol = 'https:';                    // CDN 同时支持 https，统一升级
-        url = abs.href;
-      }
-    } else if (r.status === 200) {
-      url = outer;                                  // 直接就是音频流
-    }
+    const u = new URL(String(raw), NETEASE.origin);
+    if (!audioHostAllowed(u.href)) return null;
+    // 外链/CDN 经常给 http://m801.music.126.net/...，而本站是 https 部署，
+    // 混用会被浏览器当混合内容拦掉（移动端更严）。CDN 同时支持 https，统一升级。
+    u.protocol = 'https:';
+    return u.href;
+  } catch { return null; }
+}
+
+/** 带独立超时的 GET，成功返回 Response，失败返回 null（每个入口互不拖累） */
+async function fetchWithTimeout(url, { ms = 9000, ...init } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
   } catch {
-    url = null;
+    return null;
   } finally {
     clearTimeout(timer);
   }
+}
 
-  audioUrlCache.set(key, { at: Date.now(), url });
+/**
+ * 解析某首歌「匿名访客能听到」的音频地址。
+ *
+ * 为什么必须试多个入口（线上实测，别再简化）：
+ *   · /song/media/outer/url?id=X.mp3 —— 老外链。很多曲目它直接空/404，
+ *     例如《No Why（少女前线主题歌）》(2757934332)：song/detail 里 fee=8 付费曲，
+ *     外链取不到，但
+ *   · /api/song/enhance/player/url?ids=[X]&br=… —— **官方 Web 播放器用的同一个接口**，
+ *     对同一首歌却返回了真实 CDN 地址。
+ * 只用一个入口时，这类歌会被误判成「没有匿名音频」，于是退回官方 iframe：
+ * PC 上跨域 iframe 能自动起播所以听着正常，移动端会被自动播放策略拦住 →
+ * 表现就是「PC 有声音、手机没声音」。多入口把这些歌拉回站内直放，两端行为才一致。
+ *
+ * 版权边界：只使用网易云**自己返回给匿名访客**的地址，不做任何越权解锁；
+ * 真正付费/下架的曲目该没有还是没有（接口给的就是 null，前端仍会退回官方播放器）。
+ *
+ * 返回 { url, via, bitrate, bytes, type, trial, tried } 或 null。
+ */
+async function resolveNeteaseAudio(id) {
+  const key = String(id);
+  const hit = audioUrlCache.get(key);
+  if (hit && Date.now() - hit.at < AUDIO_TTL) return hit.info;
+
+  const headers = { 'User-Agent': NETEASE.ua, Referer: `${NETEASE.origin}/` };
+  const tried = [];
+  let info = null;
+
+  // ① 官方播放地址接口：优先高码率。能拿到就用它（音质好、覆盖全）
+  for (const br of [320000, 128000]) {
+    const r = await fetchWithTimeout(
+      `${NETEASE.origin}/api/song/enhance/player/url?ids=%5B${encodeURIComponent(key)}%5D&br=${br}`,
+      { headers, ms: 9000 },
+    );
+    if (!r) { tried.push(`enhance@${br}:超时`); continue; }
+    const j = await r.json().catch(() => null);
+    const d = j?.data?.[0];
+    const url = httpsAudioUrl(d?.url);
+    tried.push(`enhance@${br}:${url ? 'ok' : (d?.code ? 'code' + d.code : 'no-url')}`);
+    if (url) {
+      info = {
+        url,
+        via: `enhance@${Number(d?.br) || br}`,
+        bitrate: Number(d?.br) || br,
+        bytes: Number(d?.size) || 0,
+        type: d?.type || 'mp3',
+        // 只有试听片段时上游会给 freeTrialInfo：如实标出来，别让界面以为能听完整首
+        trial: !!d?.freeTrialInfo,
+      };
+      break;
+    }
+  }
+
+  // ② 老外链兜底：接口变动 / 代理出问题时它可能反而是通的
+  if (!info) {
+    const outer = `${NETEASE.origin}/song/media/outer/url?id=${encodeURIComponent(key)}.mp3`;
+    const r = await fetchWithTimeout(outer, { headers, redirect: 'manual', ms: 9000 });
+    if (!r) {
+      tried.push('outer:超时');
+    } else {
+      const loc = r.headers.get('location') || '';
+      try { await r.body?.cancel(); } catch { /* 不读正文 */ }
+      if (r.status >= 300 && r.status < 400 && !/\/404(\?|$)/.test(loc)) {
+        const url = httpsAudioUrl(loc);
+        if (url) info = { url, via: 'outer', bitrate: 0, bytes: 0, type: 'mp3', trial: false };
+      } else if (r.status === 200) {
+        info = { url: outer, via: 'outer-direct', bitrate: 0, bytes: 0, type: 'mp3', trial: false };
+      }
+      tried.push(`outer:${info ? 'ok' : 'no'}`);
+    }
+  }
+
+  if (info) info.tried = tried;
+  audioUrlCache.set(key, { at: Date.now(), info });
   if (audioUrlCache.size > 300) {
     [...audioUrlCache.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 120)
       .forEach(([k]) => audioUrlCache.delete(k));
   }
-  return url;
+  return info;
 }
 
 /** GET /api/netease/audio?id=<id> —— 同源音频流（支持 Range，可拖动进度） */
@@ -536,8 +603,11 @@ async function streamNeteaseAudio(req, res, url, opts = {}) {
   const id = (url.searchParams.get('id') || '').trim();
   if (!/^\d{4,12}$/.test(id)) return fail(res, 400, '缺少合法的歌曲 id');
 
-  const audioUrl = await neteaseAudioUrl(id);
-  if (!audioUrl) return fail(res, 404, '这首歌没有匿名可用的音频流（会员 / 版权限制），请改用官方外链播放器');
+  const info = await resolveNeteaseAudio(id);
+  if (!info) {
+    return fail(res, 404, '这首歌没有匿名可用的音频流（会员 / 版权限制），请改用官方外链播放器');
+  }
+  const audioUrl = info.url;
 
   /* Serverless（Netlify Functions）上不要在函数里搬音频：
    *   ① 同步函数响应有体积上限，一首 5 分钟的歌可能十几 MB，硬转发会被平台截断/报错；
@@ -550,6 +620,10 @@ async function streamNeteaseAudio(req, res, url, opts = {}) {
       Location: audioUrl,
       // 解析结果有 15 分钟缓存，这里给一个短缓存，别让浏览器把它记死
       'Cache-Control': 'private, max-age=300',
+      // 诊断：这次是哪个入口解析出来的、什么码率、是否只是试听片段
+      'X-Netease-Audio-Via': info.via || '',
+      'X-Netease-Audio-Bitrate': String(info.bitrate || ''),
+      'X-Netease-Audio-Trial': info.trial ? '1' : '0',
     });
     return res.end();
   }
@@ -587,6 +661,10 @@ async function streamNeteaseAudio(req, res, url, opts = {}) {
     // 允许浏览器缓存：预加载下一首时就是靠它把音频先拿进缓存，切歌才不会空一拍。
     // 必须是 private —— 这是转发流，不该被任何共享缓存留存。
     'Cache-Control': 'private, max-age=86400',
+    // 与 serverless 的 302 分支保持同一套诊断头：本地也能看出是哪个入口解析的
+    'X-Netease-Audio-Via': info.via || '',
+    'X-Netease-Audio-Bitrate': String(info.bitrate || ''),
+    'X-Netease-Audio-Trial': info.trial ? '1' : '0',
   };
   const len = upstream.headers.get('content-length');
   if (len) headers['Content-Length'] = len;

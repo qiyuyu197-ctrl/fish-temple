@@ -452,6 +452,59 @@ async function main() {
         JSON.stringify(playCheck?.attempts || playCheck?.why || playCheck));
     }
 
+    // 移动端形态再走一遍「搜歌 → 点播放」。线上出现过的真实问题：
+    // 有些歌（例如付费曲《No Why》）解析不到站内直放，就退回官方 iframe —
+    // PC 上 iframe 会自动起播所以听着正常，移动端被自动播放策略拦住 → 「手机没声音」。
+    // 服务端现在用多入口解析把这些歌拉回站内直放，这个检查就是钉住这条回归。
+    await page.send('Emulation.setUserAgentOverride', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+      platform: 'iPhone',
+    });
+    await page.send('Emulation.setDeviceMetricsOverride', {
+      width: 390, height: 844, deviceScaleFactor: 3, mobile: true,
+    });
+    await page.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+
+    const mobilePlay = await page.evalPage(`(async () => {
+      const { Player } = await import('/src/core/player.js');
+      const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+      location.hash = '#/music';
+      await nap(2500);
+      const input = document.getElementById('neInput');
+      const go = document.getElementById('neGo');
+      if (!input || !go) return { ok: false, why: '移动端没渲染出搜索控件' };
+      // 直接找那首"以前只能走官方播放器"的歌
+      input.value = 'No Why 少女前线';
+      go.click();
+      for (let i = 0; i < 45 && !document.querySelector('.ne-row'); i++) await nap(400);
+      const row = document.querySelector('.ne-row');
+      if (!row) return { ok: false, why: '移动端搜索结果为空' };
+      const name = (row.querySelector('.ne-row__name')?.textContent || '').trim().slice(0, 40);
+      row.querySelector('button[data-act="play"]')?.click();
+      await nap(7000);
+      const a = document.getElementById('audio');
+      return {
+        ok: true,
+        name,
+        playing: Player.playing === true,
+        embed: Player.isEmbed === true,
+        time: Number((Player.currentTime || 0).toFixed(2)),
+        ready: a ? a.readyState : null,
+        duration: a ? Number((a.duration || 0).toFixed(1)) : null,
+        src: a && a.currentSrc ? a.currentSrc.replace(location.origin, '').slice(0, 40) : null,
+        via: null,
+      };
+    })()`);
+    check('客户端（移动端形态）：以前只能走官方播放器的歌也能站内直放出声',
+      mobilePlay?.ok === true && mobilePlay.playing === true && mobilePlay.embed === false
+        && (mobilePlay.time || 0) > 0.5 && (mobilePlay.ready || 0) >= 3,
+      JSON.stringify(mobilePlay));
+
+    // 复位，别影响后面的检查
+    await page.send('Emulation.clearDeviceMetricsOverride');
+    await page.send('Emulation.setUserAgentOverride', { userAgent: '' });
+    await page.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+
     // 黄历吉日之歌：走 /api/netease/audio（线上是 302 → CDN），要真的放起来
     const anthem = await page.evalPage(`(async () => {
       window.Terminal.AlmanacUI.open();
