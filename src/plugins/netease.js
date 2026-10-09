@@ -777,6 +777,17 @@ export const neteaseProvider = {
   play(track, ctx) {
     EmbedHost.show(track, { autoplay: true });
     ctx?._scheduleAdvance?.(track);
+    /**
+     * 移动端必须把播放器推到眼前并说清楚。
+     *
+     * 这条是给"**判定为不可播**、于是直接走官方播放器"的曲目用的 —— 那条路根本不经过
+     * audio 的 onError，所以那边 emitted 的 embed:needsTap 永远轮不到它（线上实测：
+     * 用户截图那首《No Why》就是这条，播放器被放在音乐台页面下方、视口之外，用户看不到）。
+     * 窄屏由 EmbedHost 贴底固定并展开；宽屏只是滚到视口中央，没有副作用。
+     */
+    const touch = typeof window !== 'undefined'
+      && ((window.matchMedia && window.matchMedia('(hover: none)').matches) || window.innerWidth < 720);
+    if (touch) bus.emit('embed:needsTap', { track, reason: 'embed-source' });
   },
   /** 暂停：重建 auto=0 的播放器让它真正静音（进度会归零，官方限制） */
   pause(track, ctx) {

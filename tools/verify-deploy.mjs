@@ -491,6 +491,7 @@ async function main() {
       await nap(8000);
       const a = document.getElementById('audio');
       const host = document.getElementById('embedHost');
+      const hr = host ? host.getBoundingClientRect() : null;
       return {
         ok: true,
         name,
@@ -501,19 +502,32 @@ async function main() {
         ready: a ? a.readyState : null,
         duration: a ? Number((a.duration || 0).toFixed(1)) : null,
         src: a && a.currentSrc ? a.currentSrc.replace(location.origin, '').slice(0, 40) : null,
-        // 没能直放时，必须"看得见 + 说得清"，不能静默无声
+        // 没能直放时，必须"看得见 + 说得清"，不能静默无声：
+        // frameShown = 官方播放器已渲染；inView = 真的落在视口里（用户点得到）
         frameShown: !!document.getElementById('neFrame') && !!host && host.hidden === false,
-        uncropped: !!host && host.dataset.crop === '0',
+        inView: !!hr && hr.height > 20 && hr.top < window.innerHeight && hr.bottom > 0,
         notice: !!document.getElementById('neSilent'),
+        // 几何诊断：inView 为假时，一眼看出它跑到哪儿去了
+        geo: {
+          vh: window.innerHeight,
+          docH: Math.round(document.documentElement.scrollHeight),
+          scrollY: Math.round(window.scrollY),
+          dock: host?.dataset.dock || null,
+          crop: host?.dataset.crop || null,
+          expanded: host?.dataset.expanded || null,
+          hostRect: hr ? { top: Math.round(hr.top), bottom: Math.round(hr.bottom), h: Math.round(hr.height), w: Math.round(hr.width) } : null,
+          pos: host ? getComputedStyle(host).position : null,
+          display: host ? getComputedStyle(host).display : null,
+        },
       };
     })()`);
-    check('客户端（移动端形态）：要么站内直放出声，要么明确引导去官方播放器点 ▶（不允许静默无声）',
+    check('客户端（移动端形态）：要么站内直放出声，要么把官方播放器推到眼前（不允许静默无声）',
       mobilePlay?.ok === true && (
         (mobilePlay.playing === true && mobilePlay.embed === false
           && (mobilePlay.time || 0) > 0.5 && (mobilePlay.ready || 0) >= 3)
-        || (mobilePlay.embed === true && mobilePlay.frameShown === true && mobilePlay.uncropped === true)
+        || (mobilePlay.embed === true && mobilePlay.frameShown === true && mobilePlay.inView === true)
       ),
-      JSON.stringify(mobilePlay));
+      JSON.stringify({ ...mobilePlay, via: mobilePlay?.embed ? 'embed-in-view' : 'direct' }));
 
     // 真 VIP 曲目（如 Taylor Swift《Love Story》，fee=1）在匿名态下**两个入口都拿不到**
     // （实测 outer:no、enhance@128000:code-110），必须退回官方播放器 ——
