@@ -36,7 +36,7 @@
  */
 
 import { createServer } from 'node:http';
-import { Readable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createHash } from 'node:crypto';
 import { promises as fs, constants } from 'node:fs';
@@ -44,12 +44,29 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
 const BACKUP_DIR = path.join(DATA_DIR, '.backup');
 
 const PORT = Number(process.argv[2] || process.env.PORT || 5173);
+
+/**
+ * 是否「直接启动」（node server.mjs）。
+ *
+ * 被 import 时**绝不** listen —— 部署到 Netlify 时，
+ * netlify/functions/api.mjs 会 import 本文件、复用同一份 /api 实现
+ * （见文件末尾的 handleApiRequest），那份代码里不存在 HTTP 服务器。
+ * 这样本地与线上只有一份代理逻辑，不会各修各的。
+ */
+const IS_MAIN = (() => {
+  // Serverless 运行时装在 Lambda 里：永远不要试图监听端口
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY) return false;
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try { return path.resolve(entry) === __filename; } catch { return false; }
+})();
 
 /** 允许通过 API 读写的集合 → 对应文件 */
 const COLLECTIONS = {
@@ -502,12 +519,27 @@ async function neteaseAudioUrl(id) {
 }
 
 /** GET /api/netease/audio?id=<id> —— 同源音频流（支持 Range，可拖动进度） */
-async function streamNeteaseAudio(req, res, url) {
+async function streamNeteaseAudio(req, res, url, opts = {}) {
   const id = (url.searchParams.get('id') || '').trim();
   if (!/^\d{4,12}$/.test(id)) return fail(res, 400, '缺少合法的歌曲 id');
 
   const audioUrl = await neteaseAudioUrl(id);
   if (!audioUrl) return fail(res, 404, '这首歌没有匿名可用的音频流（会员 / 版权限制），请改用官方外链播放器');
+
+  /* Serverless（Netlify Functions）上不要在函数里搬音频：
+   *   ① 同步函数响应有体积上限，一首 5 分钟的歌可能十几 MB，硬转发会被平台截断/报错；
+   *   ② 白搬一遍带宽纯属浪费。
+   * 所以这里只做一次 302，把浏览器直接指向上游 CDN（媒体元素会自动跟随重定向），
+   * Range / 断点续传 / 拖动进度全部由 CDN 原生支持。
+   * 本地 server.mjs 仍然照旧代理，保持同源（频谱、离线调试都不受影响）。 */
+  if (opts.serverless) {
+    res.writeHead(302, {
+      Location: audioUrl,
+      // 解析结果有 15 分钟缓存，这里给一个短缓存，别让浏览器把它记死
+      'Cache-Control': 'private, max-age=300',
+    });
+    return res.end();
+  }
 
   const ctrl = new AbortController();
   // 客户端提前断开（换歌 / 拖进度 / 关页面）→ 立刻放掉上游连接，不白下载
@@ -563,7 +595,7 @@ async function streamNeteaseAudio(req, res, url) {
   }
 }
 
-async function handleNetease(req, res, url) {
+async function handleNetease(req, res, url, opts = {}) {
   const seg = url.pathname.replace(/^\/api\/netease\/?/, '').split('/').filter(Boolean);
   const action = seg[0] || 'search';
 
@@ -737,8 +769,8 @@ async function handleNetease(req, res, url) {
   }
 
   if (action === 'audio') {
-    // /api/netease/audio?id=347230 —— 同源音频流转发（站内 <audio> 直放，支持 Range）
-    return streamNeteaseAudio(req, res, url);
+    // /api/netease/audio?id=347230 —— 音频流转发（本地同源直放 / Serverless 下 302 到 CDN）
+    return streamNeteaseAudio(req, res, url, opts);
   }
 
   if (action === 'status') {
@@ -821,15 +853,23 @@ function pixivCacheFile(target) {
 /**
  * 取一张图并落到本地缓存。命中缓存直接返回 Buffer。
  * 返回 { buf, ct, cached }
+ *
+ * noDisk=true（Serverless）：**不碰磁盘**。
+ * Netlify Functions 的代码目录是只读的，既读不到也写不了缓存 ——
+ * 那边由 Netlify 的边缘缓存（Netlify-CDN-Cache-Control）承担同样的角色。
  */
-async function cachePixivImage(target, { timeout = 60000 } = {}) {
-  const file = pixivCacheFile(target);
-  try {
-    const buf = await fs.readFile(file);
-    if (buf.length > 512) return { buf, ct: 'image/jpeg', cached: true };
-  } catch { /* 缓存未命中 */ }
+async function cachePixivImage(target, { timeout = 60000, noDisk = false } = {}) {
+  const file = noDisk ? '' : pixivCacheFile(target);
+  if (file) {
+    try {
+      const buf = await fs.readFile(file);
+      if (buf.length > 512) return { buf, ct: 'image/jpeg', cached: true };
+    } catch { /* 缓存未命中 */ }
+  }
 
-  let p = pixivImgInflight.get(file);
+  // 同一个 URL 的并发只取一次：Serverless 下没有文件路径做 key，用 URL 本身
+  const key = file || target;
+  let p = pixivImgInflight.get(key);
   if (!p) {
     p = (async () => {
       const ctrl = new AbortController();
@@ -843,15 +883,17 @@ async function cachePixivImage(target, { timeout = 60000 } = {}) {
         const buf = Buffer.from(await res.arrayBuffer());
         if (buf.length < 512) throw new Error('镜像返回的内容太小，可能不是图片');
         const ct = (res.headers.get('content-type') || 'image/jpeg').split(';')[0];
-        await fs.mkdir(PIXIV.imgCache, { recursive: true });
-        await fs.writeFile(`${file}.tmp`, buf);
-        await fs.rename(`${file}.tmp`, file);
+        if (file) {
+          await fs.mkdir(PIXIV.imgCache, { recursive: true });
+          await fs.writeFile(`${file}.tmp`, buf);
+          await fs.rename(`${file}.tmp`, file);
+        }
         return { buf, ct, cached: false };
       } finally {
         clearTimeout(timer);
       }
-    })().finally(() => pixivImgInflight.delete(file));
-    pixivImgInflight.set(file, p);
+    })().finally(() => pixivImgInflight.delete(key));
+    pixivImgInflight.set(key, p);
   }
   return p;
 }
@@ -1058,26 +1100,30 @@ function warmPixivImages(items, n = 6, concurrency = 4) {
   next();
 }
 
-async function handlePixiv(req, res, url) {
+async function handlePixiv(req, res, url, opts = {}) {
   const seg = url.pathname.replace(/^\/api\/pixiv\/?/, '').split('/').filter(Boolean);
   const action = seg[0] || 'random';
 
-  // 图片代理 + 磁盘缓存：浏览器只跟 localhost 打交道
+  // 图片代理 + 缓存：本地落盘（server.mjs），Serverless 交给 CDN
   if (action === 'image') {
     const target = url.searchParams.get('url') || '';
     if (!pixivImageAllowed(target)) {
       return fail(res, 400, '只允许 pixiv.re / pixiv.nl / pximg.net 的图片地址');
     }
     try {
-      const { buf, ct, cached } = await cachePixivImage(target);
+      const { buf, ct, cached } = await cachePixivImage(target, { noDisk: !!opts.serverless });
       if (cached) PIXIV.stats.imgHits++; else PIXIV.stats.imgMiss++;
-      res.writeHead(200, {
+      const headers = {
         'Content-Type': ct || 'image/jpeg',
         'Content-Length': buf.length,
         // 图片地址带日期目录，内容不会变，可以长期缓存
         'Cache-Control': 'public, max-age=604800, immutable',
         'X-Pixiv-Cache': cached ? 'hit' : 'miss',
-      });
+      };
+      // Serverless 上没有可写的磁盘缓存，改为让 Netlify 的边缘缓存接手：
+      // 第一次请求回源，之后同一个地址直接由 CDN 出，效果和本地磁盘缓存一样。
+      if (opts.serverless) headers['Netlify-CDN-Cache-Control'] = 'public, max-age=604800, durable';
+      res.writeHead(200, headers);
       res.end(buf);
     } catch (err) {
       return fail(res, 502, `取图失败：${err.message}`);
@@ -1106,23 +1152,10 @@ async function handlePixiv(req, res, url) {
     }
   }
 
-  // 手动填作品 id：不做元数据（pixiv.net 不可达），只给出可显示的镜像地址
-  if (action === 'illust') {
-    const id = (url.searchParams.get('id') || '').trim();
-    if (!/^\d{4,12}$/.test(id)) return fail(res, 400, '缺少合法的作品 id');
-    const p = Math.max(0, Math.min(50, Number(url.searchParams.get('p')) || 0));
-    const url2 = p ? `${PIXIV.mirror}/${id}-${p}.jpg` : `${PIXIV.mirror}/${id}.jpg`;
-    return ok(res, {
-      ok: true,
-      item: {
-        pid: id, p, uid: '', title: `Pixiv ${id}`, author: 'PIXIV',
-        tags: [], width: 0, height: 0, r18: false,
-        url: url2, pageUrl: `${PIXIV.origin}/artworks/${id}`,
-      },
-    });
-  }
-
-  // 手动填作品 id：不做元数据（pixiv.net 不可达），只给出可显示的图片地址
+  // 手动填作品 id：不做元数据（pixiv.net 不可达），只给出可显示、且**已转成站内代理**的地址。
+  // ⚠️ 这里曾经有两份一模一样的分支，前一份直接返回 pixiv.re 原始地址并 return ——
+  //    于是后一份（走 /api/pixiv/image 代理的那份）永远执行不到，浏览器只能去直连镜像，
+  //    在国内/Netlify 上就是「Pixiv 图片显示不出来」。现在只保留代理这一份。
   if (action === 'illust') {
     const id = (url.searchParams.get('id') || '').trim();
     if (!/^\d{4,12}$/.test(id)) return fail(res, 400, '缺少合法的作品 id');
@@ -1213,33 +1246,45 @@ function sanitizeItem(input) {
   return item;
 }
 
-/* ---------------- API ---------------- */
-
-async function handleApi(req, res, url) {
+/* ---------------- API ----------------
+ * opts（可选）：
+ *   serverless  true = 跑在 Serverless（Netlify Functions）上：
+ *               · 没有可写磁盘 → 内容接口只读，写操作回 501 而不是假装成功
+ *               · 响应有体积上限 → 大音频改成 302 直接给上游 CDN（见 streamNeteaseAudio）
+ *               · 图片缓存交给 CDN（Netlify-CDN-Cache-Control）而不是落盘
+ *   readonly    true = 强制内容接口只读
+ */
+async function handleApi(req, res, url, opts = {}) {
   const seg = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
 
   // GET /api/netease/* — 网易云元数据代理（搜索 / 详情 / 歌单 / 状态）
-  if (seg[0] === 'netease') return handleNetease(req, res, url);
+  if (seg[0] === 'netease') return handleNetease(req, res, url, opts);
 
   // GET /api/pixiv/* — Pixiv 随机作品代理（api.lolicon.app + pixiv.re 镜像）
-  if (seg[0] === 'pixiv') return handlePixiv(req, res, url);
+  if (seg[0] === 'pixiv') return handlePixiv(req, res, url, opts);
 
   // GET /api/health
   if (seg[0] === 'health') {
+    const readonly = !!(opts.readonly || opts.serverless);
     let writable = false;
-    try {
-      await fs.mkdir(DATA_DIR, { recursive: true });
-      await fs.access(DATA_DIR, constants.W_OK);
-      writable = true;
-    } catch { writable = false; }
+    if (!readonly) {
+      try {
+        await fs.mkdir(DATA_DIR, { recursive: true });
+        await fs.access(DATA_DIR, constants.W_OK);
+        writable = true;
+      } catch { writable = false; }
+    }
     return ok(res, {
       ok: true,
       server: 'fish-temple-terminal',
+      // 'local' = node server.mjs（可写、可落盘缓存）；'netlify' = Netlify Functions（只读 + CDN 缓存）
+      deploy: opts.serverless ? 'netlify' : 'local',
+      readonly,
       root: ROOT,
       dataDir: DATA_DIR,
       collections: Object.keys(COLLECTIONS),
       netease: { enabled: true, endpoints: ['search', 'songs', 'playlist', 'album', 'lyric', 'resolve', 'playable', 'audio', 'status'] },
-      pixiv: { enabled: true, endpoints: ['random', 'illust', 'status'], mirror: PIXIV.mirror },
+      pixiv: { enabled: true, endpoints: ['random', 'image', 'illust', 'status'], mirror: PIXIV.mirror },
       writable,
       time: new Date().toISOString(),
     });
@@ -1263,6 +1308,15 @@ async function handleApi(req, res, url) {
     const name = seg[1];
     if (!name || !COLLECTIONS[name]) {
       return fail(res, 400, `未知集合：${name || '(空)'}，可用：${Object.keys(COLLECTIONS).join(', ')}`);
+    }
+
+    // 部署到 Netlify（Serverless）时没有可写的持久磁盘：
+    // 这里明确回 501 并说清原因，而不是 404/500 —— 前端据此提示「用导出文件」，
+    // 公开页面照旧读仓库里的 data/*.json（不依赖这个接口）。
+    if (opts.readonly || opts.serverless) {
+      return fail(res, 501,
+        '这份部署是只读的（Netlify 上没有可写磁盘）：内容请改仓库里的 data/*.json 后重新部署，'
+        + '或在本地用 node server.mjs 打开发布控制台写入。');
     }
 
     if (req.method === 'GET') return ok(res, await readCollection(name));
@@ -1329,9 +1383,11 @@ async function serveStatic(req, res, url) {
   }
 }
 
-/* ---------------- 启动 ---------------- */
-
-const server = createServer(async (req, res) => {
+/* ---------------- HTTP 入口（本地 server.mjs） ----------------
+ * 线上（Netlify Functions）走文件末尾的 handleApiRequest()，同一份 /api 实现。
+ * 静态文件由平台自己发，本地才需要 serveStatic。
+ */
+async function handleHttp(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const started = Date.now();
 
@@ -1352,9 +1408,11 @@ const server = createServer(async (req, res) => {
   const ms = Date.now() - started;
   const color = req.method === 'GET' ? '\x1b[36m' : '\x1b[33m';
   console.log(`  ${color}${req.method.padEnd(6)}\x1b[0m ${url.pathname} \x1b[90m${res.statusCode} ${ms}ms\x1b[0m`);
-});
+}
 
-server.listen(PORT, () => {
+const server = createServer(handleHttp);
+
+const onListen = () => {
   const line = '─'.repeat(58);
   console.log(`\n\x1b[33m${line}\x1b[0m`);
   console.log('  \x1b[1mFISH TEMPLE\x1b[0m  ·  本地开发服务器');
@@ -1392,9 +1450,86 @@ server.listen(PORT, () => {
       console.log(`  [pixiv] 预热失败：${err.message}`);
     }
   }, 1200);
-});
+};
 
-process.on('SIGINT', () => {
-  console.log('\n服务已停止。');
-  process.exit(0);
-});
+/* ---------------- 启动（只有直接运行时才监听端口） ---------------- */
+
+if (IS_MAIN) {
+  server.listen(PORT, onListen);
+  process.on('SIGINT', () => {
+    console.log('\n服务已停止。');
+    process.exit(0);
+  });
+}
+
+/* ---------------- Serverless 入口：Web 标准 Request → Response ----------------
+ * Netlify Functions 只支持 Web 标准签名，而上面这套 /api 实现是直接写 Node res 的
+ * （writeHead / end / 甚至被 pipeline 当 Writable 用）。与其把上千行代理逻辑重写一遍，
+ * 不如在这里垫一层薄适配：把 Node 风格的 res 调用录下来，最后交出一个 Response。
+ * 「只读 + 大音频 302 到 CDN + 图片交给 CDN 缓存」这些部署差异都通过 opts 传进去。
+ */
+class WebResponseSink extends Writable {
+  constructor() {
+    super();
+    this.statusCode = 200;
+    this.headersSent = false;
+    this._headers = new Map();
+    this._chunks = [];
+  }
+  setHeader(name, value) { this._headers.set(String(name).toLowerCase(), String(value)); return this; }
+  getHeader(name) { return this._headers.get(String(name).toLowerCase()); }
+  writeHead(status, headers) {
+    this.statusCode = status;
+    if (headers) {
+      for (const [k, v] of Object.entries(headers)) {
+        if (v !== undefined && v !== null) this.setHeader(k, v);
+      }
+    }
+    this.headersSent = true;
+    return this;
+  }
+  _write(chunk, enc, cb) {
+    this._chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, enc));
+    cb();
+  }
+  toResponse() {
+    const body = this._chunks.length ? Buffer.concat(this._chunks) : null;
+    return new Response(body, { status: this.statusCode, headers: Object.fromEntries(this._headers) });
+  }
+}
+
+/** 把一个 Web Request 交给同一套 /api 实现，返回 Web Response（Netlify Functions 用） */
+export async function handleApiRequest(request, opts = {}) {
+  const url = new URL(request.url);
+  const sink = new WebResponseSink();
+
+  const reqLike = {
+    method: request.method,
+    url: url.pathname + url.search,
+    headers: Object.fromEntries(request.headers.entries()),
+    on() { return this; },
+    off() { return this; },
+  };
+  // readBody() 是 for await (const chunk of req)：把 Web 流接上
+  if (request.body) {
+    reqLike[Symbol.asyncIterator] = () => request.body[Symbol.asyncIterator]();
+  }
+
+  sink.setHeader('Access-Control-Allow-Origin', '*');
+  sink.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  sink.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (reqLike.method === 'OPTIONS') { sink.writeHead(204); sink.end(); return sink.toResponse(); }
+
+  try {
+    await handleApi(reqLike, sink, url, { serverless: true, ...opts });
+  } catch (err) {
+    console.error('[api]', err);
+    if (!sink.headersSent) {
+      return new Response(JSON.stringify({ ok: false, error: String(err.message || err) }, null, 2), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    }
+  }
+  return sink.toResponse();
+}

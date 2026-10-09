@@ -3,7 +3,8 @@
 一个零依赖的静态站点：**站内音乐播放 / 本地相册插画 / 文章与公告发布**，
 视觉语言参考《明日方舟：终末地》官网（奶油纸底 · 墨黑文字 · 信号黄强调 · 全直角工业编辑风）。
 
-没有构建步骤、没有 npm 依赖、没有 CDN。一个 `node server.mjs` 就能跑，也可以直接丢到任意静态托管。
+没有构建步骤、没有 npm 依赖、没有 CDN。一个 `node server.mjs` 就能跑，也可以直接丢到任意静态托管
+（但静态托管下 `/api/*` 不存在，Pixiv / 音乐台试听 / 黄历吉日之歌 都用不了 —— 想连接口一起用见「部署」一节）。
 
 ---
 
@@ -40,7 +41,11 @@ python -m http.server 5173
 ```
 .
 ├── index.html              页面骨架：顶栏 / 播报条 / 视图容器 / 播放条 / 命令面板
-├── server.mjs              零依赖本地服务器 + 内容写入 API
+├── server.mjs              零依赖本地服务器 + 内容写入 API（导出 handleApiRequest，Netlify Function 复用的就是它）
+├── netlify.toml            Netlify 部署配置：发布根目录 / Functions 目录 / `/api/*` 重写 / 缓存头（图标长缓存、`/data/*` 短缓存）
+├── netlify/
+│   └── functions/
+│       └── api.mjs         Netlify Function：把 `/api/*` 交给 server.mjs 的 handleApiRequest
 ├── src/
 │   ├── main.js             启动流程与扩展点注册（想加功能先看这里）
 │   ├── config/
@@ -98,6 +103,8 @@ python -m http.server 5173
     ├── verify.mjs          全站自动化自检（203 项）
     ├── responsive.mjs      多断点布局溢出检查 + 截图（1920→360）
     ├── verify-playback.mjs 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏黄历按钮不被裁切（43 项）
+    ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs（默认 5199）
+    ├── verify-deploy.mjs   线上形态自检：`/api/*` 语义 + 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索 / 黄历吉日之歌）（23 项）
     ├── test-markdown.mjs   Markdown 渲染器单元测试（33 项）
     ├── content-build.mjs   批量写作：tools/content/*.md → data/posts.json & news.json（整份覆盖）
     ├── content/            批量写作的正文源文件（Markdown）
@@ -1094,7 +1101,7 @@ export const Albums = createCollection('albums', { seedFile: 'data/albums.json',
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/health` | 服务状态、内容目录、是否可写、网易云代理是否启用（`netease` 端点里含 `audio`） |
+| `GET` | `/api/health` | 服务状态、内容目录、是否可写（只读部署下 `writable: false`）、`deploy`（`'local'` / `'netlify'`）与 `readonly`、网易云代理是否启用（`netease` 端点里含 `audio`）、pixiv 端点列表（含 `image`） |
 | `GET` | `/api/tree` | 项目文件树（控制台展示用） |
 | `GET` | `/api/content/:collection` | 读取集合（`posts` / `news` / `gallery`） |
 | `POST` | `/api/content/:collection` | 新增或更新（按 `id` 去重合并） |
@@ -1106,8 +1113,17 @@ export const Albums = createCollection('albums', { seedFile: 'data/albums.json',
 | `GET` | `/api/netease/resolve?url=163cn.tv%2Fxxxx` | 展开 `163cn.tv` / `music.163.com` 短链（只允许网易云域名） |
 | `GET` | `/api/netease/playable?id=643982` | 匿名态能否播放（`false` = 会员曲目外链不出声），结果缓存 30 分钟 |
 | `GET` | `/api/netease/playable?detail=1&id=2041508513` | 从音频本身量出的真实秒数（`seconds`/`bitrate`/`mode`），iframe 回退路径的自动下一首与"试听片段"判定都用它 |
-| `GET` | `/api/netease/audio?id=643982` | **同源音频流**（直放用）：代理 `song/media/outer/url`（302 → CDN，升级 https），支持 Range/206，`Cache-Control: private, max-age=86400`；解析结果缓存 15 分钟，**服务端不落盘**；网易云不给匿名访客流时返回 `404` |
+| `GET` | `/api/netease/audio?id=643982` | **音频**：本地是**同源流**（代理 `song/media/outer/url`（302 → CDN，升级 https），支持 Range/206，`Cache-Control: private, max-age=86400`，解析结果缓存 15 分钟，**服务端不落盘**）；serverless 部署下改成 **302** 到解析出的 CDN 地址（Range / 拖动 / 后台播放交给 CDN，函数不扛流量）。两种模式下网易云不给匿名访客流时都返回 `404` |
 | `GET` | `/api/netease/status` | 代理状态与各缓存条目数（含 `audioEntries`） |
+
+`/api/content/*` 在**只读部署**（Netlify）下不再落盘，直接返回 `501`
+（`这份部署是只读的（Netlify 上没有可写磁盘）…`）：前台页面照旧读打包进去的 `data/*.json`，
+发布控制台退化成"只导出"。详见下面的「部署」一节。
+
+> 顺带修掉一个真实的老 bug：`/api/pixiv/illust` 原本有**两个一模一样的分支**，
+> 而且第一个分支直接把**未代理**的 `pixiv.re` 原链返回并提前 return —— 也就是说那个
+> 写好的代理版本（`/api/pixiv/image?url=…`）是死代码，而浏览器根本加载不了 pixiv.re 直链。
+> 现在只保留代理分支，这个端点返回的是代理 URL。
 
 网易云代理的三个约束，写在这里以免以后踩坑：
 
@@ -1129,14 +1145,101 @@ PORT=8080 node server.mjs
 
 ## 部署
 
-站点是纯静态的，把整个目录（除 `tools/` 与 `server.mjs` 可省略）上传即可。
-hash 路由不需要任何 rewrite 规则。
+### 纯静态托管：能用，但 `/api/*` 全废
 
-适合的平台：GitHub Pages / Cloudflare Pages / Vercel / Netlify / 任意对象存储 + CDN。
+把整个目录（`tools/`、`server.mjs`、`netlify/` 可省略）上传即可，hash 路由不需要任何 rewrite。
+适合 GitHub Pages / Cloudflare Pages / 任意对象存储 + CDN。
 
-**注意：** 静态部署时发布控制台只能保存到浏览器本地。若想在线发布，需要把
-`server.mjs` 的写入接口部署成一个真正的后端，并把 `API.base` 指向它
-（并且务必加上身份验证 —— 当前接口没有任何鉴权，只适合本机使用）。
+代价是 `/api/*` 一律 404，于是：音乐台显示 `PROXY OFFLINE`（搜索框禁用）、Pixiv 抽卡与图片代理失败、
+黄历的吉日之歌也放不出来。这不是配置没写对，而是**这些上游只能经本站服务器访问**（实测）：
+
+| 上游 | 为什么浏览器直连不行 |
+| --- | --- |
+| `api.lolicon.app` / `nekos.best` / `waifu.pics` | 不返回 CORS 头 → 浏览器 `fetch` 被同源策略拦掉 |
+| `i.pixiv.re`（图片） | 浏览器里 `fetch` 与 `<img>` 都取不到，服务器取得到 → 所以统一走 `/api/pixiv/image` 代理 |
+| `music.163.com` | 同样没有 CORS 头，而且音频流要 `Referer` |
+
+### Netlify：连接口一起跑
+
+`netlify.toml` 已经把这件事配好了，从 Git 部署**不需要再填任何东西**：
+
+```toml
+[build]
+  publish = "."                     # 没有构建命令，直接发布仓库根目录
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+```
+
+`netlify/functions/api.mjs` 是一个 v1 签名的 `event`/`context` 处理函数，它**直接 import 同一个
+`server.mjs`**，调用新导出的 `handleApiRequest(new Request(...), { serverless: true })`，
+再把 Web `Response` 转回 `{ statusCode, headers, body, isBase64Encoded }`（二进制走 base64）。
+原始 URL 从 `event.rawUrl` 还原 —— rewrite 之后 `event.path` 不可靠。
+也就是说：**本地那 1500 行代理实现一行都没有重写**，Netlify 上跑的就是同一份代码。
+
+为了能被 import，`server.mjs` 做了一次**无行为变化**的拆分：`IS_MAIN` 判定（import 不再启动
+HTTP 监听）、HTTP 处理抽成 `handleHttp()`、`server.listen()` 与 SIGINT 收进 `if (IS_MAIN) { … }`，
+并新增 `WebResponseSink`（一个把 `writeHead` / `setHeader` / 正文录进 Web `Response` 的 `Writable`）。
+本地 `node server.mjs` 的行为和以前完全一样。
+
+**只有三处 serverless 差异**，而且都是显式 opt-in：
+
+| 差异 | 本地 `node server.mjs` | Netlify |
+| --- | --- | --- |
+| 内容写入 `/api/content/*` | 可写（落盘 `data/`，自动备份到 `data/.backup/`） | **只读**：返回 `501` +「这份部署是只读的（Netlify 上没有可写磁盘）…」。前台照旧读打包进去的 `data/*.json`，发布控制台退化成"只导出"（和以前静态部署一样） |
+| 音频 `/api/netease/audio?id=…` | **同源流**（支持 Range / 206） | **302** 到解析出来的网易云 CDN 地址（`https://m*.music.126.net/...`）：Range / 拖动进度 / 后台播放都由 CDN 原生处理，函数不扛流量 |
+| Pixiv 图片缓存 | 磁盘缓存（`data/.cache/pixiv-img/`） | 不写盘（`cachePixivImage(..., { noDisk: true })`，函数目录只读），响应加 `Netlify-CDN-Cache-Control: public, max-age=604800, durable` —— 用 **Netlify 边缘缓存**顶替本地磁盘缓存 |
+
+`/api/health` 会报 `deploy: 'netlify' | 'local'` 与 `readonly`（只读时 `writable: false`），
+pixiv 端点列表里也补上了 `image`。
+
+#### ⚠️ 不要加 SPA 兜底重定向
+
+**不要**加 `/* → /index.html 200` 这种 catch-all。本站是 hash 路由，根本不需要它；
+而它会把 `data/album.json`、`assets/img/album/*.jpg` 一并重写成 `index.html`，
+于是相册清单解析失败、每张相册图都显示不出来 —— 也就是说，**它会亲手制造"随机相册不能用"**。
+线上相册出问题时，第一个要检查的就是有没有这条规则。
+
+#### 反过来：只传静态文件同样不行
+
+用拖拽上传或 CLI 时要留意：Functions 目录必须一起上传 / 打包（CLI 会自动做）。
+只做纯静态上传 = 退化成上面「纯静态托管」，Pixiv / 音乐台 / 吉日之歌全部不工作。
+线上 `/api/health` 返回 404 时，先怀疑这一条。
+
+### 先在本地把线上形态验一遍
+
+```bash
+node tools/netlify-dev.mjs 5199                       # 本地模拟 Netlify（静态无兜底 + 真实调用那个 Function）
+node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也可直接对着真实站点 URL 跑）
+```
+
+`netlify-dev.mjs` 按 Netlify 的行为托管仓库：**没有 SPA 兜底**（不存在的路径就 404），
+并把 `/api/*` 交给真实的 `netlify/functions/api.mjs`，`event` 对象按线上形状构造。
+`verify-deploy.mjs` 既查接口语义（`health` / `deploy` / `readonly`、Pixiv 返回的是代理 URL、
+图片代理返回真 JPEG 字节 + CDN 缓存头、SSRF 守卫仍 400、网易云搜索 / 歌词、音频 302 到 CDN、
+内容写入 501、`data/album.json` 仍是 JSON 且相册图能加载），也开真浏览器验客户端端到端。
+实测 **23/23 PASS**。
+
+### 本地 / 线上能力对照
+
+| 能力 | 本地 `node server.mjs` | Netlify |
+| --- | --- | --- |
+| 相册 / 本地插画 | ✅ | ✅ |
+| Pixiv 抽卡 + 图片代理 | ✅ | ✅（走 Function） |
+| 网易云搜索 / 导入歌单 / 站内试听 | ✅ | ✅（音频是 302 到 CDN） |
+| 黄历吉日之歌 | ✅ | ✅ |
+| 发布控制台写入 | ✅ | ❌ 只读（`501`） |
+| `nekos.best` / `waifu.pics` | 浏览器直连，取决于你的网络能不能到 | 同上（**不走代理**，所以"能不能用"因人而异） |
+
+> 想让线上也能发布内容，就得换成带可写存储的后端，并把 `API.base` 指向它 ——
+> 而且**务必加上身份验证**：当前写入接口没有任何鉴权，只适合本机使用。
 
 ---
 
@@ -1147,6 +1250,8 @@ node tools/test-markdown.mjs              # Markdown 渲染器单元测试（33 
 node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ XSS（203 项）
 node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢出检查（1920→360）+ 截图
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（43 项）
+node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs）
+node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：/api/* 语义 + 客户端端到端（23 项）
 node tools/make-audio.mjs                 # 生成示例音频（可选，本地播放列表用）
 
 # 相册导入（需要手机连线 / Pillow）
@@ -1173,6 +1278,16 @@ provider 是 `netease-audio`、有真实时长、进度在走、Media Session �
 manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图标不被裁切、面板至少两张卡、
 面板完整落在视口内、关闭键 ≥ 40px、面板打开时无横向滚动，以及吉日之歌会让站点播放器让路），
 并把截图写进 `.shots/`；失败退出码 1（实测 **43/43 PASS**）。
+`netlify-dev.mjs [port]` 用来在本地把**线上形态**跑起来：按 Netlify 的行为托管仓库
+（静态文件、**没有 SPA 兜底**，不存在的路径就 404），并把 `/api/*` 转给真实的
+`netlify/functions/api.mjs`，`event` 对象按线上形状构造；默认端口 5199。
+`verify-deploy.mjs [baseUrl]` 就是对着它（或真实站点 URL）验"部署完之后到底能不能用"：
+先查接口语义 —— `/api/health` 的 `deploy` / `readonly`、Pixiv 返回的是代理 URL、
+图片代理给的是真 JPEG 字节并带 CDN 缓存头、SSRF 守卫仍然 400、网易云搜索与歌词可用、
+音频在 serverless 下答 `302` 到 CDN、内容写入答 `501`、`data/album.json` 仍是 JSON 且相册图能加载 ——
+再开一个真浏览器验客户端端到端：Pixiv 抽卡出真图、相册抽卡出图、音乐台显示 `PROXY ONLINE`
+并能搜索、黄历在已知吉日 2026-10-10 真的把吉日之歌放出来（实测 **23/23 PASS**）。
+它的价值在于：**相册 / 音乐台 / 吉日之歌 这三件事一旦线上失效，最先坏的就是这里**。
 修改核心代码或 CSS 后建议都跑一遍。
 
 ---

@@ -1,0 +1,43 @@
+# Netlify 部署配置
+# ------------------------------------------------------------------
+# 站点本身是"零构建"的静态站：仓库根目录就是发布内容，
+# 所以 publish = "."，没有 build 命令。
+#
+# 唯一需要平台帮忙的是 /api/*：那些接口要访问外部网站
+# （Pixiv 抽卡与图片、网易云搜索与试听），浏览器直连会被 CORS / 镜像策略挡掉，
+# 本地是靠 server.mjs 代理的。这里把 /api/* 重写到 netlify/functions/api.mjs，
+# 由它 import 同一个 server.mjs 复用同一份实现。
+
+[build]
+  publish = "."
+  # 静态站没有构建步骤：不写 command，Netlify 直接用仓库内容发布
+
+[functions]
+  directory = "netlify/functions"
+  # esbuild 会把 server.mjs 及其相对 import 一起打进来（函数目录之外的文件也能被跟踪），
+  # 用默认的 zisi 打包器时外部相对 import 不一定被打进去
+  node_bundler = "esbuild"
+
+# /api/xxx → /.netlify/functions/api/xxx （status 200 = 重写，不改浏览器地址）
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+# 注意：**不要**再加 "/* → /index.html 200" 这种 SPA 通配回退。
+# 本站是 hash 路由（#/music 这种），没有前端路由需要回退；
+# 加了通配回退会把 data/album.json、assets/img/album/*.jpg 也一起改写成 index.html，
+# 相册清单解析失败、图片全变成 HTML —— 随机相册就是这样被搞坏的。
+
+[[headers]]
+  # 静态图标/字体这类带版本或内容不变的资源：交给 CDN 长缓存
+  for = "/assets/icons/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+[[headers]]
+  # 内容 JSON 与相册清单：改一次就该立刻生效，别让浏览器记死
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "public, max-age=60"

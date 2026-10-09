@@ -154,7 +154,13 @@ export const IMAGE_PROVIDERS = [
     id: 'nekos',
     label: 'NEKOS.BEST',
     kind: 'remote',
-    note: '公开 API，随机动漫插画',
+    /**
+     * ⚠️ 实测：nekos.best 的接口**不返回 CORS 头** —— 服务端 curl 能拿到 200，
+     * 但浏览器 fetch 必被拦。也就是说这个源在本地与线上都出不了图，
+     * 留着是为了"可插拔数据源"的示范。想让它真能用，得像 pixiv 那样走站内代理
+     * （server.mjs / netlify/functions/api.mjs 已经具备这个能力）。
+     */
+    note: '公开 API（无 CORS 头，浏览器直连不可用；仅作可插拔示例）',
     endpoint: 'https://nekos.best/api/v2/neko?amount=12',
     pick: (json) => (json?.results || []).map((r) => r.url).filter(Boolean),
   },
@@ -162,7 +168,8 @@ export const IMAGE_PROVIDERS = [
     id: 'waifu',
     label: 'WAIFU.PICS',
     kind: 'remote',
-    note: '公开 API，SFW 随机插画',
+    /** ⚠️ 同上：接口无 CORS 头；而且本机连这个域名都不通（curl 直接超时），实测不可用 */
+    note: '公开 API（无 CORS 头 + 域名不可达，实测不可用；仅作可插拔示例）',
     endpoint: 'https://api.waifu.pics/many/sfw/waifu',
     method: 'POST',
     body: { exclude: [] },

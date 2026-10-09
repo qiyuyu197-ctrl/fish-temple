@@ -2102,7 +2102,14 @@ async function main() {
     if (P._clockEl) P._clockEl.currentTime = 6;
     P._checkAdvanceNow();
     await wait(900);
-    out.catchUp = { switched: P.index !== idx1 };
+    out.catchUp = {
+      switched: P.index !== idx1,
+      // 偶发红时能一眼看出原因：iframe 重建后若被判成"用户动过官方控制条"，
+      // 估算会被挂起（见 embed:touched 的聚焦启发式），这条用例就会失败
+      suspended: P._advanceSuspended === true,
+      at: Math.round((P._advanceAt || 0) * 10) / 10,
+      timer: !!P._advanceTimer,
+    };
     out.harmless = {
       muted: P._clockEl ? P._clockEl.muted : null,
       aria: P._clockEl ? P._clockEl.getAttribute('aria-hidden') : null,
