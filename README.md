@@ -58,11 +58,11 @@ python -m http.server 5173
 │   │   ├── store.js        内容仓库：文章 / 公告 / 已读状态 / 设置
 │   │   ├── theme.js        主题与密度
 │   │   ├── motion.js       滚动浮现 / 视差 / 数字滚动 / 阅读进度
-│   │   └── player.js       音频引擎（播放列表 / 频谱 / 容错）
+│   │   └── player.js       音频引擎（播放列表 / 频谱 / 容错 / 停顿看门狗）
 │   ├── ui/
 │   │   ├── shell.js        顶栏、抽屉、时钟、播报条、页脚
 │   │   ├── palette.js      命令面板（Ctrl/⌘ + K）
-│   │   ├── embed-host.js   ★ 网易云播放器全局宿主（切板块不断播的关键）
+│   │   ├── embed-host.js   ★ 网易云播放器全局宿主（切板块不断播的关键；`embed:needsTap` 时窄屏停靠底部并展开）
 │   │   ├── miniaudio.js    底部常驻迷你播放条 + 可视化循环
 │   │   ├── almanac.js      顶栏黄历小组件（懒加载通书数据 / 面板 / 吉日之歌）
 │   │   ├── bits.js         可复用展示片段（卡片 / 列表行 / 分区标题）
@@ -104,7 +104,7 @@ python -m http.server 5173
     ├── responsive.mjs      多断点布局溢出检查 + 截图（1920→360）
     ├── verify-playback.mjs 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏黄历按钮不被裁切（43 项）
     ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs（默认 5199）
-    ├── verify-deploy.mjs   线上形态自检：打包安全 lint + `/api/*` 语义 + 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）（27 项）
+    ├── verify-deploy.mjs   线上形态自检：打包安全 lint + `/api/*` 语义 + 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）+ 手机形态两条（iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（29 项）
     ├── test-markdown.mjs   Markdown 渲染器单元测试（33 项）
     ├── content-build.mjs   批量写作：tools/content/*.md → data/posts.json & news.json（整份覆盖）
     ├── content/            批量写作的正文源文件（Markdown）
@@ -132,8 +132,10 @@ python -m http.server 5173
   **同源代理** `GET /api/netease/audio?id=<id>`（支持 Range/206）——服务端只转发网易云
   **对匿名访客本来就返回**的那个外链流，不登录、不碰 VIP / DRM，也不在磁盘上存任何音频。
   于是 `duration` / `currentTime` / `ended` 都是真的：一首**完整播完**才切下一首。
-- **iframe 回退**：直放失败（会员 / 版权受限）时先试一次原始 `outer/url`，仍失败就把这首标成
-  `embedOnly`，退回**官方外链播放器 iframe** —— 也就是下面那些限制适用的范围。
+- **三级回退**：① 同源 `GET /api/netease/audio?id=` → ② 用**访问者自己的 IP** 直接取官方外链
+  （`<audio>` 跟随 302 到 CDN，不需要 CORS）→ ③ 退回**官方外链播放器 iframe**
+  （也就是下面那些限制适用的范围）。手机上的第 ③ 步需要用户点一下播放器里的 ▶，
+  详见「为什么 PC 有声音、手机没声音」。
 - **播放 / 暂停可用**：音乐台页面的按钮会真正控制播放；直放曲目是真实媒体元素，
   暂停 / 续播 / 拖动进度 / 音量都正常，回退的 iframe 曲目暂停会真正静音（但会从头开始）
 - **切板块不断播**：离开音乐台时播放器折叠成右下角小条继续播放，回到音乐台自动展开
@@ -215,13 +217,13 @@ python -m http.server 5173
 | 搜索元数据（歌名/歌手/封面/时长） | ✅ | 经 `server.mjs` 代理，**不需要登录** |
 | 导入公开歌单 / 专辑（含排行榜、`163cn.tv` 短链） | ✅ | 单次最多 300 首，按曲目 id 去重，不打断正在播放的曲目；粘链接即可，类型自动识别（歌单 / 专辑 / 单曲） |
 | 导入「我喜欢的音乐」/ 私密歌单 | ❌ | 需要登录才能读，本项目不实现登录 |
-| 站内试听 | ✅ | **默认直放**：音频流经 `server.mjs` 同源代理（`GET /api/netease/audio?id=…`，支持 Range/206），由页面自己的 `<audio>` 播放；直放失败才退回官方外链播放器 iframe（版权与登录仍由网易云处理） |
+| 站内试听 | ✅ | **默认直放**：音频流经 `server.mjs` 同源代理（`GET /api/netease/audio?id=…`，支持 Range/206），由页面自己的 `<audio>` 播放；服务端 IP 拿不到时，**由访问者自己的 IP** 直接取官方外链；再不行才退回官方外链播放器 iframe（版权与登录仍由网易云处理） |
 | **VIP / 付费专辑曲目出声** | ❌ | **匿名态放不出来**（官方外链 302 到 `/404`）。本站会提前判定并说明，还能一键换成同名的免费版本 —— 见下方「VIP 曲目为什么没声音」 |
 | 播放 / 暂停 / 上一首下一首 | ✅ | 音乐台页面有完整控件；底栏**点封面**也能直接播放 / 暂停；暂停会真正静音 |
 | **播完自动下一首（网易云曲目）** | ✅ 默认**开** | 直放曲目有真正的 `ended`：一首**完整播完**后由媒体管线切下一首，后台标签 / 息屏也照常；只有 iframe 回退曲目仍需按时长估算，并提前 0.8 秒切走 —— 见下方「放完就接上是怎么做到的」 |
 | 拖动进度条 / 调音量 | ⚠️ 直放曲目 ✅ / iframe 回退 ❌ | 直放曲目走真实 `<audio>`，进度与音量接口都在；官方嵌入播放器没有这两个接口，底栏那套控件此前已按要求移除 |
 | 底栏里的网易云折叠条位置 | ✅ | **垂直居中在底栏内**、与左边的音浪条落在同一条水平线（≥1080px 宽时）；更窄的屏放不下就停在底栏上方，避免盖住曲名 |
-| **直接播放音频（本站同源代理的匿名外链流）** | ✅ 默认 | 服务端解析 `song/media/outer/url`（302 → CDN，升级 https）后同源转发，解析结果缓存 15 分钟，**不在磁盘上存任何音频**；拿不到流就 `404` 并回退 iframe |
+| **直接播放音频（本站同源代理的匿名外链流）** | ✅ 默认 | 服务端按顺序试**两个入口**（官方外链 `outer/url` → `enhance@128000`）后同源转发，URL 过网易云 CDN 白名单并升级 https，解析结果缓存 15 分钟，**不在磁盘上存任何音频**；只请求 128000（免费档），拿不到流就 `404` 并回退下一级 |
 | 登录 / VIP 绕过 / DRM 规避 / 逆向接口 | ❌ | 不做登录、不搬运需登录态才能取的音频、不逆向 weapi/eapi；VIP 与版权受限曲目两条路径都放不出声 |
 | 用账号登录换取更多权限 | ❌ | 违反用户协议且有封号风险，不实现也不需要 |
 
@@ -300,12 +302,12 @@ python -m http.server 5173
 
 | 环节 | 做法 |
 | --- | --- |
-| 音频从哪来 | 页面自己的 `<audio>` 播 `GET /api/netease/audio?id=<id>` —— 本站服务器**同源代理**的匿名外链流（支持 Range/206，`Cache-Control: private, max-age=86400`）。服务端解析 `music.163.com/song/media/outer/url?id=<id>.mp3`（302 → CDN，升级 https），解析结果缓存 **15 分钟**；音频只在内存里流转，**不落盘** |
+| 音频从哪来 | 页面自己的 `<audio>` 播 `GET /api/netease/audio?id=<id>` —— 本站服务器**同源代理**的匿名外链流（支持 Range/206，`Cache-Control: private, max-age=86400`）。服务端 `resolveNeteaseAudio()` 按顺序试两个入口：① `music.163.com/song/media/outer/url?id=<id>.mp3`（302 → CDN）② `/api/song/enhance/player/url?ids=[<id>]&br=128000`；URL 过网易云 CDN 白名单并升级 https，解析结果缓存 **15 分钟**；音频只在内存里流转，**不落盘** |
 | 为什么这样就能自动切 | 它是真正的媒体元素：`duration` / `currentTime` / `ended` 都是真的。一首歌**完整播完**，下一首由媒体管线驱动 —— 后台标签、最小化、手机息屏都照常 |
 | 移动端后台播放 | 注册 **Media Session API**（`_bindMediaSession`）：锁屏 / 通知栏 / 耳机线控的播放暂停与上一首下一首、以及进度状态 |
 | 切歌接缝 | 下一首**预加载**（`_primeNext`，`PLAYER.preloadLead = 45`：结束前 45 秒开始准备），切换几乎无缝 |
 | 自愈 | `_bindLifecycle` 在 `visibilitychange` / `pageshow` / `focus` / `resume` 时重查结束状态，并把浏览器自己暂停掉的播放恢复回来（仅当用户意图是「在放」） |
-| 直放失败怎么办 | 三级回退：① 先试一次原始 `https://music.163.com/song/media/outer/url?id=<id>.mp3` → ② 仍失败就把这首标成 `embedOnly` → ③ 退回官方 iframe 播放器（也就是上一节那套旧方案） |
+| 直放失败怎么办 | 三级回退：① 同源 `/api/netease/audio?id=`（服务端 IP 解析）→ ② **访问者自己的 IP** 直接取官方外链（`rawAudioUrl`；`<audio>` 跟随 302 到 CDN 不需要 CORS）→ ③ 退回官方 iframe 播放器（也就是上一节那套旧方案）。② 这一步**不看服务端的 404 结论**，因为那个结论只描述服务端的 IP |
 
 Provider 层面是两个 id：`netease-audio`（直放，`embed: false`，在 `src/plugins/netease.js` 里注册为
 `neteaseAudioProvider`）与 `netease`（iframe）。曲目数据里的 `provider` 仍写 `netease`（持久化与
@@ -388,6 +390,52 @@ height=106    高度
 > 还有一种情况探测不出来：**个别曲目网易云只给试听片段**（确实有音频，但不是完整版）。
 > 服务端能判断"这个 id 匿名态拿不拿得到音频"，判断不了"拿到的是不是完整版"。
 > 遇到「能放、但一小会儿就停」的曲子，用提示块里的同名可播放版本换一首即可。
+
+### 为什么 PC 有声音、手机没声音
+
+现象：网易云《No Why（游戏《少女前线》最终章「零态潮汐」主题歌）》（id `2757934332`）
+在 PC 上听着有声音，同一首在手机上一声不响。查下来是两个原因叠加：
+
+1. **服务端原先只会用一个入口解析音频**。原来只走 `GET /song/media/outer/url?id=X.mp3`，
+   而这条入口对 `fee=8`（低音质免费 / 高音质付费）的曲目答 **`302 → /404`** ——
+   于是这首被判成"匿名态没有音频"，客户端回退到网易云官方 iframe 播放器。
+   **PC 上那个 iframe 通常会自动起播，所以在 PC 听起来一切正常；而手机浏览器
+   （iOS / Android）拒绝自动起播跨域 iframe，必须用户自己去点 iframe 里的 ▶，
+   不点就是静音。** 这就是「PC 有、手机没有」的来源。
+   现在 `resolveNeteaseAudio(id)` 按顺序试**两个入口**（各带独立超时）：
+   ① 官方外链 `outer/url`（长期存在的、被允许的匿名通路）；
+   ② `/api/song/enhance/player/url?ids=[X]&br=128000`。
+   `/api/netease/playable` 也复用**同一个解析器** —— 否则"能不能播"的判定与实际播放会分叉。
+2. **只请求 128000（免费档），绝不请求更高码率** —— 原因见服务器 API 一节的 ⚠️ 规则。
+
+> 同一个 id，本地（国内家宽 IP）能解析、线上（Netlify Functions 跑在 AWS）解析不了，
+> 是网易云**按 IP 区别对待**，不是 bug —— 所以下面这条回退链里专门加了
+> 「用访问者自己的 IP 再试一次」。
+
+客户端的三级回退链（顺序即优先级）：
+
+| 顺序 | 走哪条路 | 说明 |
+| --- | --- | --- |
+| ① | 同源 `GET /api/netease/audio?id=<id>` | 服务端 IP 解析 + 同源代理；拿到就同时拥有真 `duration` / `ended`（默认路径）|
+| ② | **访问者自己的 IP** 直接取官方外链 | `rawAudioUrl`，`<audio>` 跟随 302 到 CDN **不需要 CORS**。救的正是"服务端 IP 被拒、访问者自己的 IP 可以"的曲目（线上实测：服务端回 `404` 的一首，在浏览器里能正常播放）。这一步**不再咨询服务端的 404 结论** —— 那个结论只描述服务端的 IP |
+| ③ | 网易云官方 iframe 播放器 | 前两级都拿不到时。窄屏 / 触摸屏会把它停靠到屏幕底部并保持展开（见下），手机上仍需点一下 ▶ |
+
+**「手机上必须点一下」这个坑现在有专门引导**（`embed:needsTap`）：
+
+- **窄屏 / 触摸屏**：把官方播放器 `dock('docked')` 到底部并 `pinExpanded(true)` 保持展开，
+  让 ▶ 直接出现在眼前（`noteRoute` 在 pinned 状态下不会再把它拉回内联槽位）；
+- **宽屏**：只把它滚动到可见（`bringIntoView`，布局变化后会复核）；
+- **刻意不改**用户保存的紧凑 / 完整播放器偏好（`setCrop`）—— ▶ 本来就在紧凑控制条里；
+- 触发点必须**两条路都发**：`<audio>` 的 error 回退，**以及** `neteaseProvider.play()`
+  （被判"不可播"的曲目会直接进 iframe，根本不经过 `onError` —— 这是用线上几何诊断抓到的真实遗漏）；
+- 音乐台里的提示文案也改成可操作的：明确说"手机浏览器不会自动起播官方播放器，请点它的 ▶"。
+
+还有一个**只在线上出现的死状态**也一并修了：界面显示"正在播放"、`readyState === 0`、
+既没声音也没有任何提示。原因是**换 `src` 会触发一次 abort（`error.code === 1`），
+把紧随其后的 `404` 掩盖掉**，于是整条回退链被跳过。现在 `src/core/player.js` 里有
+**停顿看门狗**（`_armStallWatch` / `_onError({ force: true })`）：只要元素带着错误、
+`networkState === 3`（无可用源），或者声称在播却**连续 10 秒一个字节都没收到**，
+就重新判定并强制执行失败处理。
 
 ### 为什么不做「登录网易云账号」（含播放记录同步）
 
@@ -1111,9 +1159,9 @@ export const Albums = createCollection('albums', { seedFile: 'data/albums.json',
 | `GET` | `/api/netease/playlist?id=3778678&limit=300` | 公开歌单：元数据 + 完整曲目 id 列表（导入歌单用） |
 | `GET` | `/api/netease/lyric?id=347230` | 歌词 LRC 文本（板块标题栏的跟唱要用） |
 | `GET` | `/api/netease/resolve?url=163cn.tv%2Fxxxx` | 展开 `163cn.tv` / `music.163.com` 短链（只允许网易云域名） |
-| `GET` | `/api/netease/playable?id=643982` | 匿名态能否播放（`false` = 会员曲目外链不出声），结果缓存 30 分钟 |
+| `GET` | `/api/netease/playable?id=643982` | 匿名态能否播放（`false` = 会员曲目外链不出声），结果缓存 30 分钟。与 `/api/netease/audio` **复用同一个 `resolveNeteaseAudio()`**，保证"判定"与"实际播放"不会分叉 |
 | `GET` | `/api/netease/playable?detail=1&id=2041508513` | 从音频本身量出的真实秒数（`seconds`/`bitrate`/`mode`），iframe 回退路径的自动下一首与"试听片段"判定都用它 |
-| `GET` | `/api/netease/audio?id=643982` | **音频**：本地是**同源流**（代理 `song/media/outer/url`（302 → CDN，升级 https），支持 Range/206，`Cache-Control: private, max-age=86400`，解析结果缓存 15 分钟，**服务端不落盘**）；serverless 部署下改成 **302** 到解析出的 CDN 地址（Range / 拖动 / 后台播放交给 CDN，函数不扛流量）。两种模式下网易云不给匿名访客流时都返回 `404` |
+| `GET` | `/api/netease/audio?id=643982` | **音频**：`resolveNeteaseAudio(id)` 按顺序试**两个入口** —— ① `song/media/outer/url`（302 → CDN）② `/api/song/enhance/player/url?ids=[id]&br=128000`，各带独立超时；URL 过网易云 CDN 白名单并升级 https，解析结果缓存 15 分钟。本地是**同源流**（支持 Range/206，`Cache-Control: private, max-age=86400`，**服务端不落盘**）；serverless 部署下改成 **302** 到解析出的 CDN 地址（Range / 拖动 / 后台播放交给 CDN，函数不扛流量）。两种模式都带诊断头 `X-Netease-Audio-Via` / `-Bitrate` / `-Trial`；两处都拿不到流时返回 `404`，响应体里列明每个入口的结果（如 `（outer:no、enhance@128000:code-110）`） |
 | `GET` | `/api/netease/status` | 代理状态与各缓存条目数（含 `audioEntries`） |
 
 `/api/content/*` 在**只读部署**（Netlify）下不再落盘，直接返回 `501`
@@ -1127,9 +1175,20 @@ export const Albums = createCollection('albums', { seedFile: 'data/albums.json',
 
 网易云代理的三个约束，写在这里以免以后踩坑：
 
-1. **元数据接口只转发元数据**；会碰音频流的只有 `/api/netease/audio`，而且只转发网易云**对匿名访客本来就返回**的那个外链流（302 → CDN）。不登录、不碰 VIP / DRM，**不在磁盘上存任何音频**；拿不到流就回 `404`，前端据此回退官方外链播放器。
+1. **元数据接口只转发元数据**；会碰音频流的只有 `/api/netease/audio`，而且只转发网易云**对匿名访客本来就返回**的那个外链流（302 → CDN）。不登录、不碰 VIP / DRM，**不在磁盘上存任何音频**；拿不到流就回 `404` —— 前端不会就此认输，它会先用**访问者自己的 IP** 再试一次，仍不行才回退官方外链播放器。
 2. 内置 5 分钟内存缓存 + 350ms 最小调用间隔，避免触发对方风控。
 3. 若被限流会返回明确错误（`网易云返回的不是 JSON（可能被风控）`），前端会提示搜索失败。
+
+> ⚠️ **码率规则：只请求 128000（标准 / 免费档），永远不要请求更高码率。**
+> `enhance` 入口确实会执行网易云的权限门槛，实测：
+> - 真 VIP 曲目（`fee=1`：Taylor Swift《Love Story》《Cruel Summer》、陈奕迅《富士山下》原版）
+>   → 回 `code=-110`，**没有 URL**；
+> - 但对 `fee=8` 的曲目，如果把 `br` 提到 `320000`，它会给出 `level=exhigh` 的 320kbps 地址 ——
+>   那是**付费档**，本项目不拿。
+>
+> 所以只发 `br=128000`：免费档拿得到就播，拿不到就诚实回 `404`，让前端走上面那条回退链。
+> 另外，**同一个 id 本地家宽 IP 能解析、Netlify（AWS）IP 解析不了，是网易云按 IP 的行为，
+> 不是 bug** —— 客户端为此专门有"用访问者自己的 IP 再试一次"这一级（见「为什么 PC 有声音、手机没声音」）。
 
 #### 搜索为什么有 5 个入口（部署到国外机房后暴露出来的）
 
@@ -1304,8 +1363,11 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 `verify-deploy.mjs` 先做**打包安全 lint**（顶层 `__filename` 之类撞 CJS 包装器 = 线上 502），
 再查接口语义（`health` / `deploy` / `readonly`、Pixiv 返回的是代理 URL、图片代理返回真 JPEG 字节、
 SSRF 守卫仍 400、网易云搜索 / 歌词、音频 302 到 CDN、内容写入 501、`data/album.json` 仍是 JSON
-且相册图能加载），也开真浏览器验客户端端到端（含"搜到的歌真的放出声"）。
-实测 **27/27 PASS**（本地仿真与线上 https://yumiao.netlify.app 都跑过）。
+且相册图能加载），也开真浏览器验客户端端到端（含"搜到的歌真的放出声"），
+最后用 **iPhone UA + 390×844 + 触摸**再验一遍手机形态：用户报过的那首曲目必须
+**要么同源出声、要么官方播放器真的落在视口里**（失败时会把几何信息
+`vh/docH/scrollY/dock/hostRect/position` 一并打印出来）。
+实测 **29/29 PASS**（本地仿真与线上 https://yumiao.netlify.app 都跑过）。
 
 ### 本地 / 线上能力对照
 
@@ -1331,7 +1393,7 @@ node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导
 node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢出检查（1920→360）+ 截图
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（43 项）
 node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs）
-node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 客户端端到端（27 项）
+node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 客户端端到端 + 手机形态（29 项）
 node tools/make-audio.mjs                 # 生成示例音频（可选，本地播放列表用）
 
 # 相册导入（需要手机连线 / Pillow）
@@ -1364,7 +1426,7 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 （v2 形态：直接传 Web `Request`、收 Web `Response`，与线上同一个入口）；默认端口 5199。
 `NETLIFY_FAKE_FN_PATH=1` 可模拟"平台给的是函数自己的路径"那种语义。
 `verify-deploy.mjs [baseUrl]` 就是对着它（或真实站点 URL）验"部署完之后到底能不能用"，
-一共 **27 项**，分两层：
+一共 **29 项**，分两层：
 
 **① 静态 + 接口层**
 - **打包安全 lint（零依赖，先跑）**：扫 `server.mjs` 与 `netlify/functions/api.mjs` 的顶层声明
@@ -1380,9 +1442,17 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
   `data/album.json` 仍是 JSON 且相册图能加载。
 
 **② 真浏览器端到端**：Pixiv 抽卡出真图、相册抽卡出图、音乐台显示 `PROXY ONLINE` 并能搜索、
-**搜到的歌真的放出声**（`<audio>` 起播且进度在走）、黄历在已知吉日 2026-10-10 真的把吉日之歌放出来。
+**搜到的歌真的放出声**（`<audio>` 起播且进度在走）、黄历在已知吉日 2026-10-10 真的把吉日之歌放出来，
+再用 **iPhone UA + 390×844 + 触摸**跑两条手机形态检查：
 
-线上实测：**27/27 PASS against https://yumiao.netlify.app**。
+- **用户报过的那首（`2757934332`）**：必须**要么同源出声，要么官方播放器真的在视口里**
+  （`inView: true`）。失败时打印几何信息 `vh / docH / scrollY / dock / hostRect / position`，
+  免得又变成"界面在转但没声音"却无从下手；
+- **一首真 VIP 曲目（`fee=1`）**：不允许静默失败 —— 官方播放器要在视口里，或者给出明确提示。
+
+线上实测：**29/29 PASS against https://yumiao.netlify.app**，其中那首曲目的手机检查
+报 `inView:true`，几何为 `geo: {dock:"docked", expanded:"1", hostRect:{top:630,bottom:776}, vh:844}` ——
+也就是官方播放器确实被停靠并展开在 844px 高的视口里，▶ 摸得到。
 它的价值在于：**相册 / 音乐台 / 吉日之歌 这三件事一旦线上失效，最先坏的就是这里**。
 
 有几件事**看起来像失败、其实不是**，别把数字读歪：
@@ -1394,8 +1464,10 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 | 搜到歌了但"没声音" | 很多曲目匿名态本来就没有音频（会员 / 无版权 / 地区）。站点会提示并给替代版本；工具**最多试 4 首**，任一能放即通过；一首都不行时，只有"每首都回 4xx + JSON 说明"才算上游策略，记为 SKIP |
 | 整个站点 401 + `Login Redirect` | 是 Netlify 的访问保护，不是代码问题（工具会明说，并给出后台路径）|
 | 搜索接口回 `503 上游正在限流` | api.lolicon.app 限流，站点如实上报。工具等 15 秒重试一次，仍失败记为 SKIP |
+| **同时跑多个浏览器套件时偶发失败** | 几个 CDP 套件一起开会抢资源，时序敏感的检查就会抖（搜索超时、`Stage.busy`、播放窗口太短）。**一次只跑一个**，别并行 |
 
-修改核心代码或 CSS 后建议都跑一遍。
+修改核心代码或 CSS 后建议都跑一遍 —— 但**一次只跑一个**：这些都是真浏览器套件，
+并行会互相抢资源，时序类断言（搜索超时、`Stage.busy`、播放窗口）会无端变红。
 
 ---
 
