@@ -583,14 +583,16 @@ async function main() {
     // （实测 outer:no、enhance@128000:code-110），必须退回官方播放器 ——
     // 这时唯一不可接受的是"静默无声"，所以要求：官方播放器可见、且展开成完整形态（▶ 露出来）。
     //
-    // 先刷新一次页面：上一个检查可能正拖着一条 9MB 音频的长流（本地仿真会把大文件
-    // 同源流式转发），新请求排在它后面就会一直 readyState 0 —— 那是本地仿真的产物，
-    // 不是这里要验的东西（线上音频是 302 到 CDN，不存在这种排队）。
-    await page.evalPage('location.reload()').catch(() => { /* 上下文会随刷新销毁 */ });
-    await sleep(3500);
-    for (let i = 0; i < 40; i++) {
-      if (await page.evalPage('!!document.getElementById("neInput")')) break;
-      await sleep(400);
+    // 本地仿真才需要刷新一次页面：上一个检查可能正拖着一条 9MB 音频的长流（仿真器会把大文件
+    // 同源流式转发），新请求排在它后面就会一直 readyState 0 —— 那是仿真器的产物，线上音频是
+    // 302 到 CDN、不存在这种排队，所以对真实部署不做这步（少一个变量）。
+    if (/^https?:\/\/(127\.0\.0\.1|localhost)/.test(BASE)) {
+      await page.evalPage('location.reload()').catch(() => { /* 上下文会随刷新销毁 */ });
+      await sleep(3500);
+      for (let i = 0; i < 40; i++) {
+        if (await page.evalPage('!!document.getElementById("neInput")')) break;
+        await sleep(400);
+      }
     }
 
     const vipGuide = await page.evalPage(`(async () => {

@@ -728,6 +728,23 @@ export const neteaseAudioProvider = {
         track._triedRawLink = true;
         track.src = rawAudioUrl(track.neteaseId);
         ctx.prepare(ctx.index, { autoplay: true });
+        /**
+         * 明确期限：原始外链有可能**既不报错也不出声** —— 跨域媒体卡在 pending 时
+         * 既没有 error 事件也不会 readyState 前进（线上实测遇到过，界面就一直显示"正在播放"
+         * 却永远没有声音、也没有任何提示）。看门狗只在若干条件都成立时才介入，
+         * 所以这里给一条无条件的上限：到点还没开始放，就直接进官方播放器。
+         */
+        clearTimeout(track._rawDeadline);
+        track._rawDeadline = setTimeout(() => {
+          if (ctx.providerId !== 'netease-audio' || ctx.current !== track) return;
+          const a = ctx.audio;
+          if (a && a.readyState > 0 && !a.paused) return;      // 已经在放了，什么都不用做
+          track.embedOnly = true;
+          track.src = '';
+          ctx._failCount = 0;
+          ctx.prepare(ctx.index, { autoplay: !!ctx._intent });
+          bus.emit('embed:needsTap', { track, reason: 'raw-link-deadline' });
+        }, 6000);
         return;
       }
 
