@@ -197,7 +197,7 @@ export function openLyrics() {
           <i class="lyricfull__artist mono"></i>
         </span>
         <span class="lyricfull__acts">
-          <span class="mono lyricfull__hint">歌词按 LRC 时间轴跟唱 · 位置为估算值</span>
+          <span class="mono lyricfull__hint">歌词按 LRC 时间轴跟唱 · 站内直放用真实进度，官方播放器为估算</span>
           <button class="btn btn--sm" id="lyricOffsetBack" title="歌词提前 0.5 秒">−0.5s</button>
           <button class="btn btn--sm" id="lyricOffsetFwd" title="歌词延后 0.5 秒">+0.5s</button>
           <button class="btn btn--sm" id="lyricClose">✕ 关闭</button>

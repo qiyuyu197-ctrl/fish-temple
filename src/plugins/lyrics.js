@@ -97,7 +97,11 @@ export const Lyrics = {
       else this.stop();
     });
     bus.on('player:state', ({ playing } = {}) => {
-      if (playing === false) this.stop();
+      if (playing === false) return this.stop();
+      // 直放（同源 <audio>）不会发 player:embed，所以起表也得挂在这里 ——
+      // 否则歌词显示第一行后就再也不动（详见 now() 的注释）。
+      if (playing === true && !this._running) this.start(0);
+      return undefined;
     });
 
     return this;
@@ -170,6 +174,27 @@ export const Lyrics = {
     return Math.max(0, raw - this.offset);
   },
 
+  /**
+   * 歌词该用哪个时间。
+   *
+   * ⚠️ 这里踩过坑：站内直放（同源 `<audio>`）**有真实的 currentTime**，官方 iframe 读不到
+   * （`Player.currentTime` 在 embed 下恒为 0，见 core/player.js），只能按时长估算。
+   * 早先只有 `player:embed`（autoplay=true）会 `start()`，而直放曲目发出的是
+   * `player:embed {track:null}` → 计时器从来没起过，表现为「歌词显示第一行就再也不动」。
+   * 那次是"付费曲目从 iframe 改成站内直放"之后暴露的 —— 直放多了，歌词反而停了。
+   *
+   * 所以：直放时直接读播放器的真实进度（还免了估算漂移），只有 embed 才回退到挂钟估算。
+   */
+  now() {
+    try {
+      const t = Player?.currentTime;
+      if (!Player?.isEmbed && Number.isFinite(t) && t > 0) {
+        return Math.max(0, t * 1000 - this.offset);
+      }
+    } catch { /* 播放器还没起来 */ }
+    return this.elapsed();
+  },
+
   /** 手动校准（正值 = 歌词往后推） */
   setOffset(ms) {
     this.offset = Math.max(-5000, Math.min(30000, Number(ms) || 0));
@@ -194,7 +219,7 @@ export const Lyrics = {
   /** 找出当前该显示哪一行，变了就广播 */
   _tick(force = false) {
     if (!this.lines.length) return;
-    const ms = this.elapsed();
+    const ms = this.now();
     let i = -1;
     for (let k = 0; k < this.lines.length; k++) {
       if (this.lines[k].t <= ms) i = k; else break;

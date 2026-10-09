@@ -217,7 +217,10 @@ async function main() {
   };
   const rnd = await getPixivRandom(4);
   const items = rnd.json?.items || [];
-  if (rnd.res.status === 503 && /限流/.test(rnd.text || '')) {
+  // 上游限流时，后面几条依赖"抽到的作品"的检查也要跟着记 SKIP，不能算部署故障
+  const pixivSkipped = rnd.res.status === 503 && /限流/.test(rnd.text || '');
+  const pixivSkipNote = '跳过：api.lolicon.app 正在限流（上游条件，非本站回归）';
+  if (pixivSkipped) {
     check('Pixiv 抽卡接口返回作品', true, '跳过：上游 api.lolicon.app 正在限流（接口本身行为正确）');
   } else {
     check('Pixiv 抽卡接口返回作品', rnd.res.ok && items.length > 0, `count=${items.length}`);
@@ -241,16 +244,17 @@ async function main() {
       + (b.length < 400 ? ` ${b.toString('utf8').replace(/\s+/g, ' ').slice(0, 110)}` : '');
     await sleep(1200);
   }
-  check('图片代理真的能取到图（image/jpeg）', !!img,
-    img ? `${img.status} ${img.headers.get('content-type')} ${buf.length}B` : `连试 3 张都没取到：${imgDetail}`);
+  check('图片代理真的能取到图（image/jpeg）', pixivSkipped || !!img,
+    pixivSkipped ? pixivSkipNote
+      : (img ? `${img.status} ${img.headers.get('content-type')} ${buf.length}B` : `连试 3 张都没取到：${imgDetail}`));
 
   // Netlify 会在边缘**消费** Netlify-CDN-Cache-Control（它是给 CDN 的指令，不会回给客户端），
   // 所以线上看不到这个头是正常的：能确认响应来自 Netlify 边缘就说明指令已被平台接走。
   const cdn = img?.headers.get('netlify-cdn-cache-control') || null;
   const onNetlifyEdge = /netlify/i.test(img?.headers.get('server') || '');
   check('图片缓存指令到位（本地回显 CDN 指令；线上由 Netlify 边缘消费）',
-    !!img && (!!cdn || onNetlifyEdge),
-    cdn || (onNetlifyEdge ? '线上已由边缘消费该指令（server: Netlify）' : '—'));
+    pixivSkipped || (!!img && (!!cdn || onNetlifyEdge)),
+    pixivSkipped ? pixivSkipNote : (cdn || (onNetlifyEdge ? '线上已由边缘消费该指令（server: Netlify）' : '—')));
   const ssrf = await get('/api/pixiv/image?url=https%3A%2F%2Fexample.com%2Fx.jpg');
   check('图片代理不是开放代理（非白名单域名 400）', ssrf.res.status === 400, `HTTP ${ssrf.res.status}`);
 
@@ -348,10 +352,11 @@ async function main() {
       return { ok: !!second?.loaded, proxied: String(first.url).startsWith('/api/pixiv/image?'), first, second };
     })()`);
     check('客户端：随机插画（PIXIV 源）抽到了站内代理地址的图',
-      pixivDraw?.proxied === true, String(pixivDraw?.first?.url || pixivDraw?.why || '').slice(0, 70));
+      pixivSkipped || pixivDraw?.proxied === true,
+      pixivSkipped ? pixivSkipNote : String(pixivDraw?.first?.url || pixivDraw?.why || '').slice(0, 70));
     check('客户端：这张图在浏览器里真的显示出来了（不是 404/破图）',
-      pixivDraw?.ok === true,
-      JSON.stringify({ first: pixivDraw?.first && { status: pixivDraw.first.status, loaded: pixivDraw.first.loaded, bytes: pixivDraw.first.bytes }, second: pixivDraw?.second && { status: pixivDraw.second.status, loaded: pixivDraw.second.loaded, bytes: pixivDraw.second.bytes } }));
+      pixivSkipped || pixivDraw?.ok === true,
+      pixivSkipped ? pixivSkipNote : JSON.stringify({ first: pixivDraw?.first && { status: pixivDraw.first.status, loaded: pixivDraw.first.loaded, bytes: pixivDraw.first.bytes }, second: pixivDraw?.second && { status: pixivDraw.second.status, loaded: pixivDraw.second.loaded, bytes: pixivDraw.second.bytes } }));
 
     // 本地相册源：离线可用，不受部署形态影响
     const albumDraw = await page.evalPage(`(async () => {
@@ -451,6 +456,51 @@ async function main() {
       check('客户端：搜到的歌在站内真的放出声了（同源代理 → 网易云 CDN）', false,
         JSON.stringify(playCheck?.attempts || playCheck?.why || playCheck));
     }
+
+    // 歌词时钟：直放曲目（同源 <audio>）必须跟着**真实进度**走。
+    // 线上出现过：付费曲从 iframe 改成站内直放之后，歌词只在 player:embed 起表 ——
+    // 直放不发那个事件，于是「显示第一行之后再也不动」。这条钉住那个回归。
+    const lyricCheck = await page.evalPage(`(async () => {
+      const { Player } = await import('/src/core/player.js');
+      const { Lyrics } = await import('/src/plugins/lyrics.js');
+      const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+      if (!Player.tracks.length) return { ok: false, why: '播放列表为空' };
+      const a = { t: Player.currentTime, l: Lyrics.now() / 1000 };
+      await nap(4500);
+      const b = { t: Player.currentTime, l: Lyrics.now() / 1000 };
+      return {
+        ok: true,
+        embed: Player.isEmbed === true,
+        lines: Lyrics.lines.length,
+        running: Lyrics._running === true,
+        index: Lyrics.index,
+        dT: Number((b.t - a.t).toFixed(2)),
+        dL: Number((b.l - a.l).toFixed(2)),
+      };
+    })()`);
+    if (lyricCheck?.ok === true && lyricCheck.lines > 0) {
+      check('客户端：歌词时钟跟着真实播放进度走（直放曲目不会停在第一行）',
+        lyricCheck.running === true && lyricCheck.dL > 1
+          && Math.abs(lyricCheck.dL - lyricCheck.dT) < 1.5,
+        JSON.stringify(lyricCheck));
+    } else {
+      check('客户端：歌词时钟跟着真实播放进度走（直放曲目不会停在第一行）', true,
+        `跳过：当前曲目没有 LRC 歌词可验 ${JSON.stringify(lyricCheck)}`);
+    }
+
+    // 右下角那个 Netlify 免费版徽章（固定定位 iframe）不该挡住我们自己的底栏
+    const badge = await page.evalPage(`(() => {
+      const els = ['nl-badge-frame', 'nl-hud-frame']
+        .map((id) => document.getElementById(id)).filter(Boolean);
+      return {
+        found: els.length,
+        ids: els.map((el) => el.id),
+        hidden: els.every((el) => getComputedStyle(el).display === 'none'),
+      };
+    })()`);
+    check('右下角的 Netlify 徽章没有遮挡底栏（未注入，或被隐藏）',
+      badge?.found === 0 || badge?.hidden === true,
+      badge?.found === 0 ? '本环境没有注入徽章' : JSON.stringify(badge));
 
     // 移动端形态再走一遍「搜歌 → 点播放」。线上出现过的真实问题：
     // 有些歌（例如付费曲《No Why》）解析不到站内直放，就退回官方 iframe —

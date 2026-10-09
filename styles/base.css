@@ -458,3 +458,21 @@ code, pre { font-family: var(--font-mono); }
   background: var(--alert); color: #fff; padding: var(--sp-3) var(--sp-4);
   font-family: var(--font-mono); font-size: var(--fs-sm); text-align: center;
 }
+
+/* ============================================================
+   第三方注入的 UI —— Netlify 免费版的「Powered by Netlify」徽章
+   ------------------------------------------------------------
+   它由 Netlify 边缘注入的脚本渲染成一个固定定位的 iframe 贴在右下角
+   （id 是 nl-badge-frame；私有项目那根工具条是 nl-hud-frame），
+   z-index 高达 2147483645 —— 手机上正好压住我们底部的音浪条。
+
+   ⚠️ 正规做法是**在 Netlify 后台关掉**（对所有访客生效、且不用重新部署）：
+      Project configuration → General → Powered by Netlify badge → 关闭 → Save
+   这条 CSS 只是兜底：开关生效前后，它都不该挡住我们自己的界面。
+   （官方文档说明该脚本在隔离 iframe 里渲染，我们的样式管不到它内部，
+     但可以隐藏这个 iframe 本身。）
+   ============================================================ */
+#nl-badge-frame,
+#nl-hud-frame {
+  display: none !important;
+}

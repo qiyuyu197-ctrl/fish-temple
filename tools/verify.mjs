@@ -1157,22 +1157,33 @@ async function main() {
     try {
       for (let i = 0; i < 3; i++) {
         const r = await fetch(`${BASE}/api/pixiv/random?num=6`);
-        if (!r.ok) return { status: r.status, error: `批次 ${i + 1} HTTP ${r.status}` };
+        if (!r.ok) {
+          // 上游（api.lolicon.app）会限流，服务端如实回 503 + 说明。
+          // 那是外部条件、不是本站回归，所以单独标出来供下面记 SKIP。
+          const body = await r.json().catch(() => ({}));
+          return {
+            status: r.status,
+            error: `批次 ${i + 1} HTTP ${r.status}`,
+            throttled: r.status === 503 && /限流/.test(String(body.error || '')),
+          };
+        }
         const j = await r.json();
         batches.push({ count: j.count, poolLeft: j.poolLeft, items: (j.items || []).map((x) => x.pid) });
       }
       return { status: 200, batches };
     } catch (e) { return { error: String(e.message || e) }; }
   })();
+  const pixivThrottled = pixivBatches?.throttled === true;
+  const pixivSkip = '跳过：api.lolicon.app 正在限流（上游条件，非本站回归）';
   const pixivItems = (pixivBatches?.batches || []).flatMap((b) => b.items);
   const pixivUnique = new Set(pixivItems).size;
   record('Pixiv：服务端代理能取到随机作品（带镜像直链）',
-    pixivBatches?.status === 200 && (pixivBatches?.batches?.[0]?.count || 0) > 0
-      && pixivItems.every((pid) => /^\d+$/.test(pid)),
-    JSON.stringify({ batches: (pixivBatches?.batches || []).map((b) => ({ n: b.count, left: b.poolLeft })) }));
+    pixivThrottled || (pixivBatches?.status === 200 && (pixivBatches?.batches?.[0]?.count || 0) > 0
+      && pixivItems.every((pid) => /^\d+$/.test(pid))),
+    pixivThrottled ? pixivSkip : JSON.stringify({ batches: (pixivBatches?.batches || []).map((b) => ({ n: b.count, left: b.poolLeft })) }));
   record('Pixiv：连续抽取不重复（服务端抽卡池，发过的不再发）',
-    pixivItems.length >= 12 && pixivUnique === pixivItems.length,
-    `共 ${pixivItems.length} 张 / 去重 ${pixivUnique} 张 / 重复 ${pixivItems.length - pixivUnique} 张`);
+    pixivThrottled || (pixivItems.length >= 12 && pixivUnique === pixivItems.length),
+    pixivThrottled ? pixivSkip : `共 ${pixivItems.length} 张 / 去重 ${pixivUnique} 张 / 重复 ${pixivItems.length - pixivUnique} 张`);
 
   // 图片走本站 /api/pixiv/image：代理 + 磁盘缓存 + 域名白名单。
   // 这是「快」的关键：浏览器只跟 localhost 打交道，第二次取同一张是毫秒级。
@@ -1199,11 +1210,16 @@ async function main() {
     } catch (e) { return { error: String(e.message || e) }; }
   })();
   record('Pixiv：图片经本站代理 + 磁盘缓存（第二次命中，毫秒级）',
-    (pixivImg?.bytes || 0) > 1000 && pixivImg?.cache2 === 'hit' && (pixivImg?.second || 9e9) < 3000
-      && /^image\//.test(pixivImg?.ct || '') && /max-age/.test(pixivImg?.cc || ''),
-    JSON.stringify({ kb: Math.round((pixivImg?.bytes || 0) / 1024), firstMs: pixivImg?.first, secondMs: pixivImg?.second, cache1: pixivImg?.cache1, cache2: pixivImg?.cache2, ct: pixivImg?.ct }));
+    pixivThrottled || ((pixivImg?.bytes || 0) > 1000 && pixivImg?.cache2 === 'hit' && (pixivImg?.second || 9e9) < 3000
+      && /^image\//.test(pixivImg?.ct || '') && /max-age/.test(pixivImg?.cc || '')),
+    pixivThrottled ? pixivSkip : JSON.stringify({ kb: Math.round((pixivImg?.bytes || 0) / 1024), firstMs: pixivImg?.first, secondMs: pixivImg?.second, cache1: pixivImg?.cache1, cache2: pixivImg?.cache2, ct: pixivImg?.ct }));
+  // 白名单守卫不依赖上游：即使限流也要真的验（它必须拒绝非镜像域名）
   record('Pixiv：图片代理只允许镜像域名（不会变成开放代理）',
-    pixivImg?.guard === 400, `example.com → HTTP ${pixivImg?.guard}`);
+    pixivImg?.guard === 400 || (await (async () => {
+      const bad = await fetch(`${BASE}/api/pixiv/image?url=${encodeURIComponent('https://example.com/x.jpg')}`);
+      return bad.status === 400;
+    })()),
+    `example.com → HTTP ${pixivImg?.guard}`);
 
   const pixivUI = await (async () => {
     // 提供者芯片在画廊页上，先切回去再取（不要依赖前面用例留下的页面状态）
@@ -1385,11 +1401,15 @@ async function main() {
       out.first = s.songs[0] && { id: s.songs[0].id, name: s.songs[0].name, artists: s.songs[0].artists, dur: s.songs[0].duration };
       const P = window.Terminal.Player;
       P.clear();
+      // 站内直放现在对大多数曲目都可用，所以要**显式关掉直放**才能验"官方播放器"这条路
+      //（这条用例的意图是：回退路径必须一直完好，它对会员/受限曲目与纯静态部署都是唯一出路）
+      P.setDirectAudio(false);
       out.addResult = P.add(mod.toTrack(s.songs[0]), { play: true });
       mod.savePlaylist(P.tracks);
       await new Promise(r => setTimeout(r, 700));
       const frame = document.getElementById('neFrame');
       out.embed = { provider: P.providerId, isEmbed: P.isEmbed, title: P.current?.title, frameSrc: frame ? frame.getAttribute('src') : null };
+      P.setDirectAudio(null);          // 复原，别影响后面的用例
       out.saved = JSON.parse(localStorage.getItem('ft.terminal.neteasePlaylist') || '[]').length;
       out.parse = {
         url: mod.parseSongId('https://music.163.com/#/song?id=347230'),
