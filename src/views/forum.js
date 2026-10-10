@@ -341,7 +341,9 @@ export default {
       const btn = $('#forumSubmit', root);
       const title = $('#fTitle', root).value.trim();
       const body = $('#fBody', root).value;
-      const tags = $('#fTags', root).value.split(/[,，]/).map((s) => s.trim()).filter(Boolean).slice(0, 8);
+      // 标签上限跟服务端一致（服务端是 6 个 × 24 字）：这里原来写 8，
+      // 结果用户填 8 个会被服务端静默截到 6 个 —— 界面不提示、内容却少了，属于"看起来成功了"。
+      const tags = $('#fTags', root).value.split(/[,，]/).map((s) => s.trim()).filter(Boolean).slice(0, 6);
       if (!title) { Toast.show('标题不能为空', 'err'); return; }
       if (!body.trim()) { Toast.show('正文不能为空', 'err'); return; }
 
