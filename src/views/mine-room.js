@@ -3,16 +3,18 @@
  * ------------------------------------------------------------------
  * 服务端权威 + 版本轮询（见 plugins/mine-room.js）。
  *
- * **棋盘与反馈复用单人局那一整套**（站主要求：UI 与交互反馈和单人局一样）：
- *   · 同样的标记 `.ms-stage > .ms-scroll > .ms-board > .ms-cell`、同样的 `--ms-cell` 尺寸变量、
- *     `data-n` 数字配色，以及同一批状态类：
- *     is-open / is-flag / is-mine / is-boom / is-wrong / is-pre（和弦预亮）/ is-nope（旗不够晃一下）/
- *     is-pop（揭开放大）/ is-flagged（插旗弹动）/ is-cascade（踩雷级联）/ is-win（通关波浪），
- *     舞台踩雷时加 is-shake 震屏
- *   · 同样的 HUD：剩余雷数 / 计时 / 进度条 / 状态灯 / 左键模式切换（触屏单手也能只插旗）
- *   · 长按插旗、右键插旗、点已揭开的数字和弦 —— 手势与单人局一致
- * 唯一差别是"状态从哪来"：单人局是本机引擎，这里是轮询服务端的权威棋盘，
- * 所以动画靠**对比上一帧**触发（单人局靠引擎返回的事件）。
+ * **棋盘与反馈复用单人局那一整套**（站主要求：和单人局一样）：
+ *   同样的 .ms-hud / .ms-stage > .ms-scroll > .ms-board > .ms-cell、同样的 --ms-cell 尺寸、
+ *   data-n 数字配色，以及同一批状态类：is-open / is-flag / is-mine / is-boom / is-wrong /
+ *   is-pre（和弦预亮）/ is-nope（旗不够晃一下）/ is-pop（揭开放大）/ is-flagged（插旗弹动）/
+ *   is-cascade（踩雷级联）/ is-win（通关波浪），舞台踩雷时 is-shake 震屏。
+ *
+ * ⚠️ 两个踩过的坑（都写在注释里，免得再犯）：
+ *   ① 引擎的终局是 **over / won 布尔**，不是 state === 'won'/'lost' ——
+ *      之前按 state 判断，导致结算条、雷区级联、翻雷全都不触发。
+ *   ② 轮询每 250ms 一次，如果每次都把所有格子重画一遍，棋盘会**抖**
+ *      （文字节点重排 + 动画类反复加删）。所以这里只画**真正变化的格子**，
+ *      悬停预亮也只在"指针换到另一格"时才触发。
  *
  * 联机自己才有的东西：邀请链接/房间号、队友列表（在线 + 色标）、房主开新局。
  */
@@ -27,14 +29,14 @@ import { LEVELS, getLevel } from '../plugins/minesweeper.js';
 const ONLINE_MS = 25 * 1000;
 const LONG_PRESS = 500;
 
-let ui = { level: 'beginner', mode: 'dig' };   // mode: dig 挖开 / flag 只插旗（与单人局同一个概念）
-let prev = null;                                // 上一帧棋盘，用来决定播哪些动画
+let ui = { level: 'beginner', mode: 'dig' };   // mode: dig 挖开 / flag 只插旗
+let prev = null;                                // 上一帧棋盘（差异对比 + 动画触发）
+let lastHover = -1;                             // 上一次预亮的格（防止悬停时反复晃）
 
-/** 队友色标：由账号 id 哈希出稳定色相（同一个人在列表里颜色不变） */
-function hueOf(sub) { let h = 0; for (let k = 0; k < String(sub).length; k++) h = (h * 31 + String(sub).charCodeAt(k)) % 360; return h; }
-
+const hueOf = (sub) => { let h = 0; const s = String(sub); for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) % 360; return h; };
 const inviteLink = (id) => `${location.origin}${location.pathname}#/mine?room=${encodeURIComponent(id)}`;
 const isOnline = (m) => m && m.lastAt && (Date.now() - Date.parse(m.lastAt) < ONLINE_MS);
+const isFinal = (g) => !!g && (!!g.over || !!g.won);
 const cellGlyph = (c) => {
   if (c.flag && !c.open) return '⚑';
   if (!c.open) return '';
@@ -48,7 +50,7 @@ function hudHTML(room) {
   const g = room.game;
   const lv = getLevel(room.level);
   const secs = Math.round((room.elapsedMs || 0) / 1000);
-  const st = g.state === 'won' ? 'CLEAR' : g.state === 'lost' ? 'BOOM' : (g.startedAt ? 'RUN' : 'READY');
+  const st = g.won ? 'CLEAR' : g.over ? 'BOOM' : (g.startedAt ? 'RUN' : 'READY');
   return `
     <div class="ms-hud" style="margin-top:var(--sp-5)">
       <div class="ms-hud__group ms-hud__levels">
@@ -58,7 +60,7 @@ function hudHTML(room) {
       </div>
       <div class="ms-hud__group ms-hud__meters">
         <span class="ms-meter" title="剩余雷数"><em class="mono">MINES</em><b id="mrMines">${room.minesLeft}</b></span>
-        <span class="ms-meter" title="用时（第一下起表）"><em class="mono">TIME</em><b id="mrTime">${secs}s</b></span>
+        <span class="ms-meter" title="用时"><em class="mono">TIME</em><b id="mrTime">${secs}s</b></span>
         <span class="ms-progress" title="已挖开比例"><i id="mrProg" style="width:${Math.round((room.progress || 0) * 100)}%"></i></span>
         <span class="ms-state" id="mrState"><span class="status-dot"></span><b class="mono">${st}</b></span>
       </div>
@@ -99,6 +101,18 @@ function membersHTML(room) {
     </li>`).join('')}</ul>`;
 }
 
+/** 结算条（与单人局的 .ms-banner 同构；失败时雷已经在服务端翻出来了） */
+function bannerHTML(room) {
+  const g = room.game;
+  const won = !!g.won;
+  return `<div class="ms-banner ${won ? 'is-win' : ''}" style="margin-top:var(--sp-4)">
+    <div class="ms-banner__main">
+      <b class="mono">${won ? 'ALL CLEAR' : 'BOOM'}</b>
+      <span>${won ? '全部扫清，合作通关！' : '踩到雷了 —— 雷已经全翻出来了，让房主开新局'}</span>
+    </div>
+  </div>`;
+}
+
 function panelHTML() {
   if (!Auth.enabled) {
     return `<div class="mr-card"><b class="mono">本站还没启用账号功能</b>
@@ -135,7 +149,7 @@ function panelHTML() {
   }
 
   const room = MineRoom.room;
-  const done = room.finished || room.game.state === 'won' || room.game.state === 'lost';
+  const done = room.finished || isFinal(room.game);
   return `
     <div class="mr-card">
       <div class="mr-head">
@@ -157,23 +171,17 @@ function panelHTML() {
     <section class="ms">
       ${hudHTML(room)}
       ${boardHTML(room)}
-      ${done ? `<div class="ms-banner ${room.game.state === 'won' ? 'is-win' : ''}" style="margin-top:var(--sp-4)">
-        <div class="ms-banner__main">
-          <b class="mono">${room.game.state === 'won' ? 'ALL CLEAR' : 'BOOM'}</b>
-          <span>${room.game.state === 'won' ? '全部扫清，合作通关！' : '踩到雷了 —— 让房主开新局'}</span>
-        </div>
-      </div>` : ''}
+      ${done ? bannerHTML(room) : ''}
       <div class="mr-row" style="margin-top:var(--sp-4)">
         ${room.isHost ? `<button class="btn btn--sm ${done ? 'btn--signal' : ''}" id="mrRestart">开新局（房主）</button>` : ''}
         <button class="btn btn--sm" id="mrLeave">${room.isHost ? '解散房间' : '退出房间'}</button>
       </div>
-      <p class="mr-note">左键揭格、右键插旗、点已揭开的数字和弦（与单人局手势一致）；触屏长按插旗，或用右上角的“挖开/插旗”切换。<br>
-        队友列表里每个人都带一个色标 —— 用于对照"这一局是谁在和你一起挖"。</p>
+      <p class="mr-note">左键揭格、右键插旗、点已揭开的数字和弦（与单人局手势一致）；触屏长按插旗，或用右上角的“挖开/插旗”切换。</p>
     </section>
     ${MineRoom.error ? `<div class="mr-err mono">${esc(MineRoom.error)}</div>` : ''}`;
 }
 
-/* ---------------- 把"与上一帧的差异"变成单人局那套动画 ---------------- */
+/* ---------------- 差异同步（只画变化的格子，避免抖动） ---------------- */
 
 const cellOf = (i) => document.querySelector(`#mrBoard .ms-cell[data-i="${i}"]`);
 
@@ -185,29 +193,34 @@ function play(kind, i, delay = 0) {
   if (kind !== 'is-flag' && kind !== 'is-nope') setTimeout(() => el.classList.remove(kind), 700);
 }
 
-function paintCell(i) {
-  const room = MineRoom.room;
+/** 只改这一格真正需要改的东西（不重设相同的文本/类，避免反复重排） */
+function paintCell(i, c) {
   const el = cellOf(i);
-  if (!el || !room) return;
-  const c = room.game.cells[i];
-  el.classList.toggle('is-open', !!c.open);
-  el.classList.toggle('is-flag', !!c.flag && !c.open);
-  el.classList.toggle('is-mine', !!c.mine && !!c.open);
-  el.classList.toggle('is-boom', !!c.boom);
-  if (c.open && c.adj && !c.mine) el.setAttribute('data-n', String(c.adj));
-  else el.removeAttribute('data-n');
-  el.textContent = cellGlyph(c);
+  if (!el) return;
+  const want = {
+    isOpen: !!c.open,
+    isFlag: !!c.flag && !c.open,
+    isMine: !!c.mine && !!c.open,
+    isBoom: !!c.boom,
+  };
+  if (el.classList.contains('is-open') !== want.isOpen) el.classList.toggle('is-open', want.isOpen);
+  if (el.classList.contains('is-flag') !== want.isFlag) el.classList.toggle('is-flag', want.isFlag);
+  if (el.classList.contains('is-mine') !== want.isMine) el.classList.toggle('is-mine', want.isMine);
+  if (el.classList.contains('is-boom') !== want.isBoom) el.classList.toggle('is-boom', want.isBoom);
+  const n = c.open && c.adj && !c.mine ? String(c.adj) : '';
+  if ((el.getAttribute('data-n') || '') !== n) { if (n) el.setAttribute('data-n', n); else el.removeAttribute('data-n'); }
+  const glyph = cellGlyph(c);
+  if (el.textContent !== glyph) el.textContent = glyph;
 }
 
 function syncBoard(room) {
   const g = room.game;
-  const board = document.getElementById('mrBoard');
-  if (!board) return;
+  if (!document.getElementById('mrBoard')) return;
+
   if (!prev || prev.cols !== g.cols || prev.count !== g.cells.length) {
-    // 新局/换难度：整块舞台重画（HUD 由 panelHTML 负责，这里只管棋盘）
     const stage = document.getElementById('mrStage');
     if (stage) stage.outerHTML = boardHTML(room);
-    prev = { cols: g.cols, count: g.cells.length, state: g.state, cells: g.cells.map((c) => ({ ...c })) };
+    prev = { cols: g.cols, count: g.cells.length, over: g.over, won: g.won, cells: g.cells.map((c) => ({ ...c })) };
     return;
   }
 
@@ -215,33 +228,40 @@ function syncBoard(room) {
   const flagged = [];
   g.cells.forEach((c, i) => {
     const p = prev.cells[i] || {};
+    const changed = c.open !== p.open || c.flag !== p.flag || c.boom !== p.boom || c.adj !== p.adj || c.mine !== p.mine;
+    if (!changed) return;
     if (c.open && !p.open) opened.push(i);
     if (!!c.flag !== !!p.flag && !c.open) flagged.push(i);
+    paintCell(i, c);
   });
-  g.cells.forEach((c, i) => paintCell(i));
-  opened.forEach((i, k) => play('is-pop', i, Math.min(k, 40) * 14));
+  opened.forEach((i, k) => play('is-pop', i, Math.min(k, 40) * 12));
   flagged.forEach((i) => play('is-flagged', i));
 
+  // 终局（按引擎真实字段 over / won 判断）
   const stage = document.getElementById('mrStage');
-  if (g.state === 'lost' && prev.state !== 'lost') {
+  if (g.over && !g.won && !(prev.over && !prev.won)) {
     g.cells.forEach((c, i) => { if (c.flag && !c.mine) play('is-wrong', i); });
     g.cells.forEach((c, i) => { if (c.mine && c.open) play('is-cascade', i); });
     if (stage) { stage.classList.add('is-shake'); setTimeout(() => stage.classList.remove('is-shake'), 420); }
   }
-  if (g.state === 'won' && prev.state !== 'won') {
+  if (g.won && !prev.won) {
     g.cells.forEach((c, i) => { if (c.open) play('is-win', i, Math.min(i, 60) * 8); });
   }
 
-  const m = document.getElementById('mrMines'); if (m) m.textContent = String(room.minesLeft);
-  const t = document.getElementById('mrTime'); if (t) t.textContent = `${Math.round((room.elapsedMs || 0) / 1000)}s`;
+  const m = document.getElementById('mrMines'); if (m) { const v = String(room.minesLeft); if (m.textContent !== v) m.textContent = v; }
+  const t = document.getElementById('mrTime'); if (t) { const v = `${Math.round((room.elapsedMs || 0) / 1000)}s`; if (t.textContent !== v) t.textContent = v; }
   const p = document.getElementById('mrProg'); if (p) p.style.width = `${Math.round((room.progress || 0) * 100)}%`;
   const st = document.getElementById('mrState');
-  if (st) st.querySelector('b').textContent = g.state === 'won' ? 'CLEAR' : g.state === 'lost' ? 'BOOM' : (g.startedAt ? 'RUN' : 'READY');
+  if (st) {
+    const v = g.won ? 'CLEAR' : g.over ? 'BOOM' : (g.startedAt ? 'RUN' : 'READY');
+    const b = st.querySelector('b');
+    if (b && b.textContent !== v) b.textContent = v;
+  }
 
-  prev = { cols: g.cols, count: g.cells.length, state: g.state, cells: g.cells.map((c) => ({ ...c })) };
+  prev = { cols: g.cols, count: g.cells.length, over: g.over, won: g.won, cells: g.cells.map((c) => ({ ...c })) };
 }
 
-/** 和弦预亮 / 旗不够晃一下（与单人局同一套 is-pre / is-nope） */
+/** 和弦预亮 / 旗不够晃一下（只在指针换格时触发，避免抖动） */
 function hoverFeedback(i, on) {
   const room = MineRoom.room;
   if (!room) return;
@@ -275,6 +295,7 @@ export default {
 
   render() {
     prev = null;
+    lastHover = -1;
     return `${viewhead({
       title: 'MINESWEEPER · 联机',
       sub: '一块共享棋盘，谁揭开的都同步给全房间；棋盘与反馈和单人局一致。只对注册用户开放，建房后把邀请链接发给朋友即可。',
@@ -288,33 +309,31 @@ export default {
   },
 
   mount(root) {
-    const repaint = (freshBoard = false) => {
+    const snapshot = () => {
+      if (!MineRoom.active) { prev = null; return; }
+      const g = MineRoom.room.game;
+      prev = { cols: g.cols, count: g.cells.length, over: g.over, won: g.won, cells: g.cells.map((c) => ({ ...c })) };
+    };
+
+    const repaint = (withBoard = false) => {
       const host = root.querySelector('#mrRoot');
       if (!host) return;
       host.innerHTML = panelHTML();
-      // 整块重画之后要把"上一帧"重置成当前状态，否则下一次差异对比会把整盘都当成新揭开，
-      // 满屏乱播 is-pop（也会让踩雷/通关的判定取到错的上一帧）
-      if (MineRoom.active) {
-        const g = MineRoom.room.game;
-        prev = freshBoard || !prev
-          ? { cols: g.cols, count: g.cells.length, state: g.state, cells: g.cells.map((c) => ({ ...c })) }
-          : prev;
-      }
+      snapshot();
+      if (withBoard && MineRoom.active) syncBoard(MineRoom.room);
     };
 
-    // 轮询更新：只同步棋盘与 HUD + 队友列表（不整块重画，免得打断动画）
+    // 轮询更新：只做定点同步，不整块重画（避免闪与抖）
     MineRoom.onUpdate = (room) => {
       if (!room) { repaint(); return; }
-      const board = document.getElementById('mrBoard');
-      if (!board) { repaint(true); return; }
+      if (!document.getElementById('mrBoard')) { repaint(true); return; }
       syncBoard(room);
-      // 队友列表也要刷新 —— 否则房主看不到有人进来（站主实测反馈）
       const mem = document.getElementById('mrMembers');
       if (mem) mem.innerHTML = membersHTML(room);
       const cnt = mem?.closest('.mr-card')?.querySelector('b.mono');
       if (cnt) cnt.textContent = `队友（${room.members.length}）`;
-      // 结算：按单人局的方式给结算条（只在刚分出胜负那一下整块重画一次）
-      const done = room.game.state === 'won' || room.game.state === 'lost';
+      // 结算条只补一次（终局判定已改为 over / won）
+      const done = room.finished || isFinal(room.game);
       if (done && !document.querySelector('.ms-banner')) repaint(true);
     };
 
@@ -370,16 +389,22 @@ export default {
         const action = ui.mode === 'flag' ? 'flag' : ((cur && cur.open && cur.adj) ? 'chord' : 'reveal');
         const res = await MineRoom.move(action, r0, c0);
         if (!res.ok) Toast.show(res.error, 'err');
+        else if (isFinal(MineRoom.room.game)) repaint(true);   // 终局：补结算条
       }
     });
 
     root.addEventListener('pointerover', (e) => {
       const cell = e.target.closest('#mrBoard .ms-cell');
-      if (cell && MineRoom.active) hoverFeedback(Number(cell.dataset.i), true);
+      if (!cell || !MineRoom.active) return;
+      const i = Number(cell.dataset.i);
+      if (i === lastHover) return;            // 同一格不重复播（否则悬停时会一直抖）
+      if (lastHover >= 0) hoverFeedback(lastHover, false);
+      lastHover = i;
+      hoverFeedback(i, true);
     });
-    root.addEventListener('pointerout', (e) => {
-      const cell = e.target.closest('#mrBoard .ms-cell');
-      if (cell && MineRoom.active) hoverFeedback(Number(cell.dataset.i), false);
+    root.addEventListener('pointerleave', () => {
+      if (lastHover >= 0) hoverFeedback(lastHover, false);
+      lastHover = -1;
     });
 
     let pressTimer = null;
