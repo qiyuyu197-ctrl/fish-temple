@@ -1663,6 +1663,17 @@ body.has-docked-embed .miniplayer { padding-right: calc(340px + var(--gutter)); 
 .forum__no { font-size: var(--fs-2xs); color: var(--fg-faint); text-align: right; }
 .forum__main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .forum__meta { font-size: var(--fs-2xs); color: var(--fg-faint); }
+/* 作者头像：与文本同一行、垂直居中（没有 picture 时根本不渲染这个 <img>，所以不留破图位） */
+.forum__avatar {
+  display: inline-block;
+  vertical-align: -4px;
+  margin-right: 6px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+  background: var(--bg-alt);
+}
+.forum__author { display: inline-flex; align-items: center; gap: 6px; }
+.forum__author .forum__avatar { vertical-align: baseline; margin-right: 0; }
 .forum__tags { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .forum__arrow { color: var(--fg-faint); }
 .forum__more { display: flex; justify-content: center; margin-top: var(--sp-4); }

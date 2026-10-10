@@ -601,6 +601,109 @@ try {
     check('站长：能看到账号列表（/api/auth/users 200 且有账号）',
       users?.status === 200 && (users?.total || 0) >= 1, JSON.stringify(users));
 
+    /* ---- 编辑资料：昵称 + 头像（走真实的 canvas 降采样路径） ---- */
+    const openProfile = await page.evalPage(`(async () => {
+      const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+      document.getElementById('authToggle')?.click();
+      await nap(250);
+      const menuItem = !!document.getElementById('authEdit');
+      document.getElementById('authEdit')?.click();
+      await nap(400);
+      const panel = document.getElementById('profilePanel');
+      return {
+        menuItem,
+        panel: !!panel,
+        hasName: !!document.getElementById('profileName'),
+        hasFile: !!document.getElementById('profileFile'),
+        hasUrl: !!document.getElementById('profileAvatarUrl'),
+        focused: document.activeElement?.id || '',
+        role: panel?.getAttribute('role') || '',
+        modal: panel?.getAttribute('aria-modal') || '',
+      };
+    })()`);
+    check('登录后账号菜单里有「编辑资料」，打开的是同风格面板（含昵称/头像控件）',
+      openProfile?.menuItem === true && openProfile?.panel === true && openProfile?.hasName === true
+        && openProfile?.hasFile === true && openProfile?.hasUrl === true
+        && openProfile?.role === 'dialog' && openProfile?.modal === 'true'
+        && openProfile?.focused === 'profileName',
+      JSON.stringify(openProfile));
+
+    // 造一张"用户选的图片"：**在页面里用 canvas 生成 PNG** 再包成 File ——
+    // 这样不依赖硬编码的 base64（之前那张 1×1 的图 createImageBitmap 直接解不开），
+    // 而后面走的仍是 shell.js 里真实的 createImageBitmap → canvas → toDataURL 那条路。
+    const saved = await page.evalPage(`(async () => {
+      const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+      const NEW_NAME = '改过名的站长';
+      const nameInput = document.getElementById('profileName');
+      nameInput.value = NEW_NAME;
+      nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+      const c = document.createElement('canvas');
+      c.width = 8; c.height = 8;
+      const g = c.getContext('2d');
+      g.fillStyle = '#FFD400'; g.fillRect(0, 0, 8, 8);
+      const dataUrl = c.toDataURL('image/png');
+      const bin = atob(dataUrl.split(',')[1]);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const file = new File([bytes], 'a.png', { type: 'image/png' });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      const fileInput = document.getElementById('profileFile');
+      fileInput.files = dt.files;
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+      await nap(900);                                    // 等降采样完成
+
+      const previewSrc = document.getElementById('profilePreview')?.getAttribute('src') || '';
+      const hintText = (document.getElementById('profileHint')?.textContent || '').trim();
+      const errText = (document.getElementById('profileErr')?.textContent || '').trim();
+      const errHidden = document.getElementById('profileErr')?.hidden !== false;
+      document.getElementById('profileSave')?.click();
+      for (let i = 0; i < 30; i++) {                     // 等保存回来、面板关闭、chip 重画
+        await nap(300);
+        if (!document.getElementById('profilePanel')) break;
+      }
+      const chipLabel = (document.querySelector('#authToggle .authbox__label')?.textContent || '').trim();
+      const chipImg = document.querySelector('#authToggle img.authbox__avatar')?.getAttribute('src') || '';
+      const api = await fetch('/api/profile', {
+        headers: { Authorization: 'Bearer ' + (JSON.parse(localStorage.getItem(${JSON.stringify(KEY_SESSION)}) || '{}').id_token || '') },
+        cache: 'no-store',
+      }).then((r) => r.json()).catch(() => ({}));
+      return {
+        previewIsDataUrl: /^data:image\\//.test(previewSrc),
+        previewHead: String(previewSrc).slice(0, 20),
+        hintText,
+        errText,
+        errHidden,
+        panelClosed: !document.getElementById('profilePanel'),
+        chipLabel,
+        chipImgIsDataUrl: /^data:image\\//.test(chipImg),
+        serverName: api?.profile?.name || '',
+        serverAvatarIsDataUrl: /^data:image\\//.test(String(api?.profile?.avatar || '')),
+      };
+    })()`);
+    check('改昵称保存后顶栏 chip 立刻变成新昵称（不刷新页面）',
+      saved?.chipLabel === '改过名的站长' && saved?.serverName === '改过名的站长' && saved?.panelClosed === true,
+      JSON.stringify({ chipLabel: saved?.chipLabel, serverName: saved?.serverName, panelClosed: saved?.panelClosed }));
+    check('选一张图片后会先在浏览器里降采样（data:image/）并生效到顶栏头像',
+      saved?.previewIsDataUrl === true && saved?.chipImgIsDataUrl === true && saved?.serverAvatarIsDataUrl === true,
+      JSON.stringify(saved));
+
+    const escClose = await page.evalPage(`(async () => {
+      const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+      document.getElementById('authToggle')?.click();
+      await nap(250);
+      document.getElementById('authEdit')?.click();
+      await nap(350);
+      const opened = !!document.getElementById('profilePanel');
+      document.getElementById('profilePanel')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await nap(250);
+      return { opened, closed: !document.getElementById('profilePanel'), focusBack: document.activeElement?.id || '' };
+    })()`);
+    check('资料面板：Esc 关闭并把焦点还给账号 chip',
+      escClose?.opened === true && escClose?.closed === true && escClose?.focusBack === 'authToggle',
+      JSON.stringify(escClose));
+
     /* ---- 退出登录 ---- */
     // ⚠️ 真登出会**整页跳转**（Auth0 /v2/logout → 302 回站点），所以点完之后
     // 正在等待的那个 evaluate 一定会被"navigated or closed"打断 —— 那是预期，

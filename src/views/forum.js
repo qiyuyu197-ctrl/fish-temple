@@ -93,6 +93,18 @@ function authorName(post) {
   return post?.author?.name || post?.author?.email || '匿名';
 }
 
+/**
+ * 作者头像：**有 picture 才渲染** —— 没有就不留占位，免得出现一个破图框。
+ * 服务端已经保证 picture 只可能是 http(s) 直链或 data:image 内联图（见 server.mjs 的
+ * validateProfileInput / snapshotPicture），这里再 esc() 一次防属性逃逸；
+ * `referrerpolicy="no-referrer"` 是因为头像可能是外部图床，不该把访客的来源带过去。
+ */
+function avatarHTML(post, size = 18) {
+  const pic = post?.author?.picture;
+  if (!pic) return '';
+  return `<img class="forum__avatar" src="${esc(pic)}" alt="" width="${size}" height="${size}" loading="lazy" decoding="async" referrerpolicy="no-referrer" />`;
+}
+
 /** 能不能改这条：作者本人，或站长（服务端仍会独立校验一遍） */
 function canEdit(post) {
   if (!Auth.loggedIn || !post) return false;
@@ -116,7 +128,7 @@ function postRowHTML(post, i) {
     <span class="forum__main">
       <b class="clamp-1">${esc(post.title || '（无标题）')}</b>
       <span class="forum__meta mono">
-        ${esc(authorName(post))}${Auth.isOwner && post.author?.role === 'owner' ? ' <i class="forum__owner">站长</i>' : ''}
+        ${avatarHTML(post)}${esc(authorName(post))}${Auth.isOwner && post.author?.role === 'owner' ? ' <i class="forum__owner">站长</i>' : ''}
         · ${esc(timeOf(post))}
       </span>
     </span>
@@ -204,7 +216,7 @@ function detailHTML(post) {
 
   <article class="forum__post">
     <div class="forum__postmeta mono">
-      <span>${esc(authorName(post))}</span>
+      <span class="forum__author">${avatarHTML(post, 22)}<span>${esc(authorName(post))}</span></span>
       ${post.author?.role === 'owner' ? '<i class="forum__owner">站长</i>' : ''}
       <span>·</span>
       <span>${esc(timeOf(post))}</span>

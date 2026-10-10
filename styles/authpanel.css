@@ -125,3 +125,71 @@
   outline: 2px solid var(--signal);
   outline-offset: 2px;
 }
+
+/* ==================================================================
+   编辑资料面板（昵称 / 头像）
+   与登录面板同一套语言，所以直接复用 .authpanel* 那批类；这里只补它独有的部分。
+   ================================================================== */
+
+/* 账号下拉里的「编辑资料」：与「退出登录」并排，但语气不同（它是常规操作，不是危险操作） */
+.authbox__item {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  text-align: left;
+  appearance: none;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border, color-mix(in srgb, var(--ink-100) 22%, transparent));
+  color: var(--ink-100);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-wide);
+  cursor: pointer;
+}
+.authbox__item:hover { background: color-mix(in srgb, var(--ink-100) 8%, transparent); }
+
+.profile { width: min(460px, 100%); }
+
+.profile__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.profile__avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border: 2px solid var(--ink-100);
+  background: var(--bg-sunk, transparent);
+}
+.profile__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.profile__initial {
+  font-family: var(--font-sans);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.profile__acts { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.profile__file { cursor: pointer; }        /* 它是 <label> 包着隐藏的 file input */
+.profile__url { margin-top: var(--sp-1); }
+.profile__foot {
+  display: flex;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+}
+.profile__foot .btn { flex: 1 1 auto; justify-content: center; }
+
+/* 提示行（例如"已压到 192px 方形"）：比错误轻，但也要看得见 */
+#profileHint {
+  margin: 0;
+  color: color-mix(in srgb, var(--ink-100) 62%, transparent);
+}
+
+@media (max-width: 560px) {
+  .profile__row { flex-wrap: wrap; }
+  .profile__foot .btn { flex: 1 1 100%; }
+}

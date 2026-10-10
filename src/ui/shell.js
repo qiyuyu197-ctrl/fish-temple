@@ -117,6 +117,7 @@ export const Shell = {
           <span><i>邮箱</i><b>${user.verified ? '已验证' : (Auth.enabled ? '未验证' : '—')}</b></span>
           ${user.source === 'token' ? '<span><i>身份</i><b>服务端未确认</b></span>' : ''}
         </div>
+        <button class="authbox__item" id="authEdit" type="button" role="menuitem">编辑资料</button>
         <button class="authbox__logout" id="authLogout" type="button" role="menuitem">退出登录</button>
       </div>`;
 
@@ -221,6 +222,207 @@ export const Shell = {
     }
   },
 
+  /* ---------------- 编辑资料（昵称 / 头像） ---------------- */
+
+  /**
+   * 头像**先在浏览器里降采样**再上传。
+   *
+   * 为什么必须在客户端做：原图动辄几百 KB ~ 几 MB，转成 data URL 写进用户文档、
+   * 再扩散到帖子快照里，会把存储（尤其论坛那一个索引文档）撑爆。
+   * 统一画成**最长边 192px 的方形（cover 裁剪）**，导出 image/jpeg 0.82 ——
+   * 通常 8–20KB，而它实际显示尺寸只有 22–48px，完全够。
+   * 解码失败会 throw，由调用方给行内提示（不静默失败）。
+   */
+  async _downscaleAvatar(file) {
+    const side = 192;
+    const canvas = document.createElement('canvas');
+    canvas.width = side;
+    canvas.height = side;
+    const ctx = canvas.getContext('2d');
+    let src = null;
+    let revoke = null;
+    if (typeof createImageBitmap === 'function') {
+      src = await createImageBitmap(file);
+    } else {
+      // 老浏览器兜底：走 <img> + objectURL（用完要 revoke，否则泄漏）
+      const url = URL.createObjectURL(file);
+      revoke = url;
+      src = await new Promise((res, rej) => {
+        const img = new Image();
+        img.onload = () => res(img);
+        img.onerror = () => rej(new Error('这张图片解不开'));
+        img.src = url;
+      });
+    }
+    const w0 = src.width || src.naturalWidth || 0;
+    const h0 = src.height || src.naturalHeight || 0;
+    if (!w0 || !h0) throw new Error('这张图片没有有效的尺寸');
+    const scale = Math.max(side / w0, side / h0);       // cover：短边铺满，长边裁掉
+    const w = w0 * scale;
+    const h = h0 * scale;
+    ctx.drawImage(src, (side - w) / 2, (side - h) / 2, w, h);
+    src.close?.();
+    if (revoke) URL.revokeObjectURL(revoke);
+    return canvas.toDataURL('image/jpeg', 0.82);
+  },
+
+  /** 打开"编辑资料"面板：改昵称、换头像（上传或贴地址）、清除自定义 */
+  openProfilePanel() {
+    if ($('#profilePanel')) return;
+    if (!Auth.enabled || !Auth.user) { Toast.show('登录后才能编辑资料', 'err'); return; }
+
+    const u = Auth.user;
+    const name0 = String(u.displayName || '');
+    // pic = **自定义**头像（空 = 用 Auth0 的）；avatarTouched 决定保存时要不要发 picture 字段 ——
+    // 只改昵称却顺手把头像清空，是很容易踩的坑。
+    let pic = String(u.avatar || '');
+    let avatarTouched = false;
+    const initial = String(u.name || u.email || 'U').trim().slice(0, 1).toUpperCase() || 'U';
+    const previewHTML = (val) => (val
+      ? `<img class="profile__img" id="profilePreview" src="${esc(val)}" alt="" referrerpolicy="no-referrer" />`
+      : `<span class="profile__initial" id="profilePreview" aria-hidden="true">${esc(initial)}</span>`);
+
+    const scrim = document.createElement('div');
+    scrim.className = 'authpanel__scrim';
+    scrim.id = 'profileScrim';
+    scrim.innerHTML = `
+      <div class="authpanel profile" id="profilePanel" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
+        <div class="authpanel__head">
+          <b id="profileTitle">编辑资料</b>
+          <button class="authpanel__x" id="profileClose" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="authpanel__lead">昵称与头像存在本站自己的存储里（不动 Auth0 账号）。留空即用 Auth0 的原始资料。</p>
+        <form class="authpanel__form" id="profileForm" novalidate>
+          <label class="authpanel__label mono" for="profileName">昵称（最多 24 字）</label>
+          <input class="authpanel__input" id="profileName" type="text" name="name" maxlength="24"
+                 autocomplete="nickname" spellcheck="false" placeholder="${esc(u.name || '给自己起个名字')}" value="${esc(name0)}" />
+
+          <span class="authpanel__label mono">头像</span>
+          <div class="profile__row">
+            <span class="profile__avatar" id="profileAvatarBox">${previewHTML(pic)}</span>
+            <div class="profile__acts">
+              <label class="btn btn--sm profile__file">
+                选择图片
+                <input id="profileFile" type="file" accept="image/*" hidden />
+              </label>
+              <button class="btn btn--sm" id="profileClear" type="button">清除自定义</button>
+            </div>
+          </div>
+          <input class="authpanel__input profile__url" id="profileAvatarUrl" type="url" inputmode="url"
+                 spellcheck="false" placeholder="或粘贴图片地址 https://…" value="${esc(/^https?:/i.test(pic) ? pic : '')}" />
+
+          <p class="authpanel__err mono" id="profileErr" role="alert" hidden></p>
+          <p class="authpanel__foot mono" id="profileHint" hidden></p>
+          <div class="profile__foot">
+            <button class="btn btn--signal" id="profileSave" type="submit">保存</button>
+            <button class="btn" id="profileCancel" type="button">取消</button>
+          </div>
+        </form>
+      </div>`;
+    document.body.append(scrim);
+
+    const panel = $('#profilePanel');
+    const err = $('#profileErr');
+    const hint = $('#profileHint');
+    const box = $('#profileAvatarBox');
+    const urlInput = $('#profileAvatarUrl');
+    const nameInput = $('#profileName');
+    const saveBtn = $('#profileSave');
+
+    const showErr = (msg) => { err.textContent = msg; err.hidden = false; err.setAttribute('role', 'alert'); };
+    const clearErr = () => { err.hidden = true; err.textContent = ''; };
+    const showHint = (msg) => { hint.textContent = msg; hint.hidden = !msg; };
+
+    const repaintPreview = () => {
+      box.innerHTML = previewHTML(pic);
+    };
+
+    const close = () => {
+      scrim.remove();
+      // 焦点还给账号 chip：键盘用户不该被丢在空处（菜单项在面板打开时已被收起）
+      $('#authToggle')?.focus?.();
+    };
+    this._closeProfilePanel = close;
+
+    scrim.addEventListener('click', (e) => { if (e.target === scrim) close(); });
+    scrim.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } });
+    $('#profileClose')?.addEventListener('click', close);
+    $('#profileCancel')?.addEventListener('click', close);
+    nameInput?.addEventListener('input', () => { if (!err.hidden) clearErr(); });
+
+    urlInput?.addEventListener('input', () => {
+      const v = String(urlInput.value || '').trim();
+      if (!v) return;                                  // 清空输入框不立刻丢头像，等「清除自定义」
+      if (!/^https?:\/\//i.test(v)) { showErr('图片地址要以 http:// 或 https:// 开头'); return; }
+      clearErr();
+      pic = v;
+      avatarTouched = true;
+      repaintPreview();
+    });
+
+    $('#profileClear')?.addEventListener('click', () => {
+      pic = '';
+      avatarTouched = true;
+      if (urlInput) urlInput.value = '';
+      clearErr();
+      showHint('已清除自定义头像，保存后会用 Auth0 的原始头像');
+      repaintPreview();
+    });
+
+    $('#profileFile')?.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      clearErr();
+      showHint('正在处理图片…');
+      try {
+        pic = await this._downscaleAvatar(file);
+        avatarTouched = true;
+        repaintPreview();
+        showHint(`已选择图片（约 ${Math.round(pic.length / 1024)}KB，已压到 192px 方形）`);
+      } catch (ex) {
+        showHint('');
+        const why = String(ex?.message || ex);
+        // 真实世界最常见的就是"格式浏览器解不开"：iPhone 拍的 HEIC 在 Windows 版 Chrome/Edge 上
+        // 就是这样。别只甩一句英文报错，直接告诉用户怎么办。
+        showErr(/decod|decode|解不开|解不了/i.test(why)
+          ? '这张图片浏览器解不开：可能是文件损坏，或格式不支持（比如 iPhone 的 HEIC 照片）。换一张 JPG / PNG 再试。'
+          : `这张图片用不了：${why}`);
+      } finally {
+        e.target.value = '';                           // 允许再次选同一个文件
+      }
+    });
+
+    $('#profileForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearErr();
+      const name = String(nameInput?.value ?? '').trim();
+      // 客户端校验只是体验：服务端才是权威（超长/空白/危险协议都在那边拦）
+      if (name.length > 24) { showErr('昵称最多 24 个字'); nameInput?.focus(); return; }
+      const body = { name };
+      if (avatarTouched) body.picture = pic;
+      saveBtn.disabled = true;
+      const r = await Auth.saveProfile(body);
+      saveBtn.disabled = false;
+      if (!r.ok) {
+        showErr(r.error || '保存失败，请稍后再试');
+        return;
+      }
+      Toast.ok('资料已更新');
+      close();
+    });
+
+    panel?.setAttribute('tabindex', '-1');
+    nameInput?.focus?.();
+  },
+
+  closeProfilePanel() {
+    if (typeof this._closeProfilePanel === 'function') {
+      const fn = this._closeProfilePanel;
+      this._closeProfilePanel = null;
+      fn();
+    }
+  },
+
   paintNav(current) {
     const nav = $('#nav');
     const drawer = $('#drawerNav');
@@ -313,6 +515,7 @@ export const Shell = {
       // 登录改成先开我们自己的面板（只收邮箱），再带 login_hint 跳 Auth0：
       // 直接整页跳转会让用户觉得"离开了本站"，而密码仍只交给 Auth0。
       if (e.target.closest('#authLogin')) { this.openAuthPanel(); return; }
+      if (e.target.closest('#authEdit')) { this.closeAuthMenu(); this.openProfilePanel(); return; }
       if (e.target.closest('#authLogout')) {
         Auth.logout();
         this.closeAuthMenu();
@@ -360,7 +563,7 @@ export const Shell = {
       const tag = (e.target.tagName || '').toLowerCase();
       const typing = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
       if (typing) return;
-      if (e.key === 'Escape') { this.closeDrawer(); this.closeAuthMenu(); this.closeAuthPanel(); }
+      if (e.key === 'Escape') { this.closeDrawer(); this.closeAuthMenu(); this.closeAuthPanel(); this.closeProfilePanel(); }
       if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey) Theme.cycle();
     });
 
