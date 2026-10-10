@@ -277,8 +277,13 @@ async function main() {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '自检' }),
   });
   const writeJson = await write.json().catch(() => ({}));
-  check('内容写入被明确拒绝（501 + 说明文案）',
-    write.status === 501 && /只读/.test(String(writeJson.error || '')), `HTTP ${write.status}`);
+  // 语义变了：现在线上**可以**发布，但必须带站长身份。没配账号时回 501 并提示去配哪几个
+  // 环境变量；配了账号但没带令牌时回 401。两者都算"没有假装成功"。
+  const wErr = String(writeJson.error || '');
+  check('内容写入没有被假装成功（未登录时 501/401 + 说明）',
+    (write.status === 501 && /AUTH0_DOMAIN/.test(wErr))
+      || (write.status === 401 && /登录/.test(wErr)),
+    `HTTP ${write.status} ${wErr.slice(0, 60)}`);
 
   // 静态资源：相册清单与图片（这两样坏掉就会被说成"随机相册不能用"）
   const album = await get('/data/album.json');

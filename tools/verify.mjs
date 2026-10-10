@@ -433,7 +433,8 @@ async function main() {
     navActive?.labels?.filter((l) => /LOGS/.test(l)).length === 1
       && !navActive?.labels?.some((l) => /NOTICE/.test(l))
       && navActive?.labels?.some((l) => /TOOLS/.test(l))
-      && navActive?.labels?.length === 8,
+      // 板块会继续增加（例如论坛），所以这里只要求"至少 8 项"而不是写死数量
+      && (navActive?.labels?.length || 0) >= 8,
     JSON.stringify(navActive?.labels));
   record('导航：标签已改为 HOME / MUSIC（不再有 INDEX / AUDIO）',
     /HOME/.test(navActive?.labels?.[0] || '')
@@ -2169,8 +2170,18 @@ async function main() {
     P.setDirectAudio(true);              // 回到默认路径（前面的用例把它关掉过）
     P.clear();
     const s = await mod.search('逆さまの蝶', { limit: 20 });
-    const song = (s.songs || []).find((x) => String(x.id) === '2041508513') || (s.songs || [])[0];
-    if (!song) return { skipped: true };
+    const songs = s.songs || [];
+    if (!songs.length) return { skipped: true, why: '搜索没有结果' };
+    // 挑一首**服务端确认匿名能播**的曲目。写死某一首会因上游版权状态变化而假红
+    //（线上就遇到过：同一首今天能播、明天匿名拿不到）。
+    const prefer = songs.find((x) => String(x.id) === '2041508513');
+    const candidates = [prefer, ...songs].filter(Boolean).slice(0, 6);
+    let song = null;
+    for (const cand of candidates) {
+      const info = await mod.audioInfo(cand.id).catch(() => null);
+      if (info?.playable === true) { song = cand; break; }
+    }
+    if (!song) return { skipped: true, why: '候选曲目匿名态都拿不到音频（上游条件）' };
     P.add(mod.toTrack(song), { play: true });
     for (let i = 0; i < 60 && !(P.audio.duration > 0 && P.audio.currentTime > 0.2); i++) await wait(250);
     const out = {
@@ -2191,7 +2202,7 @@ async function main() {
     return out;
   })()`);
   if (direct?.skipped) {
-    record('站内直放：网易云曲目默认走同源 <audio>（跳过）', true, '无可用曲目');
+    record('站内直放：网易云曲目默认走同源 <audio>（跳过）', true, direct.why || '无可用曲目');
   } else {
     record('站内直放：网易云曲目默认走 netease-audio（同源 <audio>）',
       direct.provider === 'netease-audio' && direct.isEmbed === false,
@@ -2199,8 +2210,13 @@ async function main() {
     record('站内直放：有真实音频时长与播放进度（不是估算）',
       direct.duration > 60 && direct.time > 0.2,
       `${Number(direct.duration).toFixed(1)}s / 已播 ${Number(direct.time).toFixed(1)}s`);
-    record('站内直放：音源是本站同源转发地址',
-      /^\/api\/netease\/audio\?id=/.test(direct.src || ''), direct.src);
+    // 音源可以是两级：① 本站同源转发（首选，能拖动进度、拿得到真实时长）
+    //                ② 浏览器用自己的 IP 直取官方外链（服务端 IP 被网易云拒绝时用）
+    // 两级都是"站内 <audio> 直放"，所以这里接受两者，但仍要拒绝跨域 iframe。
+    record('站内直放：音源是同源转发或官方外链直取（不是 iframe）',
+      /^\/api\/netease\/audio\?id=/.test(direct.src || '')
+        || /^https:\/\/music\.163\.com\/song\/media\/outer\/url\?id=/.test(direct.src || ''),
+      direct.src);
     record('站内直放：不布防估算时钟（切歌由真实 ended 驱动）',
       direct.advanceTimer === false && direct.advanceAt === 0,
       `timer=${direct.advanceTimer} at=${direct.advanceAt}`);

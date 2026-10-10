@@ -1,0 +1,22 @@
+{
+  "name": "fish-temple",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FISH 鱼の灵庙 · 站点本身零依赖的静态站；函数侧只用 Netlify Blobs 做内容存储",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "netlify:dev": "node tools/netlify-dev.mjs 5199",
+    "verify": "node tools/verify.mjs",
+    "verify:playback": "node tools/verify-playback.mjs",
+    "verify:deploy": "node tools/verify-deploy.mjs",
+    "verify:auth": "node tools/verify-auth.mjs",
+    "responsive": "node tools/responsive.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": ">=7.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

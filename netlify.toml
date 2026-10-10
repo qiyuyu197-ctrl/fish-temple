@@ -27,7 +27,7 @@
   # 那样 `import '../../server.mjs'` 依然能解析到（/var/task/server.mjs）。
   # 两条同时存在没有副作用，只是多带一个文件。
   node_bundler = "esbuild"
-  included_files = ["server.mjs"]
+  included_files = ["server.mjs", "auth.mjs", "storage.mjs"]
 
 # 注意：**不要**再加 "/* → /index.html 200" 这种 SPA 通配回退。
 # 本站是 hash 路由（#/music 这种），没有前端路由需要回退；

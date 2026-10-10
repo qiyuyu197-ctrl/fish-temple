@@ -43,6 +43,8 @@ import { promises as fs, constants } from 'node:fs';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createStorage } from './storage.mjs';
+import { authConfig, authenticate } from './auth.mjs';
 
 /**
  * ⚠️ 这里**不能**用 `__filename` / `__dirname` 这两个名字。
@@ -57,8 +59,30 @@ import { fileURLToPath } from 'node:url';
 const THIS_FILE = fileURLToPath(import.meta.url);
 const THIS_DIR = path.dirname(THIS_FILE);
 const ROOT = THIS_DIR;
-const DATA_DIR = path.join(ROOT, 'data');
+// 数据目录可以用 FT_DATA_DIR 覆盖：自检会把内容写到临时目录，绝不碰仓库里的 data/
+const DATA_DIR = process.env.FT_DATA_DIR ? path.resolve(process.env.FT_DATA_DIR) : path.join(ROOT, 'data');
 const BACKUP_DIR = path.join(DATA_DIR, '.backup');
+
+/**
+ * 内容存储：本地写文件、线上写 Netlify Blobs（详见 storage.mjs）。
+ * 两个实例都惰性创建 —— 本地跑的时候完全不会去碰 @netlify/blobs。
+ */
+let fsStore = null;
+let blobStore = null;
+function storageFor(opts = {}) {
+  if (opts.serverless) {
+    if (!blobStore) blobStore = createStorage({ root: ROOT, dataDir: DATA_DIR, serverless: true });
+    return blobStore;
+  }
+  if (!fsStore) fsStore = createStorage({ root: ROOT, dataDir: DATA_DIR, serverless: false });
+  return fsStore;
+}
+
+/** 请求是否来自本机（本地发布控制台的"免登录写入"只对本机开放） */
+function isLoopback(req) {
+  const ip = String(req.socket?.remoteAddress || '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
 
 const PORT = Number(process.argv[2] || process.env.PORT || 5173);
 
@@ -1359,7 +1383,14 @@ async function handlePixiv(req, res, url, opts = {}) {
   return fail(res, 404, `未知 Pixiv 接口：${action}（可用：random / image / illust / status）`);
 }
 
-async function readCollection(name) {
+async function readCollection(name, opts = {}) {
+  const store = storageFor(opts);
+  if (store.mode === 'blobs') {
+    // 线上：仓库里那份读不到（函数产物只含 server.mjs），所以只返回**线上发布的覆盖层**，
+    // 由前端把它合并到静态 data/*.json 之上（见 src/core/store.js）。
+    const doc = await store.readCollection(name, null);
+    return Array.isArray(doc?.items) ? doc.items : [];
+  }
   const file = COLLECTIONS[name];
   if (!existsSync(file)) return [];
   try {
@@ -1370,7 +1401,13 @@ async function readCollection(name) {
   }
 }
 
-async function writeCollection(name, items) {
+async function writeCollection(name, items, opts = {}) {
+  const store = storageFor(opts);
+  if (store.mode === 'blobs') {
+    // 线上：写 Blobs（跨部署持久）。不做备份 —— Blobs 的每次写入都是覆盖，必要时用 Netlify UI 看历史。
+    await store.writeCollection(name, { items, updatedAt: new Date().toISOString() });
+    return items.length;
+  }
   const file = COLLECTIONS[name];
   await fs.mkdir(DATA_DIR, { recursive: true });
   // 备份旧文件，最多保留 20 份
@@ -1420,6 +1457,200 @@ function sanitizeItem(input) {
  *               · 图片缓存交给 CDN（Netlify-CDN-Cache-Control）而不是落盘
  *   readonly    true = 强制内容接口只读
  */
+/* ---------------- 权限：谁能改"网站现有文案" ---------------- */
+
+/**
+ * 「网站现有文案」= 公告 / 文章 / 相册清单（data/*.json 那几份）。
+ * 规则（按优先级）：
+ *   ① 配了 Auth0 → 必须是**站长**：邮箱在 OWNER_EMAILS 白名单里，且 Auth0 标记为已验证
+ *      （不这样要求的话，任何人拿你的邮箱注册一个未验证账号就成站长了）；
+ *   ② 没配 Auth0、且请求来自本机 → 允许。这样你原来的工作流不变：
+ *      本地控制台写 data/*.json，然后 git 提交；
+ *   ③ 其它 → 拒绝。线上没配账号时仍是"只读部署"，但会明确告诉你去配哪几个环境变量。
+ */
+async function requireOwner(req, res, opts = {}) {
+  const cfg = authConfig();
+  if (cfg.enabled) {
+    const who = await authenticate(req);
+    if (!who.ok) return fail(res, who.status, who.error), null;
+    if (who.user.role !== 'owner') {
+      return fail(res, 403, '只有站长可以修改网站公告与现有文案；普通账号可以到论坛发帖。'), null;
+    }
+    return who.user;
+  }
+  if (!opts.serverless && isLoopback(req)) {
+    return { sub: 'local', email: '', name: '本机', role: 'owner', verified: true };
+  }
+  fail(res, opts.serverless ? 501 : 401, opts.serverless
+    ? '这份部署还不能在线发布：请在 Netlify 配置 AUTH0_DOMAIN / AUTH0_CLIENT_ID / OWNER_EMAILS 后，用站长账号登录再发布。'
+    : '只有本机访问才能改内容；要远程编辑请先配好账号功能（AUTH0_DOMAIN / AUTH0_CLIENT_ID / OWNER_EMAILS）。');
+  return null;
+}
+
+/* ---------------- 论坛 ---------------- */
+
+const FORUM = {
+  titleMax: 120,
+  bodyMax: 200000,
+  tagsMax: 6,
+  tagMax: 24,
+  listDefault: 20,
+  listMax: 50,
+  excerpt: 240,
+  // 简易限流（内存态、每个实例一份）：够挡误触和脚本刷帖，Serverless 多实例下是"尽力而为"
+  gapMs: 15 * 1000,
+  perDay: 40,
+};
+const forumRate = new Map();   // sub → { last, day, count }
+
+function forumRateOk(sub) {
+  const now = Date.now();
+  const day = new Date(now).toISOString().slice(0, 10);
+  const rec = forumRate.get(sub) || { last: 0, day, count: 0 };
+  if (rec.day !== day) { rec.day = day; rec.count = 0; }
+  if (now - rec.last < FORUM.gapMs) return `发得太快了，请等 ${Math.ceil((FORUM.gapMs - (now - rec.last)) / 1000)} 秒再发`;
+  if (rec.count >= FORUM.perDay) return '今天发的帖子有点多，明天再来吧';
+  rec.last = now;
+  rec.count += 1;
+  forumRate.set(sub, rec);
+  if (forumRate.size > 500) forumRate.clear();
+  return '';
+}
+
+function newForumId() {
+  return `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** 校验并规范化一篇帖子（只收标题/正文/标签，其余字段一律由服务端生成） */
+function sanitizeForumInput(input) {
+  const str = (v, max) => String(v ?? '').replace(/\r\n/g, '\n').trim().slice(0, max);
+  const title = str(input?.title, FORUM.titleMax);
+  const body = str(input?.body, FORUM.bodyMax);
+  const tags = Array.isArray(input?.tags)
+    ? [...new Set(input.tags.map((t) => str(t, FORUM.tagMax)).filter(Boolean))].slice(0, FORUM.tagsMax)
+    : [];
+  if (!title) throw new Error('标题不能为空');
+  if (!body) throw new Error('正文不能为空');
+  return { title, body, tags };
+}
+
+/** 公开视图：不暴露作者邮箱，列表里只给摘要 */
+function publicForumPost(post, { full = false } = {}) {
+  const out = {
+    id: post.id,
+    title: post.title,
+    tags: post.tags || [],
+    author: { sub: post.author?.sub, name: post.author?.name || '匿名' },
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+    edited: !!post.edited,
+  };
+  out.body = full ? post.body : String(post.body || '').slice(0, FORUM.excerpt);
+  if (!full) out.excerpt = out.body.length >= FORUM.excerpt;
+  return out;
+}
+
+/** /api/forum/* —— 读公开、写在登录后、改删只有作者本人（站长可代为管理） */
+async function handleForum(req, res, url, opts, seg) {
+  const store = storageFor(opts);
+  const head = seg[0] || 'posts';
+  const id = seg[1] ? decodeURIComponent(seg[1]) : '';
+
+  // GET /api/forum/posts?limit&offset&q
+  if (head === 'posts' && !id && req.method === 'GET') {
+    const limit = Math.min(FORUM.listMax, Math.max(1, Number(url.searchParams.get('limit')) || FORUM.listDefault));
+    const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
+    const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+    let ids = await store.listItems('forum');
+    const posts = [];
+    // 只读最近 300 条：论坛是列表页，不该为了翻页把整个库读一遍
+    for (const pid of ids.slice(-300)) {
+      const p = await store.readItem('forum', pid);
+      if (p && p.id) posts.push(p);
+    }
+    let list = posts.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    if (q) {
+      list = list.filter((p) => `${p.title}\n${p.body}\n${(p.tags || []).join(' ')}`.toLowerCase().includes(q));
+    }
+    const total = list.length;
+    const page = list.slice(offset, offset + limit).map((p) => publicForumPost(p));
+    return ok(res, { ok: true, total, offset, limit, posts: page, storage: store.mode });
+  }
+
+  // GET /api/forum/mine （登录）
+  if (head === 'mine' && req.method === 'GET') {
+    const who = await authenticate(req);
+    if (!who.ok) return fail(res, who.status, who.error);
+    const ids = await store.listItems('forum');
+    const mine = [];
+    for (const pid of ids.slice(-300)) {
+      const p = await store.readItem('forum', pid);
+      if (p && p.author?.sub === who.user.sub) mine.push(p);
+    }
+    mine.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return ok(res, { ok: true, posts: mine.map((p) => publicForumPost(p, { full: true })) });
+  }
+
+  // GET /api/forum/posts/:id （公开）
+  if (head === 'posts' && id && req.method === 'GET') {
+    const p = await store.readItem('forum', id);
+    if (!p) return fail(res, 404, '没有这篇内容（可能已被删除）');
+    return ok(res, { ok: true, post: publicForumPost(p, { full: true }) });
+  }
+
+  // POST /api/forum/posts （登录后发帖）
+  if (head === 'posts' && !id && (req.method === 'POST' || req.method === 'PUT')) {
+    const who = await authenticate(req);
+    if (!who.ok) return fail(res, who.status, who.error);
+    if (!who.user.verified) return fail(res, 403, '请先到邮箱里点验证链接，验证后再发帖');
+    const gate = forumRateOk(who.user.sub);
+    if (gate) return fail(res, 429, gate);
+    let input;
+    try { input = sanitizeForumInput(await readBody(req)); } catch (err) { return fail(res, 400, err.message); }
+    const now = new Date().toISOString();
+    const post = {
+      id: newForumId(),
+      ...input,
+      author: { sub: who.user.sub, name: who.user.name || '匿名' },
+      // 邮箱只存服务端，公开接口不会带出去（站长管理时需要时可另开接口）
+      authorEmail: who.user.email,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await store.writeItem('forum', post.id, post);
+    log(`\x1b[35mFORUM\x1b[0m + ${post.id} ${post.title}`);
+    return ok(res, { ok: true, post: publicForumPost(post, { full: true }) });
+  }
+
+  // PATCH / DELETE /api/forum/posts/:id
+  if (head === 'posts' && id && (req.method === 'PATCH' || req.method === 'DELETE')) {
+    const who = await authenticate(req);
+    if (!who.ok) return fail(res, who.status, who.error);
+    const p = await store.readItem('forum', id);
+    if (!p) return fail(res, 404, '没有这篇内容（可能已被删除）');
+    const isAuthor = p.author?.sub && p.author.sub === who.user.sub;
+    if (!isAuthor && who.user.role !== 'owner') {
+      return fail(res, 403, '只有作者本人可以修改或删除这篇内容');
+    }
+    if (req.method === 'DELETE') {
+      await store.removeItem('forum', id);
+      log(`\x1b[31mFORUM\x1b[0m - ${id}`);
+      return ok(res, { ok: true, deleted: id });
+    }
+    let input;
+    try {
+      const body = await readBody(req);
+      input = sanitizeForumInput({ title: body?.title ?? p.title, body: body?.body ?? p.body, tags: body?.tags ?? p.tags });
+    } catch (err) { return fail(res, 400, err.message); }
+    const next = { ...p, ...input, updatedAt: new Date().toISOString(), edited: true };
+    await store.writeItem('forum', id, next);
+    log(`\x1b[33mFORUM\x1b[0m ~ ${id}`);
+    return ok(res, { ok: true, post: publicForumPost(next, { full: true }) });
+  }
+
+  return fail(res, 404, '未知论坛接口（可用：GET posts / GET posts/:id / GET mine / POST posts / PATCH posts/:id / DELETE posts/:id）');
+}
+
 async function handleApi(req, res, url, opts = {}) {
   const seg = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
 
@@ -1451,6 +1682,10 @@ async function handleApi(req, res, url, opts = {}) {
       collections: Object.keys(COLLECTIONS),
       netease: { enabled: true, endpoints: ['search', 'songs', 'playlist', 'album', 'lyric', 'resolve', 'playable', 'audio', 'status'] },
       pixiv: { enabled: true, endpoints: ['random', 'image', 'illust', 'status'], mirror: PIXIV.mirror },
+      // 账号与内容存储：前端据此决定要不要显示登录入口、以及"能不能在线发布"
+      auth: (() => { const c = authConfig(); return { enabled: c.enabled, domain: c.domain, clientId: c.clientId, ownerConfigured: c.owners.length > 0 }; })(),
+      storage: storageFor(opts).mode,
+      forum: { enabled: true, endpoints: ['posts', 'posts/:id', 'mine'] },
       writable,
       // Serverless 诊断：把平台给的原始 event（以及函数是"怎么还原路径"的）回显出来。
       // 线上 /api/health 看一眼就知道 event 语义对不对，不用猜。
@@ -1472,6 +1707,32 @@ async function handleApi(req, res, url, opts = {}) {
     return ok(res, tree);
   }
 
+  /* ---------------- 账号（Auth0） ---------------- */
+
+  // GET /api/auth/config —— 公开：前端据此决定要不要显示登录入口、往哪个域名跳
+  if (seg[0] === 'auth' && seg[1] === 'config') {
+    const cfg = authConfig();
+    return ok(res, {
+      ok: true,
+      enabled: cfg.enabled,
+      domain: cfg.domain,
+      clientId: cfg.clientId,
+      audience: cfg.audience,
+      // 只说明"有没有配站长白名单"，不暴露具体邮箱
+      ownerConfigured: cfg.owners.length > 0,
+    });
+  }
+
+  // GET /api/auth/me —— 校验令牌并回当前身份（前端用它判断"我是不是站长"）
+  if (seg[0] === 'auth' && seg[1] === 'me') {
+    const who = await authenticate(req);
+    if (!who.ok) return fail(res, who.status, who.error);
+    return ok(res, { ok: true, user: who.user });
+  }
+
+  /* ---------------- 论坛 ---------------- */
+  if (seg[0] === 'forum') return handleForum(req, res, url, opts, seg.slice(1));
+
   // /api/content/:collection[/:id]
   if (seg[0] === 'content') {
     const name = seg[1];
@@ -1479,36 +1740,43 @@ async function handleApi(req, res, url, opts = {}) {
       return fail(res, 400, `未知集合：${name || '(空)'}，可用：${Object.keys(COLLECTIONS).join(', ')}`);
     }
 
-    // 部署到 Netlify（Serverless）时没有可写的持久磁盘：
-    // 这里明确回 501 并说清原因，而不是 404/500 —— 前端据此提示「用导出文件」，
-    // 公开页面照旧读仓库里的 data/*.json（不依赖这个接口）。
-    if (opts.readonly || opts.serverless) {
-      return fail(res, 501,
-        '这份部署是只读的（Netlify 上没有可写磁盘）：内容请改仓库里的 data/*.json 后重新部署，'
-        + '或在本地用 node server.mjs 打开发布控制台写入。');
+    // 「网站现有文案」（公告 / 文章 / 相册清单）只有站长能改。
+    // 配了账号体系就按角色判；没配账号又是在本机跑，就沿用原来的本地工作流（写文件 + git）。
+    if (req.method !== 'GET') {
+      const owner = await requireOwner(req, res, opts);
+      if (!owner) return undefined;
     }
 
-    if (req.method === 'GET') return ok(res, await readCollection(name));
+    if (req.method === 'GET') {
+      const items = await readCollection(name, opts);
+      const store = storageFor(opts);
+      // 线上只回"线上发布的覆盖层"（仓库那份读不到），前端把它合并到静态 data/*.json 之上
+      return ok(res, { ok: true, items, storage: store.mode, overlayOnly: store.mode === 'blobs' });
+    }
 
     if (req.method === 'POST' || req.method === 'PUT') {
       const body = await readBody(req);
       const incoming = Array.isArray(body) ? body.map(sanitizeItem) : [sanitizeItem(body)];
-      const items = await readCollection(name);
+      const items = await readCollection(name, opts);
       const map = new Map(items.map((it) => [it.id, it]));
       incoming.forEach((it) => map.set(it.id, { ...map.get(it.id), ...it }));
-      const count = await writeCollection(name, [...map.values()]);
-      log(`\x1b[33mWRITE\x1b[0m ${name}.json ← ${incoming.length} 条（共 ${count} 条）`);
-      return ok(res, { ok: true, written: incoming.length, total: count, file: path.relative(ROOT, COLLECTIONS[name]) });
+      const count = await writeCollection(name, [...map.values()], opts);
+      log(`\x1b[33mWRITE\x1b[0m ${name} ← ${incoming.length} 条（共 ${count} 条，${storageFor(opts).mode}）`);
+      return ok(res, {
+        ok: true, written: incoming.length, total: count,
+        storage: storageFor(opts).mode,
+        file: storageFor(opts).mode === 'fs' ? path.relative(ROOT, COLLECTIONS[name]) : `blobs:collections/${name}.json`,
+      });
     }
 
     if (req.method === 'DELETE') {
       const id = decodeURIComponent(seg[2] || '');
       if (!id) return fail(res, 400, '缺少 id');
-      const items = await readCollection(name);
+      const items = await readCollection(name, opts);
       const next = items.filter((it) => it.id !== id);
       if (next.length === items.length) return fail(res, 404, `未找到 id=${id}`);
-      await writeCollection(name, next);
-      log(`\x1b[31mDELETE\x1b[0m ${name}.json → ${id}`);
+      await writeCollection(name, next, opts);
+      log(`\x1b[31mDELETE\x1b[0m ${name} → ${id}`);
       return ok(res, { ok: true, total: next.length });
     }
 
