@@ -2379,11 +2379,37 @@ const onListen = () => {
 /* ---------------- 启动（只有直接运行时才监听端口） ---------------- */
 
 if (IS_MAIN) {
-  server.listen(PORT, onListen);
-  process.on('SIGINT', () => {
-    console.log('\n服务已停止。');
-    process.exit(0);
-  });
+  /**
+   * 监听地址：默认绑**所有网卡**（局域网/VPS 直连都能访问）。
+   * 想更保守（例如 VPS 上前面挂了 Caddy/Nginx 反代）可以设 `HOST=127.0.0.1`，
+   * 这样只有本机的反代能连进来，外网必须走 HTTPS 域名 —— 推荐做法，见 deploy/README.md。
+   */
+  const HOST = process.env.HOST || '';
+  if (HOST) server.listen(PORT, HOST, onListen);
+  else server.listen(PORT, onListen);
+
+  /**
+   * 优雅退出：systemd 重启/停机时发的是 **SIGTERM**（不是 SIGINT），
+   * 默认行为会让进程立刻死掉 —— 正在写的 data/*.json 就可能留下半截文件。
+   * 这里先停止接收新连接、等在途请求收尾，最多等 8 秒再强制退出（避免“关不掉”）。
+   */
+  let closing = false;
+  const shutdown = (signal) => {
+    if (closing) return;
+    closing = true;
+    console.log(`\n收到 ${signal}：停止接收新连接，等在途请求收尾…`);
+    const force = setTimeout(() => {
+      console.log('等待超时（8s）：强制退出。');
+      process.exit(0);
+    }, 8000);
+    force.unref?.();
+    server.close(() => {
+      console.log('服务已停止。');
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 /* ---------------- Serverless 入口：Web 标准 Request → Response ----------------

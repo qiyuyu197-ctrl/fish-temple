@@ -1277,6 +1277,28 @@ PORT=8080 node server.mjs
 
 ## 部署
 
+### 搬到自己的服务器（VPS）：完整步骤见 `deploy/README.md`
+
+如果你想让站点跑在**自己的云服务器**上（自己的域名 + HTTPS，不受任何平台额度/暂停影响），
+照着 [`deploy/README.md`](deploy/README.md) 敲即可 —— 那份文档覆盖：装 Node、建专用系统用户、
+systemd 单元、Caddy 自动 HTTPS、Auth0 追加回调地址、**数据与备份**（`data/` 是唯一真实数据源）、
+从 Netlify 迁移的注意事项、更新与回滚、故障排查，以及可选的 Docker 路径。
+
+配套资产都在 `deploy/`：`fish-temple.service`（systemd）、`Caddyfile`（反代 + 自动证书）、
+`fish-temple.env.example`（环境变量占位示例）、`Dockerfile` + `docker-compose.yml`、`backup.sh`（定时备份）。
+
+两点最关键的：
+
+- **零依赖**：VPS 上**不需要 `npm install`**。唯一的 npm 依赖 `@netlify/blobs` 只在 Netlify 上被
+  **动态引入**，VPS 上根本不会加载它。
+- **存储驱动是自动切的**（见 `storage.mjs`）：在 Netlify 上写 **Netlify Blobs**；在 VPS/本机写
+  **仓库下的 `data/`**。同一份代码、同一条 `node server.mjs`，不需要你改任何配置去"选择模式"；
+  唯一的差别是**数据不互通** —— 线上 Blobs 里已有的论坛帖/账号资料/播放历史**不在仓库里**，
+  搬到 VPS 后会以仓库 `data/*.json` 为起点（详见 `deploy/README.md` 的"从 Netlify 搬过来"一节）。
+
+> Netlify 那条通道**保留**（`netlify/` 与 `netlify.toml` 不需要改），两边可以并存做备用；
+> 但建议**只对外宣称一个地址**，否则同一个站点会出现两套互不相同的内容（一边 Blobs、一边文件）。
+
 ### 纯静态托管：能用，但 `/api/*` 全废
 
 把整个目录（`tools/`、`server.mjs`、`netlify/` 可省略）上传即可，hash 路由不需要任何 rewrite。

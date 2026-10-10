@@ -1,0 +1,38 @@
+# Caddyfile —— 反向代理 + 自动 HTTPS
+# ------------------------------------------------------------------
+# 安装：
+#   sudo cp /srv/fish-temple/deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo nano /etc/caddy/Caddyfile     # 把下面的域名换成你自己的
+#   sudo systemctl reload caddy
+#   journalctl -u caddy -n 30 --no-pager   # 看证书申请结果
+#
+# Caddy 会自动向 Let's Encrypt 申请证书并自动续期，前提是：
+#   ① 域名 A 记录已指向这台服务器；② 80 与 443 对公网可达。
+
+# ↓↓↓ 换成你的域名（A 记录指向本机公网 IP）↓↓↓
+fish.example.com {
+	# 压缩：文本类资源压一压（音频/图片本来已经压过，Caddy 会自己判断）
+	encode zstd gzip
+
+	# 反代到本机运行的 server.mjs
+	reverse_proxy 127.0.0.1:5173 {
+		# 把真实信息透传给应用。
+		# 为什么必须保留真实 Host：应用用它拼 OAuth 回调与分享链接；
+		# 如果被改写成 localhost，登录回跳与站内链接都会指向错误地址。
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+
+		# 音频是流式转发的（/api/netease/audio 在 VPS 上直接回流），
+		# 关掉响应缓冲，避免"点了播放要等很久才出声"。
+		flush_interval -1
+	}
+
+	# 可选：把访问日志写到文件（默认只进 journald）
+	# log {
+	# 	output file /var/log/caddy/fish-temple.log
+	# }
+}
+
+# 想同时用 www 子域，就再加上一段（或写 www.fish.example.com { redir https://fish.example.com{uri} }）
