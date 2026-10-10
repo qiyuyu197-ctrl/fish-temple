@@ -99,7 +99,7 @@ export const MineRoom = {
       method: 'POST', body: { action, r, c },
     });
     if (!res || !res.ok) return this._fail(res);
-    this._set(res.room || res.json?.room);
+    this._set(res.data?.room || res.room);
     return { ok: true };
   },
 
@@ -108,7 +108,7 @@ export const MineRoom = {
     if (!this.active) return { ok: false, error: '还没进房间' };
     const res = await Auth.api(`/mine/rooms/${encodeURIComponent(this.id)}/restart`, { method: 'POST' });
     if (!res || !res.ok) return this._fail(res);
-    this._set(res.room || res.json?.room);
+    this._set(res.data?.room || res.room);
     return { ok: true };
   },
 
