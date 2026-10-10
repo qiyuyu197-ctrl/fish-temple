@@ -25,6 +25,8 @@ import { viewhead } from '../ui/bits.js';
 import { Auth } from '../plugins/auth.js';
 import { MineRoom } from '../plugins/mine-room.js';
 import { LEVELS, getLevel } from '../plugins/minesweeper.js';
+// 高级难度通关后自动播《关羽之歌》（与单人局同一个助手）
+import { playVictorySong } from '../plugins/victory-song.js';
 
 const ONLINE_MS = 25 * 1000;
 const LONG_PRESS = 500;
@@ -259,6 +261,13 @@ function syncBoard(room) {
     if (stage) { stage.classList.add('is-shake'); setTimeout(() => stage.classList.remove('is-shake'), 420); }
   }
   if (g.won && !prev.won) {
+    // 高级通关 → 自动播《关羽之歌》（只对高级、一分钟内只播一次；失败不影响通关反馈）
+    if (getLevel(room.level).id === 'expert') {
+      void playVictorySong().then((r) => {
+        if (r.ok) Toast.ok(`通关！正在播放《${r.title}》`);
+        else Toast.show(`通关！但没能自动播放：${r.reason || '未知原因'}`, '', { ttl: 5000 });
+      });
+    }
     g.cells.forEach((c, i) => { if (c.open) play('is-win', i, Math.min(i, 60) * 8); });
   }
 
