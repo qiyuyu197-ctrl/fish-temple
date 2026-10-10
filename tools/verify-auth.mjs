@@ -215,6 +215,15 @@ try {
     items.length === 1 && items[0].title === '站长改过的标题',
     JSON.stringify(items.slice(0, 2)));
 
+  // 本地形态不该有墓碑语义：文件就是真相，删除＝真删，deleted 恒为空
+  const localDel = await api('/api/content/posts/p1', { method: 'DELETE', token: ownerToken });
+  const localAfter = await api('/api/content/posts');
+  check('本地形态删除是真删，且 deleted 恒为空（文件即真相）',
+    localDel.status === 200
+      && (localAfter.json?.items || []).length === 0
+      && Array.isArray(localAfter.json?.deleted) && localAfter.json.deleted.length === 0,
+    JSON.stringify({ status: localDel.status, items: (localAfter.json?.items || []).length, deleted: localAfter.json?.deleted }));
+
   /* ---- 5. 清理路径 ---- */
   const del = await api(`/api/forum/posts/${postId}`, { method: 'DELETE', token: memberToken });
   check('作者能删自己的帖', del.status === 200 && del.json?.ok === true, `${del.status}`);
@@ -317,6 +326,39 @@ try {
       check('公开读取拿到覆盖层（overlayOnly=true，前端据此合并静态文件）',
         rj.overlayOnly === true && (rj.items || []).some((it) => it.id === 'online-1'),
         JSON.stringify({ overlayOnly: rj.overlayOnly, n: (rj.items || []).length }));
+
+      /* ---- 墓碑：线上删除必须"删得掉"，不能刷新后又从仓库 seed 里复活 ---- */
+      const delOwn = await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news/online-1`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${ownerTok}` },
+      });
+      check('部署形态下站长能删除已发布的内容', delOwn.status === 200, `${delOwn.status}`);
+      const afterDel = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news`)).json().catch(() => ({}));
+      check('⚠️ 删除后留下墓碑：items 里没有它、deleted 里有它（否则合并时会复活）',
+        !(afterDel.items || []).some((it) => it.id === 'online-1')
+          && (afterDel.deleted || []).includes('online-1'),
+        JSON.stringify({ items: (afterDel.items || []).map((i) => i.id), deleted: afterDel.deleted }));
+
+      // 只存在于仓库 seed 里的 id（覆盖层里从没写过）也必须能删 —— 前端只会删它显示过的东西
+      const delSeed = await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news/seed-only-1`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${ownerTok}` },
+      });
+      const afterSeed = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news`)).json().catch(() => ({}));
+      check('部署形态下也能删"只在仓库 seed 里"的条目（留墓碑）',
+        delSeed.status === 200 && (afterSeed.deleted || []).includes('seed-only-1'),
+        `${delSeed.status} deleted=${JSON.stringify(afterSeed.deleted)}`);
+
+      // 重新发布同一个 id = 撤销墓碑
+      const repost = await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerTok}` },
+        body: JSON.stringify({ id: 'online-1', title: '重新发布的公告' }),
+      });
+      const afterRepost = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news`)).json().catch(() => ({}));
+      check('重新发布同一 id 会撤销墓碑（items 里有、deleted 里没有）',
+        repost.status === 200
+          && (afterRepost.items || []).some((it) => it.id === 'online-1')
+          && !(afterRepost.deleted || []).includes('online-1'),
+        JSON.stringify({ items: (afterRepost.items || []).map((i) => i.id), deleted: afterRepost.deleted }));
 
       const mw = await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news`, {
         method: 'POST',

@@ -1634,7 +1634,13 @@ async function main() {
       out.hostBefore = Math.round(host.getBoundingClientRect().top);
 
       document.querySelector('.ne-search [data-kw]')?.click();   // 用快捷标签触发搜索
-      await wait(3800);
+      // 轮询到"结果出现 **且** 播放器已经对齐槽位"为止，而不是死等 3.8 秒对齐：
+      // 搜索是网络请求，机器忙/上游慢时后面那次重排会晚一些，固定等待会误判成"没对齐"。
+      for (let i = 0; i < 40; i++) {
+        await wait(400);
+        const hasRows = document.querySelectorAll('#neResults .ne-row').length > 0;
+        if (hasRows && Math.abs(gap()) < 40) break;
+      }
 
       out.rows = document.querySelectorAll('#neResults .ne-row').length;
       out.resultsH = Math.round(document.getElementById('neResults').getBoundingClientRect().height);
@@ -1846,7 +1852,14 @@ async function main() {
     if (alt) {
       const want = JSON.parse(alt.dataset.alt);
       alt.click();
-      await wait(6200);
+      // 轮询到"提示消失 **且** 歌词标记清掉"为止（两件事都要等换歌后的可播性探测回来）：
+      // 固定等 6.2 秒在网络慢时会误判成"没清掉"。
+      for (let i = 0; i < 40; i++) {
+        await wait(400);
+        const gone = !document.getElementById('neSilent');
+        const cleared = document.getElementById('lyricBox').className === 'lyricbox';
+        if (gone && cleared) break;
+      }
       out.switched = {
         wantId: String(want.id), wantFee: want.fee,
         gotId: window.Terminal.Player.current && window.Terminal.Player.current.neteaseId,
@@ -2122,7 +2135,12 @@ async function main() {
     P._advanceAt = 0.1;
     if (P._clockEl) P._clockEl.currentTime = 6;
     P._checkAdvanceNow();
-    await wait(900);
+    // 轮询而不是固定等 900ms：切歌要重建媒体秒表并 prepare 下一首，
+    // 机器忙时可能超过 900ms —— 固定等待会把"慢"记成"没补执行"。
+    for (let i = 0; i < 24; i++) {
+      await wait(250);
+      if (P.index !== idx1) break;
+    }
     out.catchUp = {
       switched: P.index !== idx1,
       // 偶发红时能一眼看出原因：iframe 重建后若被判成"用户动过官方控制条"，
@@ -3128,6 +3146,53 @@ async function main() {
     return { fired, escaped: html.includes('&lt;script&gt;'), hasRawImg: /<img[^>]*onerror/i.test(html) };
   })()`);
   record('安全：Markdown 注入被转义', xss.fired === false && xss.escaped === true && xss.hasRawImg === false, JSON.stringify(xss));
+
+  /**
+   * 可点的 XSS：markdown 的链接/图片 URL 必须做协议白名单。
+   * 论坛开放给任意注册用户之后，这条尤其重要 ——
+   * `[点我](javascript:alert(1))` 若原样变成 href，读者一点就执行脚本。
+   * 引号已被转义，所以这不是属性逃逸，而是"可点协议"这一类。
+   */
+  const mdSchemes = await evaluate(`(async () => {
+    window.__XSS2__ = false;
+    const { render } = await import('/src/util/markdown.js');
+    const cases = {
+      js: '[点我](javascript:window.__XSS2__=true)',
+      jsCase: '[点我](JavaScript:window.__XSS2__=true)',
+      jsSpace: '[点我](  javascript:window.__XSS2__=true)',
+      data: '[点我](data:text/html,<script>window.__XSS2__=true<\\\\/script>)',
+      imgJs: '![x](javascript:window.__XSS2__=true)',
+      ok: '[正常](https://example.com/a)',
+      rel: '[站内](/logs/post_overview)',
+      mail: '[写信](mailto:a@b.com)',
+    };
+    const out = {};
+    for (const [k, src] of Object.entries(cases)) {
+      const html = render(src).html;
+      out[k] = {
+        href: (html.match(/href="([^"]*)"/) || [])[1] || '',
+        src: (html.match(/src="([^"]*)"/) || [])[1] || '',
+        hasJs: /(href|src)="\\s*(javascript|data|vbscript|blob):/i.test(html),
+      };
+      const d = document.createElement('div');
+      d.innerHTML = html;
+      document.body.append(d);
+      const a = d.querySelector('a');
+      if (a && /^javascript:/i.test(a.getAttribute('href') || '')) { try { a.click(); } catch { /* 被拦就对了 */ } }
+      d.remove();
+    }
+    await new Promise(r => setTimeout(r, 200));
+    return { fired: window.__XSS2__, cases: out };
+  })()`);
+  const sc = mdSchemes?.cases || {};
+  record('安全：Markdown 的危险协议链接不会变成可点的 href/src',
+    mdSchemes?.fired === false
+      && sc.js?.hasJs === false && sc.jsCase?.hasJs === false && sc.jsSpace?.hasJs === false
+      && sc.data?.hasJs === false && sc.imgJs?.hasJs === false
+      && /^https:\/\/example\.com/.test(sc.ok?.href || '')
+      && /^\/logs/.test(sc.rel?.href || '')
+      && /^mailto:/.test(sc.mail?.href || ''),
+    JSON.stringify({ fired: mdSchemes?.fired, js: sc.js, jsCase: sc.jsCase, jsSpace: sc.jsSpace, data: sc.data, imgJs: sc.imgJs, ok: sc.ok?.href, rel: sc.rel?.href, mail: sc.mail?.href }));
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${'─'.repeat(58)}`);

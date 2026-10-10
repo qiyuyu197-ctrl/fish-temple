@@ -112,10 +112,10 @@ python -m http.server 5173
     ├── responsive.mjs      多断点布局溢出检查 + 截图（1920→360）
     ├── verify-playback.mjs 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏黄历按钮不被裁切（43 项）
     ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs + 注入 Blobs 替身（默认 5199）
-    ├── verify-deploy.mjs   线上形态自检：打包安全 lint + `/api/*` 语义 + 账号与论坛（health/config、论坛真读线上 Blobs、配好 Auth0 后校验令牌）+ 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）+ 手机形态两条（iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（33 项，配好 Auth0 后 35 项）
+    ├── verify-deploy.mjs   线上形态自检：打包安全 lint + `/api/*` 语义 + 账号与论坛（health/config、论坛真读线上 Blobs、配好 Auth0 后校验令牌）+ 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）+ 手机形态两条（iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（34 项，配好 Auth0 后 35 项）
     ├── verify-auth.mjs     账号 / 权限 / 论坛自检：本地模拟 IdP（真 RSA 密钥 + JWKS + 真签名）跑权限矩阵，
-    │                       再用仿真器验「部署形态下站长在线发布 → 写 Blobs → 读覆盖层」（42 项）
-    ├── test-markdown.mjs   Markdown 渲染器单元测试（33 项）
+    │                       再用仿真器验「部署形态下站长在线发布 → 写 Blobs → 读覆盖层」（47 项）
+    ├── test-markdown.mjs   Markdown 渲染器单元测试（34 项）
     ├── content-build.mjs   批量写作：tools/content/*.md → data/posts.json & news.json（整份覆盖）
     ├── content/            批量写作的正文源文件（Markdown）
     ├── make-audio.mjs      生成示例音频
@@ -1394,7 +1394,7 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 最后用 **iPhone UA + 390×844 + 触摸**再验一遍手机形态：用户报过的那首曲目必须
 **要么同源出声、要么官方播放器真的落在视口里**（失败时会把几何信息
 `vh/docH/scrollY/dock/hostRect/position` 一并打印出来）。
-实测 **33/33 PASS**（本地仿真与线上 https://yumiao.netlify.app 都跑过；配好 Auth0 后会再多两条真校验，共 35 项）。
+实测 **34/34 PASS**（本地仿真与线上 https://yumiao.netlify.app 都跑过；配好 Auth0 后会再多两条真校验，共 35 项）。
 
 ### 本地 / 线上能力对照
 
@@ -1416,7 +1416,7 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 ## 账号 / 权限 / 论坛
 
 > **进度**：服务端已经完成并且在线上跑着（`auth.mjs` / `storage.mjs` / `/api/auth/*` / `/api/forum/*`，
-> 由 `tools/verify-auth.mjs` 以 **42/42** 覆盖）；**客户端界面（顶栏登录入口、`#/forum` 论坛板块、
+> 由 `tools/verify-auth.mjs` 以 **47/47** 覆盖）；**客户端界面（顶栏登录入口、`#/forum` 论坛板块、
 > 控制台仅站长可写）正在实现中**。这一节写的是已经定下来并被验证过的接口与权限契约。
 
 ### 谁能做什么
@@ -1496,7 +1496,7 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
   论坛放用户创作，作者能改自己的、改不了别人的。
 - 跨域预检放行了 `Authorization` 与 `PATCH`（见「服务器 API」末尾），否则浏览器在预检就会被拦下。
 
-### 这一块怎么验（`tools/verify-auth.mjs`，42 项）
+### 这一块怎么验（`tools/verify-auth.mjs`，47 项）
 
 Auth0 的真实登录要真人点（要跳转、要收验证邮件），没法在自检里点；但**真正危险的部分**
 —— 令牌校验与权限判定 —— 完全可以在本地真验。这个脚本起一个**本地模拟 IdP**
@@ -1521,13 +1521,13 @@ Auth0 的真实登录要真人点（要跳转、要收验证邮件），没法�
 ## 开发期自检
 
 ```bash
-node tools/test-markdown.mjs              # Markdown 渲染器单元测试（33 项）
+node tools/test-markdown.mjs              # Markdown 渲染器单元测试（34 项）
 node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ XSS（含 Markdown 危险协议链接）（204 项）
 node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢出检查（1920→360）+ 截图
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（43 项）
 node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs + Blobs 替身）
-node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 账号与论坛 + 客户端端到端 + 手机形态（33 项，配好 Auth0 后 35）
-node tools/verify-auth.mjs                # 账号 / 权限 / 论坛自检：本地模拟 IdP + Blobs 替身，验权限矩阵与"站长在线发布"（42 项）
+node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 账号与论坛 + 客户端端到端 + 手机形态（34 项，配好 Auth0 后 35）
+node tools/verify-auth.mjs                # 账号 / 权限 / 论坛自检：本地模拟 IdP + Blobs 替身，验权限矩阵与"站长在线发布"（47 项）
 node tools/make-audio.mjs                 # 生成示例音频（可选，本地播放列表用）
 
 # 相册导入（需要手机连线 / Pillow）
@@ -1560,7 +1560,7 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 （v2 形态：直接传 Web `Request`、收 Web `Response`，与线上同一个入口）；默认端口 5199。
 `NETLIFY_FAKE_FN_PATH=1` 可模拟"平台给的是函数自己的路径"那种语义。
 `verify-deploy.mjs [baseUrl]` 就是对着它（或真实站点 URL）验"部署完之后到底能不能用"，
-一共 **33 项**（配好 Auth0 后会再多两条真校验，共 35），分两层：
+一共 **34 项**（配好 Auth0 后会再多两条真校验，共 35），分两层：
 
 **① 静态 + 接口层**
 - **打包安全 lint（零依赖，先跑）**：扫 `server.mjs` 与 `netlify/functions/api.mjs` 的顶层声明
@@ -1589,7 +1589,7 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
   免得又变成"界面在转但没声音"却无从下手；
 - **一首真 VIP 曲目（`fee=1`）**：不允许静默失败 —— 官方播放器要在视口里，或者给出明确提示。
 
-线上实测：**33/33 PASS against https://yumiao.netlify.app**，其中那首曲目的手机检查
+线上实测：**34/34 PASS against https://yumiao.netlify.app**，其中那首曲目的手机检查
 报 `inView:true`，几何为 `geo: {dock:"docked", expanded:"1", hostRect:{top:630,bottom:776}, vh:844}` ——
 也就是官方播放器确实被停靠并展开在 844px 高的视口里，▶ 摸得到。
 它的价值在于：**相册 / 音乐台 / 吉日之歌 这三件事一旦线上失效，最先坏的就是这里**。
@@ -1597,7 +1597,7 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 `verify-auth.mjs` 验账号、权限与论坛：它起一个**本地模拟 IdP**（真 RSA 密钥 + 标准 JWKS +
 真签名的 RS256 令牌），让 `server.mjs` 走与线上**完全相同**的校验路径，再用仿真器配
 **Blobs 替身**跑一遍部署形态（站长在线发布 → 写 Blobs → 读覆盖层）。整个过程写进临时目录
-（`FT_DATA_DIR`），**不碰仓库里的 `data/`** —— 跑完 `git status` 应该是干净的；实测 **42/42 PASS**。
+（`FT_DATA_DIR`），**不碰仓库里的 `data/`** —— 跑完 `git status` 应该是干净的；实测 **47/47 PASS**。
 细节（权限矩阵、Auth0 配置清单、论坛接口）见「账号 / 权限 / 论坛」一节。
 
 有几件事**看起来像失败、其实不是**，别把数字读歪：

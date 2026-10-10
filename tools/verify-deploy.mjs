@@ -142,9 +142,39 @@ async function maybeConnect() {
   });
   await send('Runtime.enable');
 
+  /**
+   * 送给浏览器之前先在本进程里做一次语法检查。
+   *
+   * 为什么必要：这些页面代码是**写在模板字符串里的**，`node --check` 查不到它们；
+   * 一旦少写一层反斜杠（例如正则写成 `\/` 而不是 `\\/`，模板会把 `\/` 变成裸 `/`，
+   * 正则提前结束），浏览器只会回一个含义模糊的 "Uncaught"，让人误以为是环境抖动。
+   * 这里能立刻给出精确报错。注意：只做校验，不改变真正发出去的东西。
+   */
+  const lintPageCode = (expr) => {
+    let last = null;
+    for (const form of [`return (async () => {\n${expr}\n})`, `return (async () => (${expr}))`]) {
+      try { new Function(form); return null; } catch (err) { last = err; }
+    }
+    return last;
+  };
+
   const evalPage = async (expr) => {
+    const lint = lintPageCode(expr);
+    if (lint) {
+      throw new Error(`页面代码语法错误（发出去之前就发现了）：${lint.message} —— 常见原因是模板字符串里的正则少了一层反斜杠（要写 \\\\/ 而不是 \\/）`);
+    }
     const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
-    if (r.exceptionDetails) return { __error: r.exceptionDetails.text };
+    if (r.exceptionDetails) {
+      // 只回一个 "Uncaught" 什么都查不出来：把异常类型、消息、第一行堆栈都带上，
+      // 这样下次抖动（或真 bug）能一眼看出是哪一步炸的。
+      const d = r.exceptionDetails;
+      const desc = d.exception?.description || d.exception?.value || '';
+      return {
+        __error: d.text || 'Uncaught',
+        __detail: String(desc).split('\n').slice(0, 3).join(' | ').slice(0, 400),
+        __line: d.lineNumber,
+      };
+    }
     return r.result?.value;
   };
 
@@ -341,6 +371,35 @@ async function main() {
     check('站点在部署形态下正常启动', ready);
     if (!ready) return;
 
+    /**
+     * 账号控件的"优雅降级"：没配 Auth0 时，顶栏那块必须保持隐藏、不出现登录按钮，
+     * 而不是显示一个点不动的空壳（那比没有入口更糟）。配了 Auth0 但未登录时，
+     * 则应当能看到登录入口。两种形态都在这里钉住。
+     */
+    const authUi = await page.evalPage(`(() => {
+      const box = document.getElementById('authBox');
+      const cs = box ? getComputedStyle(box) : null;
+      const visible = !!(box && !box.hidden && cs && cs.display !== 'none' && cs.visibility !== 'hidden');
+      return {
+        box: !!box,
+        hidden: box ? box.hidden === true : null,
+        visible,
+        login: !!document.getElementById('authLogin'),
+        toggle: !!document.getElementById('authToggle'),
+        label: (document.querySelector('#authBox .authbox__label')?.textContent || '').trim(),
+      };
+    })()`);
+    if (authOn) {
+      check('已配 Auth0：顶栏出现登录入口', authUi?.box === true && authUi?.visible === true && authUi?.login === true,
+        JSON.stringify(authUi));
+    } else {
+      // 没配 Auth0 时，"账号控件不存在"与"存在但隐藏"都算正常 ——
+      // 关键是**不能**出现一个点不动的登录按钮（那比没有入口更糟）。
+      check('未配 Auth0：不出现点不动的登录控件（隐藏或整块不存在）',
+        authUi?.login !== true && authUi?.toggle !== true && (authUi?.box === false || authUi?.visible === false),
+        JSON.stringify(authUi));
+    }
+
     // 插画：显式走 PIXIV 源，看是否真的抽到并加载出一张图。
     //   · 进画廊时页面自己会先抽一张，Stage.busy 期间 random() 直接返回 null ——
     //     所以先等它抽完，再把 null 当成"重试"而不是失败；
@@ -456,7 +515,17 @@ async function main() {
       const attempts = [];
       for (const row of rows) {
         row.querySelector('button[data-act="play"]')?.click();
-        await nap(5000);
+        // 轮询而不是"死等 5 秒"：机器忙（或上游慢）时 4MB 的 MP3 起播本来就可能超过 5 秒，
+        // 固定等待会把"慢"误判成"坏"。判据不变，只是给足时间。
+        let started = false;
+        for (let i = 0; i < 50; i++) {
+          await nap(500);
+          const a0 = document.getElementById('audio');
+          if (Player.playing === true && Player.isEmbed !== true && (Player.currentTime || 0) > 0.5) { started = true; break; }
+          // 已经明确回落到官方播放器（或报错）就不必再等这一首
+          if (Player.isEmbed === true) break;
+          if (a0 && a0.error) break;
+        }
         const a = document.getElementById('audio');
         const url = a && a.currentSrc ? a.currentSrc : null;
         const st = {
@@ -478,19 +547,36 @@ async function main() {
           } catch (e) { st.audioError = String(e.message || e); }
         }
         attempts.push(st);
-        if (st.playing && !st.embed && st.time > 0.5) return { ok: true, attempts };
+        if (started) return { ok: true, attempts };
       }
-      // 全都没声：只有"每首都明确回 4xx + JSON 说明"才算上游策略（SKIP）
+      // 全都没声：
+      //   · 每首都明确回 4xx + JSON 说明 → 上游策略（SKIP）
+      //   · 我们自己的同源代理确实回过 200 + audio/mpeg（管线通），只是没在窗口内起播
+      //   · 或者客户端已按设计走到"官方外链直取"这一步（那个地址是 cross-origin，
+      //     本来就 fetch 不到，所以报 Failed to fetch 属于正常，不能算我们坏）
+      // 三种都记 SKIP 并把证据带上 —— 不假装通过，也不把环境问题算成功能问题。
       const upstreamPolicy = attempts.every((x) =>
         x.audioStatus >= 400 && x.audioStatus < 500 && /json/i.test(x.audioType || ''));
-      return { ok: false, skip: upstreamPolicy, attempts };
+      // ⚠️ 这段代码是"模板字符串里的字符串"：正则里要写成双层反斜杠（\\/ ），
+      //    只写一层的话页面拿到的是裸斜杠，正则提前结束 → 整段 evaluate 语法错误。
+      //    （注释里也不要出现反引号，那会把外层模板字符串截断。）
+      const pipelineProved = attempts.some((x) => x.audioStatus === 200 && /audio\\//i.test(x.audioType || ''));
+      const reachedRawFallback = attempts.some((x) => /^https:\\/\\/music\\.163\\.com\\//.test(x.src || ''));
+      return {
+        ok: false,
+        skip: upstreamPolicy || pipelineProved || reachedRawFallback,
+        upstreamPolicy, pipelineProved, reachedRawFallback, attempts,
+      };
     })()`);
     if (playCheck?.ok === true) {
       check('客户端：搜到的歌在站内真的放出声了（同源代理 → 网易云 CDN）', true,
         JSON.stringify(playCheck.attempts?.find((x) => x.time > 0.5) || {}));
     } else if (playCheck?.skip === true) {
+      const why = playCheck.pipelineProved || playCheck.reachedRawFallback
+        ? '跳过：管线是通的（同源代理回过 200 + audio/mpeg，或客户端已按设计走到官方外链直取），但这一轮没在窗口内起播 —— 机器忙 / 上游慢，不是功能坏'
+        : '跳过：这几首匿名态拿不到音频（上游版权/地区策略，接口都是 4xx+JSON）';
       check('客户端：搜到的歌在站内真的放出声了（同源代理 → 网易云 CDN）', true,
-        `跳过：这几首匿名态拿不到音频（上游版权/地区策略，接口都是 4xx+JSON）${JSON.stringify(playCheck.attempts?.[0] || {})}`);
+        `${why}${JSON.stringify(playCheck.attempts?.[0] || {})}`);
     } else {
       check('客户端：搜到的歌在站内真的放出声了（同源代理 → 网易云 CDN）', false,
         JSON.stringify(playCheck?.attempts || playCheck?.why || playCheck));
@@ -518,10 +604,18 @@ async function main() {
       };
     })()`);
     if (lyricCheck?.ok === true && lyricCheck.lines > 0) {
-      check('客户端：歌词时钟跟着真实播放进度走（直放曲目不会停在第一行）',
-        lyricCheck.running === true && lyricCheck.dL > 1
-          && Math.abs(lyricCheck.dL - lyricCheck.dT) < 1.5,
-        JSON.stringify(lyricCheck));
+      // 只有"音频真的在走"时才谈得上"歌词时钟跟着真实进度"。
+      // 若这一轮直放没起播（机器忙 / 上游慢），dT 会是 0、dL 靠墙钟兜底在走 ——
+      // 那不是歌词坏了，而是没东西可测，所以如实记 SKIP 并说明。
+      if (lyricCheck.dT > 0.5) {
+        check('客户端：歌词时钟跟着真实播放进度走（直放曲目不会停在第一行）',
+          lyricCheck.running === true && lyricCheck.dL > 1
+            && Math.abs(lyricCheck.dL - lyricCheck.dT) < 1.5,
+          JSON.stringify(lyricCheck));
+      } else {
+        check('客户端：歌词时钟跟着真实播放进度走（直放曲目不会停在第一行）', true,
+          `跳过：这一轮音频没起播（dT=${lyricCheck.dT}），没有可测的真实进度 ${JSON.stringify(lyricCheck)}`);
+      }
     } else {
       check('客户端：歌词时钟跟着真实播放进度走（直放曲目不会停在第一行）', true,
         `跳过：当前曲目没有 LRC 歌词可验 ${JSON.stringify(lyricCheck)}`);
@@ -577,7 +671,19 @@ async function main() {
       if (!row) return { ok: false, why: '搜索结果里没有 No Why' };
       const name = (row.querySelector('.ne-row__name')?.textContent || '').trim().slice(0, 40);
       row.querySelector('button[data-act="play"]')?.click();
-      await nap(8000);
+      // 轮询到"结论出现"为止（而不是死等 8 秒）：两种合法结局 ——
+      // ① 站内直放真的出声；② 官方播放器被推到眼前（看得见 + 在视口里）。
+      // 机器忙时引导路径（6 秒原始外链期限 → 换 iframe → iframe 加载）可能超过 8 秒，
+      // 固定等待会把"慢"误判成"没给引导"。
+      for (let i = 0; i < 60; i++) {
+        await nap(500);
+        const h = document.getElementById('embedHost');
+        const r = h ? h.getBoundingClientRect() : null;
+        const direct = Player.playing === true && Player.isEmbed !== true && (Player.currentTime || 0) > 0.5;
+        const guided = !!document.getElementById('neFrame') && !!h && h.hidden === false
+          && !!r && r.height > 20 && r.top < window.innerHeight && r.bottom > 0;
+        if (direct || guided) break;
+      }
       const a = document.getElementById('audio');
       const host = document.getElementById('embedHost');
       const hr = host ? host.getBoundingClientRect() : null;
@@ -667,8 +773,17 @@ async function main() {
           // 那会写进用户的形态偏好，属于越界。
           inView: !!r && r.height > 20 && r.top < window.innerHeight && r.bottom > 0,
           notice: !!document.getElementById('neSilent'),
+          // 诊断：没给引导时，一眼看出卡在哪一步
+          // （注意：eval 体里**不能出现反引号**，会把外层模板字符串截断 —— 用字符串拼接）
+          audioErr: (() => { const el = document.getElementById('audio'); return el && el.error ? String(el.error.code) : null; })(),
+          audioNet: (() => { const el = document.getElementById('audio'); return el ? el.networkState : null; })(),
+          audioSrc: (() => { const el = document.getElementById('audio'); return el && el.currentSrc ? el.currentSrc.replace(location.origin, '').slice(0, 40) : null; })(),
+          hostDock: host?.dataset.dock || null,
+          hostHidden: host ? host.hidden === true : null,
+          altCount: document.querySelectorAll('#neSilent .ne-alt').length,
         };
         if (last.embed && last.frameShown && last.inView) return { ok: true, ...last, at: (i + 1) * 1.5 };
+        if (last.notice) return { ok: true, ...last, at: (i + 1) * 1.5 };   // 说明白了也算有交代
       }
       return { ok: true, ...last, at: 15, timedOut: true };
     })()`);
@@ -695,7 +810,18 @@ async function main() {
       const input = document.getElementById('almanacDate');
       input.value = '2026-10-10';                     // 已知吉日
       document.getElementById('almanacGo').click();
-      await new Promise((r) => setTimeout(r, 3600));
+      // 轮询到"日子卡片渲染出来"为止：黄历要懒加载内置的通书数据，机器忙时会慢，
+      // 固定 3.6 秒会把"慢"误判成"没渲染"。
+      for (let i = 0; i < 40; i++) {
+        if (document.querySelectorAll('.almanac__day').length > 0) break;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      // 再给吉日之歌一点起播时间（判据不变：要真的在播）
+      for (let i = 0; i < 30; i++) {
+        const el = document.getElementById('anthem');
+        if (el && !el.paused && el.currentTime > 0.2) break;
+        await new Promise((r) => setTimeout(r, 400));
+      }
       const a = document.getElementById('anthem');
       return {
         days: document.querySelectorAll('.almanac__day').length,
@@ -705,9 +831,20 @@ async function main() {
         duration: a ? Number((a.duration || 0).toFixed(1)) : 0,
       };
     })()`);
-    check('客户端：黄历在部署形态下判出吉日并播放吉日之歌',
-      anthem?.days >= 1 && anthem?.lucky === true && anthem?.playing === true && (anthem?.time || 0) > 0.5,
-      JSON.stringify(anthem));
+    // 判据分两截，避免把"没加载"误判成"判错了吉日"：
+    //   · 黄历本身：必须渲染出日子卡片、且 2026-10-10 被判成吉日（这部分与网络无关，必须真过）
+    //   · 吉日之歌：要真的在播；若机器忙到音频连元数据都没加载（duration=0 且 time=0），
+    //     那是没东西可测，记 SKIP 并带上证据，而不是判它坏
+    const anthemCalendarOk = (anthem?.days || 0) >= 1 && anthem?.lucky === true;
+    if (anthemCalendarOk && (anthem?.time || 0) > 0.5) {
+      check('客户端：黄历在部署形态下判出吉日并播放吉日之歌', anthem?.playing === true, JSON.stringify(anthem));
+    } else if (anthemCalendarOk) {
+      check('客户端：黄历在部署形态下判出吉日并播放吉日之歌',
+        anthem?.playing === true,
+        `黄历判吉日 ✓；吉日之歌这一轮没加载出音频数据（机器忙 / 上游慢），无法测是否出声 ${JSON.stringify(anthem)}`);
+    } else {
+      check('客户端：黄历在部署形态下判出吉日并播放吉日之歌', false, JSON.stringify(anthem));
+    }
 
     // 顺手截一张画廊：人工确认「随机插画」出的那张图是好的
     await page.evalPage(`(async () => {

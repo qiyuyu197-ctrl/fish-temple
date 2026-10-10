@@ -133,6 +133,7 @@ function tokensFor(identity) {
 
 const pendingCodes = new Map();   // code → { challenge, redirectUri, identity }
 const codeChallenges = [];        // 供 PKCE 校验用例断言
+const logoutHits = [];            // 客户端跳 /v2/logout 的记录（验"真登出"）
 
 const idp = createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${IDP_PORT}`);
@@ -142,6 +143,22 @@ const idp = createServer(async (req, res) => {
   };
 
   if (url.pathname === '/.well-known/jwks.json') return send(200, { keys: [jwk] });
+
+  /**
+   * Auth0 的"真登出"端点：客户端在清掉本地会话后会跳到
+   * `https://<domain>/v2/logout?client_id=…&returnTo=…`。
+   * 这里按真实行为 302 回 returnTo（并且只接受已登记的地址 —— 也就是本站根，
+   * 与用户配置清单里的 Allowed Logout URLs 一致；不合法就退回本站根）。
+   * 有了它，"退出登录"才能被界面级自检端到端覆盖，而不是断在一个 404 上。
+   */
+  if (url.pathname === '/v2/logout' || url.pathname === '/logout') {
+    const returnTo = url.searchParams.get('returnTo') || '';
+    const allowed = /^https?:\/\/(127\.0\.0\.1|localhost):\d+\/?$/.test(returnTo);
+    const back = allowed ? returnTo : `http://127.0.0.1:${PORT}/`;
+    logoutHits.push({ clientId: url.searchParams.get('client_id') || '', returnTo, allowed });
+    res.writeHead(302, { Location: back });
+    return res.end();
+  }
 
   if (url.pathname === '/authorize') {
     const challenge = url.searchParams.get('code_challenge') || '';
@@ -500,22 +517,41 @@ try {
       users?.status === 200 && (users?.total || 0) >= 1, JSON.stringify(users));
 
     /* ---- 退出登录 ---- */
-    const out = await page.evalPage(`(async () => {
+    // ⚠️ 真登出会**整页跳转**（Auth0 /v2/logout → 302 回站点），所以点完之后
+    // 正在等待的那个 evaluate 一定会被"navigated or closed"打断 —— 那是预期，
+    // 不是失败。这里把点击单独包一层容错，等跳转链路跑完再做一次全新的断言。
+    await page.evalPage(`(async () => {
       location.hash = '#/forum';
       await new Promise((r) => setTimeout(r, 1500));
       document.getElementById('authToggle')?.click();
       await new Promise((r) => setTimeout(r, 300));
       document.getElementById('authLogout')?.click();
+      return true;
+    })()`).catch(() => null);
+    await new Promise((r) => setTimeout(r, 4000));   // 等 /v2/logout → 302 → 回到站点
+    const out = await page.evalPage(`(async () => {
+      location.hash = '#/forum';
       await new Promise((r) => setTimeout(r, 1500));
       return {
         hasLogin: !!document.getElementById('authLogin'),
         hasToggle: !!document.getElementById('authToggle'),
         forumBanner: (document.querySelector('.forum__banner')?.textContent || '').replace(/\\s+/g, ' ').trim(),
+        href: location.href,
       };
-    })()`);
+    })()`).catch((err) => ({ error: String(err?.message || err) }));
     check('退出登录后回到未登录态（顶栏又出现「登录」，论坛又提示需要登录）',
       out?.hasLogin === true && out?.hasToggle === false && /需要登录/.test(out?.forumBanner || ''),
       JSON.stringify(out));
+
+    /**
+     * 真登出：清掉本地会话之后还应当跳一次 Auth0 的 `/v2/logout`
+     * （否则 Auth0 那边的会话还在，下次登录可能不再要求密码 —— 共用电脑上就是个问题）。
+     * returnTo 必须是站点根（hash 路由不能带 #/…，否则 Auth0 会认为没登记过）。
+     */
+    const hit = logoutHits[logoutHits.length - 1];
+    check('登出会真的跳 Auth0 /v2/logout（带上 client_id 与站点根的 returnTo）',
+      !!hit && hit.clientId === CLIENT_ID && hit.allowed === true && !/#/.test(hit.returnTo || ''),
+      JSON.stringify(hit || '没有观察到 /v2/logout 请求'));
 
     /* ---- 隔离性：仓库 data/ 一个字节都没动 ---- */
     const dataAfter = await snapshotData();

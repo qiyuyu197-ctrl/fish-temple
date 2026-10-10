@@ -1384,6 +1384,19 @@ async function handlePixiv(req, res, url, opts = {}) {
   return fail(res, 404, `未知 Pixiv 接口：${action}（可用：random / image / illust / status）`);
 }
 
+/**
+ * 墓碑：线上"删掉一条内容"这件事本身也要记下来。
+ *
+ * 为什么需要：线上（Blobs）的读只能拿到**覆盖层**（仓库里那份 data/*.json 在函数产物里读不到），
+ * 前端把覆盖层合并到静态 seed 之上。如果删除只是"从覆盖层里拿掉"，那就等于从没发布过 ——
+ * 前端一合并，仓库 seed 里那条又冒出来了，表现为**线上删掉的公告刷新后又出现**。
+ * 所以线上删除要留下 `{ id, __deleted: true }` 这条墓碑，GET 时通过 `deleted` 告诉前端剔除它。
+ * 本地（文件即真相）不需要墓碑：删除就是真删。
+ */
+function isTombstone(it) {
+  return !!it && it.__deleted === true;
+}
+
 async function readCollection(name, opts = {}) {
   const store = storageFor(opts);
   if (store.mode === 'blobs') {
@@ -1608,11 +1621,19 @@ async function handleForum(req, res, url, opts, seg) {
     const limit = Math.min(FORUM.listMax, Math.max(1, Number(url.searchParams.get('limit')) || FORUM.listDefault));
     const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
     const q = (url.searchParams.get('q') || '').trim().toLowerCase();
-    let ids = await store.listItems('forum');
+    // 线上存储偶发抽风（冷启动 / Blobs 抖动）时不要吐 500 —— 给一句人话 + 503，
+    // 前端可以提示"稍后重试"，而不是让访问者看到一个没有解释的服务端错误。
+    let ids = [];
+    try {
+      ids = await store.listItems('forum');
+    } catch (err) {
+      log(`\x1b[31mFORUM\x1b[0m 列表读取失败：${err.message}`);
+      return fail(res, 503, '论坛列表暂时读不出来（存储服务抖动）：请稍后刷新重试。');
+    }
     const posts = [];
     // 只读最近 300 条：论坛是列表页，不该为了翻页把整个库读一遍
     for (const pid of ids.slice(-300)) {
-      const p = await store.readItem('forum', pid);
+      const p = await store.readItem('forum', pid).catch(() => null);
       if (p && p.id) posts.push(p);
     }
     let list = posts.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -1818,18 +1839,27 @@ async function handleApi(req, res, url, opts = {}) {
     }
 
     if (req.method === 'GET') {
-      const items = await readCollection(name, opts);
+      const raw = await readCollection(name, opts);
       const store = storageFor(opts);
-      // 线上只回"线上发布的覆盖层"（仓库那份读不到），前端把它合并到静态 data/*.json 之上
-      return ok(res, { ok: true, items, storage: store.mode, overlayOnly: store.mode === 'blobs' });
+      const items = raw.filter((it) => !isTombstone(it));
+      // deleted：线上被删除过的 id。前端合并完覆盖层之后要再按这些 id 剔除，
+      // 否则仓库 data/*.json 里那条 seed 会"复活"（详见 isTombstone 的注释）。
+      const deleted = store.mode === 'blobs' ? raw.filter(isTombstone).map((it) => String(it.id)) : [];
+      return ok(res, { ok: true, items, deleted, storage: store.mode, overlayOnly: store.mode === 'blobs' });
     }
 
     if (req.method === 'POST' || req.method === 'PUT') {
       const body = await readBody(req);
       const incoming = Array.isArray(body) ? body.map(sanitizeItem) : [sanitizeItem(body)];
-      const items = await readCollection(name, opts);
-      const map = new Map(items.map((it) => [it.id, it]));
-      incoming.forEach((it) => map.set(it.id, { ...map.get(it.id), ...it }));
+      const raw = await readCollection(name, opts);
+      const map = new Map(raw.map((it) => [it.id, it]));
+      incoming.forEach((it) => {
+        const next = { ...map.get(it.id), ...it };
+        // 重新写入同一条 = 撤销之前的删除墓碑（否则刚"恢复"的内容会被 deleted 又剔掉）
+        delete next.__deleted;
+        delete next.deletedAt;
+        map.set(it.id, next);
+      });
       const count = await writeCollection(name, [...map.values()], opts);
       log(`\x1b[33mWRITE\x1b[0m ${name} ← ${incoming.length} 条（共 ${count} 条，${storageFor(opts).mode}）`);
       return ok(res, {
@@ -1842,12 +1872,19 @@ async function handleApi(req, res, url, opts = {}) {
     if (req.method === 'DELETE') {
       const id = decodeURIComponent(seg[2] || '');
       if (!id) return fail(res, 400, '缺少 id');
-      const items = await readCollection(name, opts);
-      const next = items.filter((it) => it.id !== id);
-      if (next.length === items.length) return fail(res, 404, `未找到 id=${id}`);
+      const raw = await readCollection(name, opts);
+      const store = storageFor(opts);
+      const live = raw.some((it) => it.id === id && !isTombstone(it));
+      if (!live && store.mode !== 'blobs') return fail(res, 404, `未找到 id=${id}`);
+      // 线上：这个 id 可能只存在于仓库 seed 里（覆盖层里没有），也要允许删 ——
+      // 函数里读不到 seed，没法验证它到底存不存在，而前端只会删它显示过的东西。
+      const next = raw.filter((it) => it.id !== id);
+      if (store.mode === 'blobs') {
+        next.push({ id, __deleted: true, deletedAt: new Date().toISOString() });
+      }
       await writeCollection(name, next, opts);
-      log(`\x1b[31mDELETE\x1b[0m ${name} → ${id}`);
-      return ok(res, { ok: true, total: next.length });
+      log(`\x1b[31mDELETE\x1b[0m ${name} → ${id}${store.mode === 'blobs' ? '（留墓碑）' : ''}`);
+      return ok(res, { ok: true, total: next.filter((it) => !isTombstone(it)).length, deleted: id });
     }
 
     return fail(res, 405, `不支持的方法：${req.method}`);
