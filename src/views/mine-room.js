@@ -101,14 +101,28 @@ function membersHTML(room) {
     </li>`).join('')}</ul>`;
 }
 
-/** 结算条（与单人局的 .ms-banner 同构；失败时雷已经在服务端翻出来了） */
+/** 结算条（与单人局的 .ms-banner 同构）+ 本局统计与 MVP */
 function bannerHTML(room) {
   const g = room.game;
   const won = !!g.won;
+  // 统计：步数多者为 MVP（并列时看谁揭开的格子多）
+  const rows = room.members.map((m) => {
+    const s = (room.stats || {})[m.sub] || { steps: 0, opened: 0, flags: 0 };
+    return { name: m.name, sub: m.sub, steps: s.steps || 0, opened: s.opened || 0, flags: s.flags || 0 };
+  }).sort((a, b) => b.steps - a.steps || b.opened - a.opened);
+  const mvp = rows.length && rows[0].steps > 0 ? rows[0].sub : null;
   return `<div class="ms-banner ${won ? 'is-win' : ''}" style="margin-top:var(--sp-4)">
     <div class="ms-banner__main">
       <b class="mono">${won ? 'ALL CLEAR' : 'BOOM'}</b>
       <span>${won ? '全部扫清，合作通关！' : '踩到雷了 —— 雷已经全翻出来了，让房主开新局'}</span>
+    </div>
+    <div class="mr-stats mono" style="display:grid;grid-template-columns:1fr 44px 44px 44px;gap:4px;align-items:center;margin-top:var(--sp-3);font-size:var(--fs-2xs);text-align:right">
+      <span style="text-align:left;color:var(--fg-faint)">本局统计</span><span style="color:var(--fg-faint)">步数</span><span style="color:var(--fg-faint)">揭开</span><span style="color:var(--fg-faint)">插旗</span>
+      ${rows.map((r) => `
+        <span style="text-align:left;${r.sub === mvp ? 'font-weight:700' : ''}">${esc(r.name)}${r.sub === mvp ? '<i style="font-style:normal;background:var(--signal);color:var(--signal-ink);padding:0 4px;margin-left:4px">MVP</i>' : ''}</span>
+        <b style="${r.sub === mvp ? 'color:var(--signal-deep)' : ''}">${r.steps}</b>
+        <b>${r.opened}</b>
+        <b>${r.flags}</b>`).join('')}
     </div>
   </div>`;
 }

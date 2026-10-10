@@ -1792,6 +1792,7 @@ function mineRoomView(room, sub) {
       sub: m.sub, name: m.name, host: m.sub === room.hostSub, joinedAt: m.joinedAt, lastAt: m.lastAt,
     })),
     revealers: room.revealers || {},
+    stats: room.stats || {},
     game: minePublicGame(room.game),
   };
 }
@@ -1846,6 +1847,8 @@ async function handleMine(req, res, url, opts, seg) {
       members: [{ sub, name, joinedAt: now, lastAt: now }],
       game: Mines.createGame(level),
       revealers: {},
+      // 局内统计：每人的行动步数 / 揭开的格子数 / 插旗数（结算时评 MVP 用）
+      stats: { [sub]: { steps: 0, opened: 0, flags: 0 } },
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -1934,6 +1937,13 @@ async function handleMine(req, res, url, opts, seg) {
     } catch (err) {
       return fail(res, 400, `这一手不合法：${err.message}`);
     }
+    // 记"谁走的这一步"：步数一律 +1；揭开按洪水展开的格数累加（更公平，不会一步算一格）；
+    // 插旗单独计数（取消插旗不算，只有真的插上才 +1）
+    const st = room.stats?.[sub] || { steps: 0, opened: 0, flags: 0 };
+    st.steps += 1;
+    if (kind === 'flag') { if (after && after.flag) st.flags += 1; }
+    else st.opened += mineOpenedCells(out, room.game).length || (after && after.open ? 1 : 0);
+    room.stats = { ...(room.stats || {}), [sub]: st };
     for (const key of mineOpenedCells(out, room.game)) room.revealers[key] = sub;
     const after = room.game.cells[idx];
     if (kind !== 'flag' && after && after.revealed) room.revealers[`${r},${c}`] = sub;
@@ -1967,6 +1977,7 @@ async function handleMine(req, res, url, opts, seg) {
     if (room.hostSub !== sub) return fail(res, 403, '只有房主能开新局');
     room.game = Mines.createGame(room.level);
     room.revealers = {};
+    room.stats = {};   // 新局重新统计（MVP 也是每局重评）
     room.finished = false;
     room.version += 1;
     room.updatedAt = new Date().toISOString();
