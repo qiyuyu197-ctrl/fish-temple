@@ -420,8 +420,10 @@ export const Auth = {
   async confirmWithServer(silent = false) {
     if (!this.enabled || !this.session?.access_token) return false;
     try {
+      // 用 ID token（见 token() 的说明）：服务端验的是签给本应用的那一个
+      const bearer = this.session.id_token || this.session.access_token;
       const res = await fetch(`${API.base}/auth/me`, {
-        headers: { Authorization: `Bearer ${this.session.access_token}` },
+        headers: { Authorization: `Bearer ${bearer}` },
         cache: 'no-store',
       });
       if (res.status === 401) {
@@ -500,12 +502,21 @@ export const Auth = {
 
   /* ---------- 令牌 ---------- */
 
-  /** 可用的 access token；过期就 refresh，刷不到返回 null */
+  /**
+   * 调**我们自己的** API 时该用的令牌：**ID token**，不是 access token。
+   *
+   * 为什么（这是线上真实踩过的坑）：服务端 `auth.mjs` 验的是"签给本应用的 ID token" ——
+   * 校验 `aud === clientId`、`iss`、`exp`，并从 claims 里取 email / email_verified / name。
+   * 而 Auth0 给 SPA 的 **access token**（在没建 Auth0 API、没配 audience 时）受众是
+   * `https://<domain>/userinfo`，**不等于 clientId** —— 拿它去调 /api/auth/me 一定被服务端
+   * 判"受众不匹配"并回 401，界面上表现为"登录成功但立刻又被登出"。
+   * ID token 才是签给本应用、且带身份 claims 的那个，所以调本站 API 用它。
+   */
   async token() {
     if (!this.enabled) return null;
-    if (this._valid()) return this.session.access_token;
+    if (this._valid()) return this.session.id_token || null;
     const ok = await this.refresh();
-    return ok ? this.session.access_token : null;
+    return ok ? (this.session.id_token || null) : null;
   },
 
   /** 用 refresh_token 换新令牌（Auth0 的 Refresh Token 轮换） */
