@@ -1939,10 +1939,14 @@ async function handleMine(req, res, url, opts, seg) {
     }
     // 记"谁走的这一步"：步数一律 +1；揭开按洪水展开的格数累加（更公平，不会一步算一格）；
     // 插旗单独计数（取消插旗不算，只有真的插上才 +1）
+    // ⚠️ 这里**必须**用 room.game.cells[idx] 直接取格，不能引用下面才声明的 `after`：
+    //    上一版我用了 after，插旗那条分支触发 const 的暂时性死区 → 接口 500 → 插旗直接不可用
+    //    （揭开之所以没炸，是因为 `||` 短路恰好没求值到 after；verify-auth 当时只测了揭开，所以漏过）
+    const cellNow = room.game.cells[idx];
     const st = room.stats?.[sub] || { steps: 0, opened: 0, flags: 0 };
     st.steps += 1;
-    if (kind === 'flag') { if (after && after.flag) st.flags += 1; }
-    else st.opened += mineOpenedCells(out, room.game).length || (after && after.open ? 1 : 0);
+    if (kind === 'flag') { if (cellNow && cellNow.flag) st.flags += 1; }
+    else st.opened += mineOpenedCells(out, room.game).length || (cellNow && cellNow.open ? 1 : 0);
     room.stats = { ...(room.stats || {}), [sub]: st };
     for (const key of mineOpenedCells(out, room.game)) room.revealers[key] = sub;
     const after = room.game.cells[idx];
