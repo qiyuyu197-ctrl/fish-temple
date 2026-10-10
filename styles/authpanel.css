@@ -1,0 +1,127 @@
+/* 页内登录面板（只收邮箱，密码交给 Auth0）
+   ------------------------------------------------------------------
+   为什么单独一个文件：顶栏与移动端样式都在 components.css / mobile.css 里，
+   而这个面板是"登录流程"自己的东西 —— 独立成一份，改动面最小、也最好读。
+   视觉语言与站点一致：纸色底、墨色描边、信号黄点亮、mono 小标签、
+   方角 + 硬阴影（和命令面板 / 卡片同一套）。
+
+   只在 JS 打开面板时才存在这些节点（见 shell.js 的 openAuthPanel）：不留常驻 DOM。 */
+
+.authpanel__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 300;                       /* 盖住顶栏与抽屉，但不改它们的定位 */
+  display: grid;
+  place-items: center;
+  padding: var(--sp-5);
+  background: color-mix(in srgb, var(--ink-100) 55%, transparent);
+}
+
+.authpanel {
+  width: min(420px, 100%);
+  max-height: calc(100vh - var(--sp-8, 32px));
+  overflow: auto;
+  display: grid;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  background: var(--paper);
+  color: var(--ink-100);
+  border: 2px solid var(--ink-100);
+  box-shadow: 8px 8px 0 color-mix(in srgb, var(--ink-100) 20%, transparent);
+}
+
+.authpanel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: 2px solid var(--ink-100);
+}
+.authpanel__head b {
+  font-family: var(--font-sans);
+  font-size: var(--fs-lg, 1.1rem);
+  letter-spacing: 0.02em;
+}
+.authpanel__x {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--ink-100);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.authpanel__x:hover { background: var(--signal); }
+
+.authpanel__lead {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--ink-60, var(--ink-100));
+}
+.authpanel__lead b { color: var(--ink-100); }
+
+.authpanel__form { display: grid; gap: var(--sp-2); }
+.authpanel__label {
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+  color: var(--ink-60, var(--ink-100));
+}
+.authpanel__input {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--ink-100);
+  background: var(--bg-sunk, transparent);
+  border: 2px solid var(--ink-100);
+}
+.authpanel__input::placeholder { color: color-mix(in srgb, var(--ink-100) 38%, transparent); }
+.authpanel__input[aria-invalid="true"] { border-color: #C0392B; }
+
+.authpanel__err {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: #C0392B;
+}
+
+.authpanel__go { justify-content: center; width: 100%; }
+
+/* 逃生通道：不填邮箱、走原来那条整页跳转 */
+.authpanel__alt {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: var(--ink-60, var(--ink-100));
+  font-size: var(--fs-xs);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.authpanel__alt:hover { color: var(--ink-100); }
+
+.authpanel__foot {
+  margin: 0;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border, color-mix(in srgb, var(--ink-100) 22%, transparent));
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--ls-wide);
+  color: color-mix(in srgb, var(--ink-100) 55%, transparent);
+}
+
+/* 窄屏：别让面板贴边，也别在键盘弹出时被顶出屏幕 */
+@media (max-width: 560px) {
+  .authpanel__scrim { padding: var(--sp-3); align-items: start; padding-top: 12vh; }
+  .authpanel { padding: var(--sp-4); box-shadow: 5px 5px 0 color-mix(in srgb, var(--ink-100) 20%, transparent); }
+}
+
+/* 焦点可见：键盘用户要能一眼看出当前在哪 */
+.authpanel :focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}

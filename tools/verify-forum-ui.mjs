@@ -333,6 +333,91 @@ try {
       };
     })()`);
     check('未登录：顶栏出现「登录」入口', anon?.hasLoginBtn === true, JSON.stringify({ hasLoginBtn: anon?.hasLoginBtn }));
+
+    /**
+     * 页内登录面板：点「登录」不再整页跳去 Auth0，而是先开我们自己的面板收邮箱，
+     * 再带 login_hint 跳过去输密码（密码永不经过我们的代码）。
+     * 这里只验"面板行为对不对 + 授权地址拼得对不对" —— 真实 Auth0 的跳转要真人密码，验不了。
+     */
+    const panel = await page.evalPage(`(async () => {
+      const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+      const out = {};
+      document.getElementById('authLogin')?.click();
+      await nap(400);
+      const p = document.getElementById('authPanel');
+      out.shown = !!p;
+      out.hasEmail = !!document.getElementById('authPanelEmail');
+      out.inputType = document.getElementById('authPanelEmail')?.type || '';
+      out.focused = document.activeElement?.id || '';
+      out.role = p?.getAttribute('role') || '';
+      out.ariaModal = p?.getAttribute('aria-modal') || '';
+      // 样式真的生效？（新加了一份 authpanel.css，怕链接没生效/选择器写错导致面板裸奔）
+      if (p) {
+        const cs = getComputedStyle(p);
+        const ic = getComputedStyle(document.getElementById('authPanelEmail'));
+        out.style = {
+          bg: cs.backgroundColor,
+          border: cs.borderTopWidth,
+          inputBorder: ic.borderTopWidth,
+          inView: p.getBoundingClientRect().top >= 0 && p.getBoundingClientRect().bottom <= window.innerHeight + 1,
+        };
+      }
+
+      // 邮箱留空就点「继续」：不许跳走，且要有行内提示
+      const hrefBefore = location.href;
+      const form = document.getElementById('authPanelForm');
+      if (form?.requestSubmit) form.requestSubmit(); else document.getElementById('authPanelGo')?.click();
+      await nap(350);
+      out.emptyStillHere = location.href === hrefBefore;
+      out.emptyErrShown = !(document.getElementById('authPanelErr')?.hidden ?? true);
+
+      // 格式不对同样不许跳
+      const em = document.getElementById('authPanelEmail');
+      if (em) { em.value = 'not-an-email'; em.dispatchEvent(new Event('input', { bubbles: true })); }
+      document.getElementById('authPanelGo')?.click();
+      await nap(350);
+      out.badStillHere = location.href === hrefBefore;
+      out.badErrShown = !(document.getElementById('authPanelErr')?.hidden ?? true);
+
+      // 授权地址：纯函数，直接断言参数
+      const { Auth } = window.Terminal;
+      const u = new URL(Auth.authorizeUrl({ loginHint: 'someone@example.com' }));
+      out.q = Object.fromEntries(u.searchParams.entries());
+      out.endpoint = u.origin + u.pathname;
+
+      // Esc 关闭，并把焦点还给「登录」按钮
+      document.getElementById('authPanel')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await nap(350);
+      out.closed = !document.getElementById('authPanel');
+      out.focusBack = document.activeElement?.id || '';
+      return out;
+    })()`);
+    check('页内登录面板：点「登录」开我们自己的面板（邮箱输入框已聚焦、role/aria 正确）',
+      panel?.shown === true && panel?.hasEmail === true && panel?.inputType === 'email'
+        && panel?.focused === 'authPanelEmail' && panel?.role === 'dialog' && panel?.ariaModal === 'true',
+      JSON.stringify({ shown: panel?.shown, hasEmail: panel?.hasEmail, focused: panel?.focused, role: panel?.role }));
+    check('页内登录面板：邮箱留空 / 格式不对都不跳转，且给行内提示',
+      panel?.emptyStillHere === true && panel?.emptyErrShown === true
+        && panel?.badStillHere === true && panel?.badErrShown === true,
+      JSON.stringify({ emptyStillHere: panel?.emptyStillHere, emptyErrShown: panel?.emptyErrShown, badStillHere: panel?.badStillHere, badErrShown: panel?.badErrShown }));
+    check('授权地址（纯函数）：带 login_hint 与 PKCE 参数，且指向 /authorize',
+      panel?.q?.login_hint === 'someone@example.com'
+        && panel?.q?.response_type === 'code'
+        && panel?.q?.client_id === CLIENT_ID
+        && panel?.q?.redirect_uri === `${origin()}/`
+        && !!panel?.q?.state && !!panel?.q?.code_challenge
+        && panel?.q?.code_challenge_method === 'S256'
+        && /\/authorize$/.test(panel?.endpoint || ''),
+      JSON.stringify({ endpoint: panel?.endpoint, login_hint: panel?.q?.login_hint, client_id: panel?.q?.client_id, redirect_uri: panel?.q?.redirect_uri, scope: panel?.q?.scope }));
+    check('页内登录面板：样式真的生效（纸色底、有描边、输入框有边框、整块在视口内）',
+      !/rgba\(0, 0, 0, 0\)|transparent/.test(panel?.style?.bg || '')
+        && parseFloat(panel?.style?.border || '0') >= 1
+        && parseFloat(panel?.style?.inputBorder || '0') >= 1
+        && panel?.style?.inView === true,
+      JSON.stringify(panel?.style));
+    check('页内登录面板：Esc 能关闭，并把焦点还给「登录」按钮',
+      panel?.closed === true && panel?.focusBack === 'authLogin',
+      JSON.stringify({ closed: panel?.closed, focusBack: panel?.focusBack }));
     check('未登录：论坛说明需要登录，且没有发帖入口',
       /需要登录/.test(anon?.forumBanner || '') && anon?.hasNewBtn === false,
       JSON.stringify({ banner: anon?.forumBanner?.slice(0, 60), hasNewBtn: anon?.hasNewBtn }));

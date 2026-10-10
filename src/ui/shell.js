@@ -131,6 +131,96 @@ export const Shell = {
     $('#authToggle')?.setAttribute('aria-expanded', 'false');
   },
 
+  /* ---------------- 页内登录面板（只收邮箱，密码交给 Auth0） ---------------- */
+
+  /**
+   * 为什么要有这个面板：Auth0 的 Universal Login 是**整页跳转**到它托管的页面，
+   * 观感上"离开了本站"。我们的底线是密码绝不经过我们的代码（Auth0 也废弃了 SPA 的
+   * embedded login，跨域 iframe 会被浏览器拦），所以折中成这样：
+   * 用我们自己的风格收一个邮箱 → 带着 `login_hint` 跳到 Auth0 → 用户在那边只输密码。
+   *
+   * 面板 DOM 是**打开时现建、关闭时移除**：不留常驻节点，也不会漏监听。
+   */
+  openAuthPanel() {
+    if ($('#authPanel')) return;
+    if (!Auth.enabled) { Toast.show(Auth.notice || '本站未启用账号功能', 'err'); return; }
+
+    const scrim = document.createElement('div');
+    scrim.className = 'authpanel__scrim';
+    scrim.id = 'authPanelScrim';
+    scrim.innerHTML = `
+      <div class="authpanel" id="authPanel" role="dialog" aria-modal="true" aria-labelledby="authPanelTitle">
+        <div class="authpanel__head">
+          <b id="authPanelTitle">登录 / 注册</b>
+          <button class="authpanel__x" id="authPanelClose" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="authpanel__lead">输入邮箱，下一步在 <b>Auth0</b> 页面输入密码 —— 我们不接触你的密码。</p>
+        <form class="authpanel__form" id="authPanelForm" novalidate>
+          <label class="authpanel__label mono" for="authPanelEmail">邮箱</label>
+          <input class="authpanel__input" id="authPanelEmail" type="email" name="email" required
+                 autocomplete="email" inputmode="email" spellcheck="false" placeholder="you@example.com" />
+          <p class="authpanel__err mono" id="authPanelErr" role="alert" hidden></p>
+          <button class="btn btn--signal authpanel__go" id="authPanelGo" type="submit">继续</button>
+        </form>
+        <button class="authpanel__alt" id="authPanelDirect" type="button">不填邮箱，直接跳转登录</button>
+        <p class="authpanel__foot mono">密码、邮箱验证、找回密码都由 Auth0 负责</p>
+      </div>`;
+    document.body.append(scrim);
+
+    const panel = $('#authPanel');
+    const input = $('#authPanelEmail');
+    const err = $('#authPanelErr');
+
+    const showErr = (msg) => {
+      err.textContent = msg;
+      err.hidden = false;
+      input?.setAttribute('aria-invalid', 'true');
+    };
+    const clearErr = () => {
+      err.hidden = true;
+      err.textContent = '';
+      input?.removeAttribute('aria-invalid');
+    };
+
+    const close = () => {
+      scrim.remove();
+      // 焦点还给「登录」按钮：键盘用户不该被丢在空处
+      $('#authLogin')?.focus?.();
+    };
+    this._closeAuthPanel = close;
+
+    scrim.addEventListener('click', (e) => { if (e.target === scrim) close(); });
+    scrim.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+    $('#authPanelClose')?.addEventListener('click', close);
+
+    // 逃生通道：不填邮箱，走和以前一模一样的那条整页跳转
+    $('#authPanelDirect')?.addEventListener('click', () => { close(); Auth.login(); });
+
+    $('#authPanelForm')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const email = String(input?.value || '').trim();
+      if (!email) { showErr('请先填邮箱'); input?.focus(); return; }
+      // 只做本地形状校验：真正的校验永远是 Auth0 那边
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showErr('邮箱格式看起来不对，检查一下'); input?.focus(); return; }
+      clearErr();
+      Auth.login({ loginHint: email });
+    });
+    input?.addEventListener('input', () => { if (!err.hidden) clearErr(); });
+
+    panel?.setAttribute('tabindex', '-1');
+    input?.focus?.();
+  },
+
+  closeAuthPanel() {
+    if (typeof this._closeAuthPanel === 'function') {
+      const fn = this._closeAuthPanel;
+      this._closeAuthPanel = null;
+      fn();
+    }
+  },
+
   paintNav(current) {
     const nav = $('#nav');
     const drawer = $('#drawerNav');
@@ -220,7 +310,9 @@ export const Shell = {
        所以这里一律用容器上的事件委托，避免"重画一次就丢监听"。 */
     const authBox = $('#authBox');
     authBox?.addEventListener('click', (e) => {
-      if (e.target.closest('#authLogin')) { Auth.login(); return; }
+      // 登录改成先开我们自己的面板（只收邮箱），再带 login_hint 跳 Auth0：
+      // 直接整页跳转会让用户觉得"离开了本站"，而密码仍只交给 Auth0。
+      if (e.target.closest('#authLogin')) { this.openAuthPanel(); return; }
       if (e.target.closest('#authLogout')) {
         Auth.logout();
         this.closeAuthMenu();
@@ -268,7 +360,7 @@ export const Shell = {
       const tag = (e.target.tagName || '').toLowerCase();
       const typing = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
       if (typing) return;
-      if (e.key === 'Escape') { this.closeDrawer(); this.closeAuthMenu(); }
+      if (e.key === 'Escape') { this.closeDrawer(); this.closeAuthMenu(); this.closeAuthPanel(); }
       if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey) Theme.cycle();
     });
 
