@@ -23,8 +23,6 @@ import {
   loadStats, recordResult, resetStats, neighbors,
   serializeGame, deserializeGame, saveGame, loadGame,
 } from '../plugins/minesweeper.js';
-// UNO 和扫雷同一个板块（MINES）：它自己是一份独立视图，这里只负责按 ?tab=uno 转交
-import uno from './uno.js';
 
 const CELL_MAX = 34;   // 格子最大边长（px）
 const CELL_MIN = 22;   // 最小边长；再小就靠横向滚动
@@ -57,17 +55,8 @@ export default {
   render() {
     const stats = loadStats();
     const lv = LEVELS[0];
-    // MINES 板块下有两个页签：扫雷 / UNO。用 ?tab=uno 切（导航仍指向 #/mine，高亮不会丢）
-    const onUno = /[?&]tab=uno/.test(String(location.hash || ''));
-    const tabs = `
-      <div class="uno__tabs" role="tablist" aria-label="小游戏">
-        <a class="uno__tab ${onUno ? '' : 'is-on'}" href="#/mine" role="tab" aria-selected="${!onUno}">扫雷</a>
-        <a class="uno__tab ${onUno ? 'is-on' : ''}" href="#/mine?tab=uno" role="tab" aria-selected="${onUno}">UNO</a>
-      </div>`;
-    if (onUno) return tabs + uno.render();
     return `
     <section class="ms">
-      ${tabs}
       ${viewhead({
         title: 'MINESWEEPER',
         sub: '一块干净的布雷场。左键挖开、右键插旗，数字表示相邻八格里的雷数；点到已挖开的数字可以和弦，一次开完周围。第一下永远安全，计时从第一下开始。',
@@ -168,9 +157,7 @@ export default {
   },
 
   mount(root) {
-    // UNO 页签：把挂载整个交给它自己的 mount（它自己管监听与定时器），
-    // 扫雷这边的状态与定时器一概不碰。
-    if (/[?&]tab=uno/.test(String(location.hash || ''))) return uno.mount(root);
+    Motion.reveal(root);
     Motion.reveal(root);
 
     const $ = (sel) => root.querySelector(sel);
