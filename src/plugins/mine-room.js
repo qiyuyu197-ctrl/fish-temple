@@ -50,7 +50,10 @@ export const MineRoom = {
     try {
       const res = await Auth.api('/mine/rooms', { method: 'POST', body: { level } });
       if (!res || !res.ok) return this._fail(res);
-      this._set(res.room || res.json?.room);
+      // ⚠️ Auth.api 返回的是 { ok, status, data, error } —— 响应体在 **data** 里！
+      // 一开始我读的是 res.room / res.json.room，结果 ok=true 但房间是 undefined：
+      // 不报错、界面却停在"创建房间"，看起来就是"点一下没反应"。
+      this._set(res.data?.room || res.room);
       this.startPolling();
       return { ok: true };
     } finally { this.busy = false; }
@@ -64,7 +67,10 @@ export const MineRoom = {
     try {
       const res = await Auth.api('/mine/rooms/join', { method: 'POST', body: { code: clean } });
       if (!res || !res.ok) return this._fail(res);
-      this._set(res.room || res.json?.room);
+      // ⚠️ Auth.api 返回的是 { ok, status, data, error } —— 响应体在 **data** 里！
+      // 一开始我读的是 res.room / res.json.room，结果 ok=true 但房间是 undefined：
+      // 不报错、界面却停在"创建房间"，看起来就是"点一下没反应"。
+      this._set(res.data?.room || res.room);
       this.startPolling();
       return { ok: true };
     } finally { this.busy = false; }
@@ -76,7 +82,10 @@ export const MineRoom = {
     try {
       const res = await Auth.api(`/mine/rooms/${encodeURIComponent(id)}`, { method: 'POST' });
       if (!res || !res.ok) return this._fail(res);
-      this._set(res.room || res.json?.room);
+      // ⚠️ Auth.api 返回的是 { ok, status, data, error } —— 响应体在 **data** 里！
+      // 一开始我读的是 res.room / res.json.room，结果 ok=true 但房间是 undefined：
+      // 不报错、界面却停在"创建房间"，看起来就是"点一下没反应"。
+      this._set(res.data?.room || res.room);
       this.startPolling();
       return { ok: true };
     } finally { this.busy = false; }
@@ -133,7 +142,7 @@ export const MineRoom = {
       }
       return;
     }
-    const room = res.room || res.json?.room;
+    const room = res.data?.room || res.room;
     if (room && Number(room.version) !== this.version) this._set(room);
     else if (room) this.room = room;   // 版本没变也刷新一下"谁在线"
   },
