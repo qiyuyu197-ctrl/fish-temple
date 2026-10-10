@@ -1748,13 +1748,17 @@ const mineRoomCode = () => {
 /** 成员表里找一个人（令牌里的 sub 就是身份） */
 const mineMember = (room, sub) => (room.members || []).find((m) => m.sub === sub) || null;
 
-/** 剥离未揭开格子的雷位信息（合作局也不该通过网络响应泄露答案） */
+/** 剥离未揭开格子的雷位信息（合作局也不该通过网络响应泄露答案）
+ *  ⚠️ 字段名要和引擎一致：格子是 `{ open, flag, adj, mine?, boom? }` ——
+ *  一开始我按 revealed/adjacent 写，结果 adj（周围雷数）根本没被剥掉，
+ *  而自检又用了同样的错误字段名，于是"不泄露"那条是空过的。两边都改了。
+ */
 function minePublicGame(game) {
   if (!game) return null;
   const done = game.state === 'won' || game.state === 'lost' || game.finished;
   const cells = (game.cells || []).map((c) => {
-    if (c.revealed || done) return c;
-    const { mine, adjacent, ...rest } = c;
+    if (c.open || done) return c;
+    const { mine, adj, boom, ...rest } = c;
     return rest;
   });
   return {
