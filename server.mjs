@@ -1477,6 +1477,15 @@ async function rememberUser(user, opts = {}) {
   const key = userKey(user.sub);
   const prev = await store.readItem('users', key).catch(() => null);
   const now = new Date().toISOString();
+  // Blobs / 磁盘的写入都是稀缺资源，而 /api/auth/me 每次开页面都会被调一次 ——
+  // 所以只在"资料真的变了"或"上次记录超过 1 小时"时才写回。
+  const changed = !prev
+    || prev.name !== user.name
+    || prev.role !== user.role
+    || prev.email !== user.email
+    || prev.verified !== !!user.verified;
+  const stale = !prev || (Date.now() - Date.parse(prev.lastSeenAt || 0)) > 60 * 60 * 1000;
+  if (!changed && !stale) return prev;
   const doc = {
     key,
     sub: user.sub,
@@ -1576,7 +1585,9 @@ function publicForumPost(post, { full = false } = {}) {
     id: post.id,
     title: post.title,
     tags: post.tags || [],
-    author: { sub: post.author?.sub, name: post.author?.name || '匿名' },
+    // 带上角色：客户端据此给站长的帖子加个"站长"标记（角色本身不是隐私，
+    // 公告的作者是谁本来就公开）。邮箱仍然只存服务端。
+    author: { sub: post.author?.sub, name: post.author?.name || '匿名', role: post.author?.role || 'member' },
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
     edited: !!post.edited,
@@ -1647,7 +1658,7 @@ async function handleForum(req, res, url, opts, seg) {
     const post = {
       id: newForumId(),
       ...input,
-      author: { sub: who.user.sub, name: who.user.name || '匿名' },
+      author: { sub: who.user.sub, name: who.user.name || '匿名', role: who.user.role },
       // 邮箱只存服务端，公开接口不会带出去（站长管理时需要时可另开接口）
       authorEmail: who.user.email,
       createdAt: now,
