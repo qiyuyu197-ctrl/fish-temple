@@ -1749,13 +1749,15 @@ const mineRoomCode = () => {
 const mineMember = (room, sub) => (room.members || []).find((m) => m.sub === sub) || null;
 
 /** 剥离未揭开格子的雷位信息（合作局也不该通过网络响应泄露答案）
- *  ⚠️ 字段名要和引擎一致：格子是 `{ open, flag, adj, mine?, boom? }` ——
- *  一开始我按 revealed/adjacent 写，结果 adj（周围雷数）根本没被剥掉，
- *  而自检又用了同样的错误字段名，于是"不泄露"那条是空过的。两边都改了。
+ *  ⚠️ 两个字段坑，都踩过：
+ *  ① 格子是 `{ open, flag, adj, mine?, boom? }`（不是 revealed/adjacent）；
+ *  ② 终局是 **`over` / `won` 布尔**，不是 `state === 'won'/'lost'` ——
+ *     一开始按 state 判断，结果"结束时把棋盘全量下发 + 翻雷"这条永远不成立。
+ *  联机里"翻雷"必须由**服务端**做（引擎不会自己翻，单人局是视图显式调 revealMines）。
  */
 function minePublicGame(game) {
   if (!game) return null;
-  const done = game.state === 'won' || game.state === 'lost' || game.finished;
+  const done = !!game.over || !!game.won || !!game.finished;
   const cells = (game.cells || []).map((c) => {
     if (c.open || done) return c;
     const { mine, adj, boom, ...rest } = c;
@@ -1781,6 +1783,8 @@ function mineRoomView(room, sub) {
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     finished: !!room.finished,
+    won: !!room.game.won,
+    over: !!room.game.over,
     minesLeft: Mines.minesLeft(room.game),
     progress: Mines.progress(room.game),
     elapsedMs: Mines.elapsedMs(room.game),
@@ -1934,7 +1938,16 @@ async function handleMine(req, res, url, opts, seg) {
     const after = room.game.cells[idx];
     if (kind !== 'flag' && after && after.revealed) room.revealers[`${r},${c}`] = sub;
     if (kind === 'flag' && after && !after.revealed) delete room.revealers[`${r},${c}`];
-    if (room.game.state === 'won' || room.game.state === 'lost') room.finished = true;
+    // 终局：**按引擎的真实字段**判断（over / won）。失败时把全部雷翻出来 ——
+    // 单人局就是这么做的（视图里调 revealMines(s, boomIndex)），
+    // 联机里棋盘在服务端，所以这一步必须在服务端做，客户端才收得到雷位。
+    if (room.game.over) {
+      room.finished = true;
+      if (!room.game.won) {
+        Mines.revealMines(room.game, idx);
+        room.revealers = {};   // 终局把"谁开的"清掉，避免和翻出来的雷位混在一起
+      }
+    }
     room.version += 1;
     room.updatedAt = new Date().toISOString();
     room.members = room.members.map((m) => (m.sub === sub ? { ...m, lastAt: room.updatedAt } : m));
