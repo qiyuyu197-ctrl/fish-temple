@@ -268,6 +268,73 @@ try {
 
   const usersAnon = await api('/api/auth/users');
   check('未登录看不到账号列表 → 401', usersAnon.status === 401, `${usersAnon.status}`);
+
+  /* ---- 资料编辑（昵称 / 头像）：校验必须由服务端严格把关 ---- */
+  const profAnonGet = await api('/api/profile');
+  const profAnonPatch = await api('/api/profile', { method: 'PATCH', body: { name: 'hacker' } });
+  check('未登录读写资料都被拒 → 401',
+    profAnonGet.status === 401 && profAnonPatch.status === 401,
+    `${profAnonGet.status} / ${profAnonPatch.status}`);
+
+  const profBase = await api('/api/profile', { token: memberToken });
+  check('登录后能读自己的资料（含 displayName / avatar 回填字段）',
+    profBase.status === 200 && profBase.json?.profile?.sub === 'auth0|member-1'
+      && 'displayName' in (profBase.json?.profile || {}) && 'avatar' in (profBase.json?.profile || {}),
+    JSON.stringify(profBase.json?.profile));
+
+  const tooLong = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { name: 'x'.repeat(25) } });
+  const blank = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { name: '   ' } });
+  check('昵称超长 / 只有空白 → 400（并说明限制）',
+    tooLong.status === 400 && /24/.test(String(tooLong.json?.error || '')) && blank.status === 400,
+    `${tooLong.status} ${tooLong.json?.error || ''} | ${blank.status} ${blank.json?.error || ''}`);
+
+  const jsUrl = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { picture: 'javascript:alert(1)' } });
+  const htmlData = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { picture: 'data:text/html;base64,PHNjcmlwdD4=' } });
+  const blobUrl = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { picture: 'blob:https://x/y' } });
+  check('⚠️ 危险协议的图片一律 400（javascript: / data:text/html / blob:）',
+    jsUrl.status === 400 && htmlData.status === 400 && blobUrl.status === 400,
+    `${jsUrl.status} / ${htmlData.status} / ${blobUrl.status}`);
+
+  const pngData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
+  const okName = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { name: '  阿甲  ' } });
+  const okPic = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { picture: pngData } });
+  check('合法昵称（会被 trim）与内联头像都通过',
+    okName.status === 200 && okName.json?.profile?.name === '阿甲'
+      && okPic.status === 200 && String(okPic.json?.profile?.avatar || '').startsWith('data:image/png;base64,')
+      && okPic.json?.profile?.name === '阿甲',
+    JSON.stringify({ name: okName.json?.profile?.name, avatar: String(okPic.json?.profile?.avatar || '').slice(0, 30) }));
+
+  // 生效值：/api/auth/me 必须把自定义昵称/头像算进去（顶栏/菜单/论坛都读它）
+  const meAfter = await api('/api/auth/me', { token: memberToken });
+  check('⚠️ /api/auth/me 返回生效值：name/picture 用自定义的，且回填 displayName/avatar',
+    meAfter.status === 200 && meAfter.json?.user?.name === '阿甲'
+      && String(meAfter.json?.user?.picture || '').startsWith('data:image/png;base64,')
+      && meAfter.json?.user?.displayName === '阿甲'
+      && String(meAfter.json?.user?.avatar || '').startsWith('data:image/png;base64,'),
+    JSON.stringify({ name: meAfter.json?.user?.name, picture: String(meAfter.json?.user?.picture || '').slice(0, 24), displayName: meAfter.json?.user?.displayName }));
+
+  // https 直链也合法，并且立刻变成生效值
+  const okUrl = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { picture: 'https://example.com/a.png' } });
+  check('https 直链头像也通过，并立刻生效',
+    okUrl.status === 200 && okUrl.json?.profile?.picture === 'https://example.com/a.png',
+    JSON.stringify({ status: okUrl.status, picture: okUrl.json?.profile?.picture }));
+
+  // 清空 = 回落到 Auth0 给的 name / picture
+  const cleared = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { name: '', picture: '' } });
+  const meCleared = await api('/api/auth/me', { token: memberToken });
+  check('清空字符串能回落到 Auth0 的默认昵称与头像',
+    cleared.status === 200 && meCleared.json?.user?.name === '普通用户'
+      && meCleared.json?.user?.displayName === '' && meCleared.json?.user?.avatar === '',
+    JSON.stringify({ name: meCleared.json?.user?.name, displayName: meCleared.json?.user?.displayName, avatar: meCleared.json?.user?.avatar }));
+
+  // 只能改自己的：令牌里的 sub 决定改谁，body 里塞 sub 也没用
+  const spoof = await api('/api/profile', { method: 'PATCH', token: memberToken, body: { name: '冒充站长', sub: 'auth0|owner' } });
+  const ownerDoc = await api('/api/auth/users', { token: ownerToken });
+  const ownerEntry = (ownerDoc.json?.users || []).find((u) => u.sub === 'auth0|owner');
+  check('⚠️ 塞一个别人的 sub 也改不到别人（只能改自己的）',
+    spoof.status === 200 && spoof.json?.profile?.sub === 'auth0|member-1'
+      && ownerEntry && ownerEntry.displayName !== '冒充站长',
+    JSON.stringify({ spoofed: spoof.json?.profile?.sub, ownerDisplayName: ownerEntry?.displayName }));
 } catch (err) {
   check('自检过程没有抛异常', false, String(err?.message || err));
 } finally {
@@ -427,6 +494,36 @@ try {
         check('索引丢失后列表会按需重建（内容不丢）',
           (list4.posts || []).length >= 2 && /线上论坛帖（改过）/.test(idx4),
           JSON.stringify({ n: (list4.posts || []).length, rebuilt: idx4.length > 0 }));
+
+        /* ---- 改资料后，旧帖的作者快照要跟着刷新 ---- */
+        const patchProf = await fetch(`http://127.0.0.1:${SIM_PORT}/api/profile`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberTok}` },
+          body: JSON.stringify({ name: '九号改名了', picture: 'https://example.com/nine.png' }),
+        });
+        const detailAfter = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts/${fj.post.id}`)).json().catch(() => ({}));
+        const listAfter = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts`)).json().catch(() => ({}));
+        check('⚠️ 改昵称/头像后，旧帖详情与列表里的作者快照一起刷新',
+          patchProf.status === 200
+            && detailAfter?.post?.author?.name === '九号改名了'
+            && detailAfter?.post?.author?.picture === 'https://example.com/nine.png'
+            && (listAfter.posts || []).some((p) => p.id === fj.post.id
+              && p.author?.name === '九号改名了' && p.author?.picture === 'https://example.com/nine.png'),
+          JSON.stringify({ status: patchProf.status, detail: detailAfter?.post?.author?.name, picture: detailAfter?.post?.author?.picture }));
+
+        // 内联 data URL 头像：详情带完整的（只读一篇无所谓），索引/列表只留短直链
+        const dataPic = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
+        await fetch(`http://127.0.0.1:${SIM_PORT}/api/profile`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberTok}` },
+          body: JSON.stringify({ picture: dataPic }),
+        });
+        const det2 = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts/${fj.post.id}`)).json().catch(() => ({}));
+        const idxRaw2 = await fs.readFile(idxFile, 'utf8').catch(() => '');
+        check('内联头像：详情带完整 data URL，列表/索引只留短直链（不把索引文档撑大）',
+          String(det2?.post?.author?.picture || '').startsWith('data:image/png;base64,')
+            && !idxRaw2.includes('data:image/png'),
+          JSON.stringify({ detail: String(det2?.post?.author?.picture || '').slice(0, 24), indexHasDataUrl: idxRaw2.includes('data:image/png') }));
 
         // 清理仿真写入的痕迹，别把 .blobs-dev 留成垃圾堆
         await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts/${fj.post.id}`, {

@@ -1502,9 +1502,14 @@ async function rememberUser(user, opts = {}) {
   const doc = {
     key,
     sub: user.sub,
-    email: user.email,
+    // name / picture 记的是 **Auth0 给的**原始值（留作回落依据）；
+    // displayName / avatar 是用户在我们这里自定义的，空 = 用 Auth0 那份。
+    // ⚠️ 这里必须把 prev 里的自定义值带过来，否则每次 /api/auth/me 都会把用户改好的资料冲掉。
     name: user.name,
     picture: user.picture || prev?.picture || '',
+    email: user.email,
+    displayName: prev?.displayName || '',
+    avatar: prev?.avatar || '',
     role: user.role,
     verified: !!user.verified,
     firstSeenAt: prev?.firstSeenAt || now,
@@ -1513,6 +1518,122 @@ async function rememberUser(user, opts = {}) {
   };
   await store.writeItem('users', key, doc);
   return doc;
+}
+
+/**
+ * 「生效值」：自定义优先，没有再回落 Auth0。
+ *
+ * 为什么把这一步放在服务端：顶栏 chip、账号菜单、论坛作者名都读 `/api/auth/me` 的 user，
+ * 服务端把 name/picture 直接算成生效值，这三处**不用改**就自动显示自定义资料；
+ * 同时把 `displayName` / `avatar` 原值一起带回去，编辑面板才好回填（否则"未设置"与"设置了空"
+ * 分不出来）。
+ */
+function effectiveUser(user, doc) {
+  const displayName = String(doc?.displayName || '');
+  const avatar = String(doc?.avatar || '');
+  return {
+    ...user,
+    name: displayName || user.name,
+    picture: avatar || user.picture || '',
+    displayName,
+    avatar,
+  };
+}
+
+/* ---------------- 资料编辑（头像 / 昵称） ---------------- */
+
+const PROFILE = {
+  nameMax: 24,
+  urlMax: 500,
+  dataMax: 80000,     // 约 60KB 二进制；客户端会先降采样到 192px/JPEG 0.82，通常 8–20KB
+};
+
+/** 昵称清洗：控制字符与换行一律去掉（它会出现在顶栏/论坛/菜单里，换行会把布局搞乱） */
+function cleanDisplayName(raw) {
+  return String(raw ?? '')
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 校验 PATCH /api/profile 的 body。**服务端必须严格**，客户端校验只是体验。
+ * 返回 { displayName?, avatar? }（只含本次真的传了的字段）；不合法就 throw，调用方回 400。
+ */
+function validateProfileInput(body) {
+  const src = body && typeof body === 'object' ? body : {};
+  const out = {};
+  if ('name' in src) {
+    const raw = String(src.name ?? '');
+    if (raw.trim() === '') {
+      // 区分两件事：**整个空串** = 清除自定义昵称（回落到 Auth0）；
+      // 只有空白字符 = 用户其实没填内容，直接说清楚，别默默当成"清除"。
+      if (raw === '') out.displayName = '';
+      else throw new Error('昵称不能只有空格');
+    } else {
+      const name = cleanDisplayName(raw);
+      if (!name) throw new Error('昵称不能只有空格');
+      if (name.length > PROFILE.nameMax) throw new Error(`昵称最多 ${PROFILE.nameMax} 个字符（你填了 ${name.length} 个）`);
+      out.displayName = name;
+    }
+  }
+  if ('picture' in src) {
+    const pic = String(src.picture ?? '').trim();
+    if (!pic) {
+      out.avatar = '';
+    } else if (/^https?:\/\/\S+$/i.test(pic)) {
+      // 只放行 http/https 直链：javascript: / data:text/html / blob: 这些一律走不到这里
+      if (pic.length > PROFILE.urlMax) throw new Error(`图片地址太长（上限 ${PROFILE.urlMax} 字符）`);
+      out.avatar = pic;
+    } else if (/^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/i.test(pic)) {
+      if (pic.length > PROFILE.dataMax) {
+        throw new Error(`头像图片太大（约 ${Math.round(pic.length / 1024)}KB，上限 ${Math.round(PROFILE.dataMax / 1024)}KB）：请换一张更小的`);
+      }
+      out.avatar = pic;
+    } else if (/^data:image\//i.test(pic)) {
+      throw new Error('只接受 data:image/png、data:image/jpeg、data:image/webp 的 base64 内联图片');
+    } else {
+      throw new Error('头像只接受 https:// 图片地址，或 data:image/png|jpeg|webp;base64 内联图片');
+    }
+  }
+  return out;
+}
+
+/**
+ * 快照里只保留"短的"图片地址。
+ * 为什么：论坛索引是**一个** Blob 文档，列表页只读它；若把 8–20KB 的 data URL 写进索引，
+ * 300 条帖子就是好几 MB —— 一次列表请求会被拖垮。所以索引/列表里只放 http(s) 直链
+ * （几十字符），内联上传的头像只出现在「帖子详情」（详情只读一篇，长度无所谓）。
+ */
+function snapshotPicture(pic) {
+  const s = String(pic || '');
+  return /^https?:\/\//i.test(s) && s.length <= PROFILE.urlMax ? s : '';
+}
+
+/**
+ * 改了昵称/头像之后，把该用户最近的帖子快照一起刷新。
+ * 为什么需要：帖子里的 author 是**发帖时的快照**，不刷新的话用户会看到
+ * "我自己改了名字，但我的帖子还挂着旧名字"。失败只记日志，绝不让 PATCH 失败。
+ */
+async function refreshAuthorSnapshots(store, eff, opts = {}) {
+  const shortPic = snapshotPicture(eff.picture);
+  const idx = await readForumIndex(store);
+  const mine = idx.filter((e) => e.author?.sub === eff.sub).slice(-50);
+  if (!mine.length) return 0;
+  const ids = new Set(mine.map((e) => e.id));
+  await writeForumIndex(store, idx.map((e) => (ids.has(e.id)
+    ? { ...e, author: { ...e.author, name: eff.name, picture: shortPic } }
+    : e))).catch((err) => log(`\x1b[33mPROFILE\x1b[0m 索引快照刷新失败：${err.message}`));
+  let n = 0;
+  for (const e of mine) {
+    const p = await store.readItem('forum', e.id).catch(() => null);
+    if (!p || p.author?.sub !== eff.sub) continue;
+    await store.writeItem('forum', e.id, { ...p, author: { ...p.author, name: eff.name, picture: eff.picture || '' } })
+      .then(() => { n += 1; })
+      .catch((err) => log(`\x1b[33mPROFILE\x1b[0m 帖子 ${e.id} 快照刷新失败：${err.message}`));
+  }
+  log(`\x1b[35mPROFILE\x1b[0m 刷新了 ${n} 篇旧帖的作者快照（共 ${mine.length} 篇）`);
+  return n;
 }
 
 /* ---------------- 权限：谁能改"网站现有文案" ---------------- */
@@ -1600,7 +1721,14 @@ function publicForumPost(post, { full = false } = {}) {
     tags: post.tags || [],
     // 带上角色：客户端据此给站长的帖子加个"站长"标记（角色本身不是隐私，
     // 公告的作者是谁本来就公开）。邮箱仍然只存服务端。
-    author: { sub: post.author?.sub, name: post.author?.name || '匿名', role: post.author?.role || 'member' },
+    // 头像：详情里给完整的（可能是用户上传的内联 data URL）；列表/索引里只给短直链，
+    // 免得一个列表响应被几十 KB 的 data URL 撑爆（见 snapshotPicture 的说明）。
+    author: {
+      sub: post.author?.sub,
+      name: post.author?.name || '匿名',
+      role: post.author?.role || 'member',
+      picture: full ? String(post.author?.picture || '') : snapshotPicture(post.author?.picture),
+    },
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
     edited: !!post.edited,
@@ -1625,7 +1753,8 @@ function forumIndexEntry(post) {
     id: post.id,
     title: post.title,
     tags: post.tags || [],
-    author: post.author,
+    // 索引里只留短的头像直链（data URL 会把这个文档撑到几 MB，见 snapshotPicture）
+    author: post.author ? { ...post.author, picture: snapshotPicture(post.author.picture) } : post.author,
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
     edited: !!post.edited,
@@ -1748,10 +1877,14 @@ async function handleForum(req, res, url, opts, seg) {
     let input;
     try { input = sanitizeForumInput(await readBody(req)); } catch (err) { return fail(res, 400, err.message); }
     const now = new Date().toISOString();
+    // 作者快照用**生效值**（自定义昵称/头像优先）：帖子上显示的就是用户现在用的名字与头像。
+    // 这里多读一次用户文档是值得的 —— 发帖本来就被限流，而快照写错了要等用户改资料才修得回来。
+    const myDoc = await store.readItem('users', userKey(who.user.sub)).catch(() => null);
+    const eff = effectiveUser(who.user, myDoc);
     const post = {
       id: newForumId(),
       ...input,
-      author: { sub: who.user.sub, name: who.user.name || '匿名', role: who.user.role },
+      author: { sub: eff.sub, name: eff.name || '匿名', role: eff.role, picture: eff.picture || '' },
       // 邮箱只存服务端，公开接口不会带出去（站长管理时需要时可另开接口）
       authorEmail: who.user.email,
       createdAt: now,
@@ -1886,8 +2019,10 @@ async function handleApi(req, res, url, opts = {}) {
     if (!who.ok) return fail(res, who.status, who.error);
     // 顺便把账号数据落一份（需求里的"保存账号数据"）：
     // 记下这个账号第一次/最近一次出现、昵称与角色，站长以后可以在后台看有哪些人。
-    try { await rememberUser(who.user, opts); } catch (err) { log(`\x1b[33mUSER\x1b[0m 记录失败：${err.message}`); }
-    return ok(res, { ok: true, user: who.user });
+    let doc = null;
+    try { doc = await rememberUser(who.user, opts); } catch (err) { log(`\x1b[33mUSER\x1b[0m 记录失败：${err.message}`); }
+    // 返回**生效值**（自定义昵称/头像优先）：顶栏、账号菜单、论坛都读这里，于是它们不用改
+    return ok(res, { ok: true, user: effectiveUser(who.user, doc) });
   }
 
   // GET /api/auth/users —— 仅站长：看有哪些账号（账号数据存了就要能用起来）
@@ -1907,6 +2042,69 @@ async function handleApi(req, res, url, opts = {}) {
       total: users.length,
       users,
       note: '邮箱只对站长可见；公开接口一律不返回作者邮箱。',
+    });
+  }
+
+  /* ---------------- 资料（昵称 / 头像） ----------------
+   * 存在我们自己的存储里（`users/<hash>.json` 的 displayName / avatar 两个字段），
+   * **不动 Auth0、不用 Management API、不需要 M2M 密钥** —— 用户想改昵称头像不该要求站长
+   * 去配一套服务端权限。空值 = 回落到 Auth0 给的 name / picture。
+   */
+  if (seg[0] === 'profile') {
+    const who = await authenticate(req);
+    if (!who.ok) return fail(res, who.status, who.error);
+    const store = storageFor(opts);
+    const key = userKey(who.user.sub);
+    const doc = await store.readItem('users', key).catch(() => null);
+    if (req.method === 'GET') {
+      const eff = effectiveUser(who.user, doc);
+      return ok(res, {
+        ok: true,
+        profile: {
+          sub: eff.sub, name: eff.name, displayName: eff.displayName,
+          picture: eff.picture, avatar: eff.avatar,
+          role: eff.role, email: eff.email, verified: eff.verified,
+        },
+      });
+    }
+    if (req.method !== 'PATCH' && req.method !== 'POST') return fail(res, 405, `不支持的方法：${req.method}`);
+    let input;
+    try { input = validateProfileInput(await readBody(req)); } catch (err) { return fail(res, 400, err.message); }
+    if (!Object.keys(input).length) return fail(res, 400, '没有要改的内容（可用字段：name / picture）');
+    const now = new Date().toISOString();
+    const base = doc || {};
+    const next = {
+      ...base,
+      key,
+      sub: who.user.sub,
+      email: who.user.email,
+      name: who.user.name,                    // Auth0 的原始值，留作回落
+      picture: who.user.picture || base.picture || '',
+      displayName: 'displayName' in input ? input.displayName : (base.displayName || ''),
+      avatar: 'avatar' in input ? input.avatar : (base.avatar || ''),
+      role: who.user.role,
+      verified: !!who.user.verified,
+      firstSeenAt: base.firstSeenAt || now,
+      lastSeenAt: now,
+      visits: Number(base.visits) || 1,
+    };
+    try {
+      await store.writeItem('users', key, next);
+    } catch (err) {
+      log(`\x1b[31mPROFILE\x1b[0m 保存失败：${err.message}`);
+      return fail(res, 503, '资料没保存成功（存储服务暂时不可用）：请稍后重试一次，你填的内容还在。');
+    }
+    const eff = effectiveUser(who.user, next);
+    try { await refreshAuthorSnapshots(store, eff, opts); } catch (err) { log(`\x1b[33mPROFILE\x1b[0m 快照刷新失败：${err.message}`); }
+    log(`\x1b[35mPROFILE\x1b[0m ${eff.sub} → ${JSON.stringify(Object.keys(input))}`);
+    return ok(res, {
+      ok: true,
+      updated: Object.keys(input),
+      profile: {
+        sub: eff.sub, name: eff.name, displayName: eff.displayName,
+        picture: eff.picture, avatar: eff.avatar,
+        role: eff.role, email: eff.email, verified: eff.verified,
+      },
     });
   }
 

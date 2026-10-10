@@ -619,6 +619,36 @@ export const Auth = {
     return { ok: true, status: res.status, data, error: null };
   },
 
+  /**
+   * 保存自定义昵称 / 头像。
+   *
+   * 存在**我们自己的存储**里（服务端 `users/<hash>.json` 的 displayName / avatar），
+   * 不动 Auth0、不需要 M2M 密钥 —— 用户改自己的昵称头像不该要求站长去配服务端权限。
+   * 传空字符串 = 清除自定义值，回落到 Auth0 给的那份。
+   *
+   * 保存成功后**立刻**更新本地 user 并发 `auth:user`：顶栏 chip、账号菜单、论坛作者名都读它，
+   * 所以不用刷新页面就能看到新昵称/新头像。
+   */
+  async saveProfile({ name, picture } = {}) {
+    if (!this.enabled || !this.user) return { ok: false, status: 0, error: '未登录' };
+    const body = {};
+    if (name !== undefined) body.name = name;
+    if (picture !== undefined) body.picture = picture;
+    const r = await this.api('/profile', { method: 'PATCH', body });
+    if (!r.ok) return { ok: false, status: r.status, error: r.error || '保存失败' };
+    const p = r.data?.profile || {};
+    this.user = {
+      ...this.user,
+      name: p.name || this.user.name,
+      picture: p.picture || '',
+      displayName: p.displayName || '',
+      avatar: p.avatar || '',
+    };
+    writeJSON(KEYS.user, this.user);
+    bus.emit('auth:user', { user: this.user });
+    return { ok: true, status: r.status, profile: p };
+  },
+
   /* ---------- 内部 ---------- */
 
   _setState(state) { this.state = state; },
