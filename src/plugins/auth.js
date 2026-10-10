@@ -307,7 +307,39 @@ export const Auth = {
 
   /* ---------- 登录 / 登出 ---------- */
 
-  async login() {
+  /**
+   * 拼授权地址。**纯函数**：只读配置、生成随机值，不写 localStorage、不跳转。
+   *
+   * 抽出来的两个理由：
+   *   ① 页内面板要先用 `login_hint` 把邮箱带过去（用户在 Auth0 页面只需输密码）；
+   *   ② 跳转那条路没法在没有真人密码的情况下自检，但"URL 拼得对不对"可以 ——
+   *      自检直接调它做断言（见 tools/verify-forum-ui.mjs）。
+   * challenge / state 允许外部传入（真正登录时由 login() 先写好 verifier/state 再传进来，
+   * 保证两者一致）；不传就现场生成，保证自检拿到的是形状合法的地址。
+   */
+  authorizeUrl({ loginHint = '', challenge = '', state = '' } = {}) {
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: this.config.clientId,
+      redirect_uri: redirectUri(),
+      scope: SCOPE,
+      state: state || randomToken(16),
+      code_challenge: challenge || randomToken(32),
+      code_challenge_method: 'S256',
+    });
+    // audience 只有服务端给了才带：少了它拿到的 token 可能不是给本站 API 用的
+    if (this.config.audience) params.set('audience', this.config.audience);
+    // login_hint：Auth0 会用它预填邮箱，用户只需输密码（密码仍只交给 Auth0）
+    const hint = String(loginHint || '').trim();
+    if (hint) params.set('login_hint', hint);
+    return `${this.config.origin}/authorize?${params.toString()}`;
+  },
+
+  /**
+   * 跳去 Auth0 登录。`loginHint` 是页内面板收来的邮箱（可空）。
+   * 空值时行为与以前完全一致（整页跳 Universal Login）。
+   */
+  async login({ loginHint = '' } = {}) {
     if (!this.enabled) {
       this._fail(this.notice || '本站未启用账号功能');
       return false;
@@ -325,19 +357,7 @@ export const Auth = {
     writeJSON(KEYS.state, state);
     writeJSON(KEYS.returnTo, location.hash || '#/');
 
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: this.config.clientId,
-      redirect_uri: redirectUri(),
-      scope: SCOPE,
-      state,
-      code_challenge: challenge,
-      code_challenge_method: 'S256',
-    });
-    // audience 只有服务端给了才带：少了它拿到的 token 可能不是给本站 API 用的
-    if (this.config.audience) params.set('audience', this.config.audience);
-
-    location.assign(`${this.config.origin}/authorize?${params.toString()}`);
+    location.assign(this.authorizeUrl({ loginHint, challenge, state }));
     return true;
   },
 
