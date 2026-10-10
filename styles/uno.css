@@ -1,0 +1,238 @@
+/**
+ * styles/uno.css — UNO（板块 MINES → UNO）样式
+ * ------------------------------------------------------------------
+ * 只用站点已有的主题变量（纸色/墨色/信号黄/等宽字体/间距），
+ * 视觉语言与扫雷、命令面板一致：方角、2px 墨色描边、硬阴影、mono 小标签。
+ *
+ * 牌色不放进主题变量（那是站点主题用的），这里单独定义四个牌色，
+ * 夜间/蓝图主题下也保持可辨认（黑底上黄/蓝/绿/红都够亮）。
+ */
+
+:root {
+  --uno-red: #e5484d;
+  --uno-yellow: #ffd400;
+  --uno-green: #46a758;
+  --uno-blue: #3b82f6;
+}
+
+/* 板块页签（扫雷 / UNO 共用这一处，两个视图都渲染它） */
+.uno__tabs {
+  display: flex;
+  gap: 0;
+  border: 2px solid var(--ink-100);
+  border-bottom: 0;
+  margin-bottom: var(--sp-5);
+  width: fit-content;
+  background: var(--bg-sunk);
+}
+.uno__tab {
+  padding: 6px 16px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--fg-faint);
+  border-right: 2px solid var(--ink-100);
+}
+.uno__tab:last-child { border-right: 0; }
+.uno__tab:hover { color: var(--fg); background: color-mix(in srgb, var(--ink-100) 6%, transparent); }
+.uno__tab.is-on { background: var(--signal); color: var(--signal-ink); }
+
+/* 顶栏状态行 */
+.uno__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+.uno__status {
+  display: flex;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--ls-wide);
+  color: var(--fg-soft);
+}
+.uno__status b { color: var(--fg); }
+.uno__dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin: 0 4px -1px;
+  background: var(--uno-c, var(--ink-100));
+  border: 2px solid var(--ink-100);
+}
+.uno__newbtns { display: flex; gap: var(--sp-2); }
+
+/* 对手席位 */
+.uno__seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.uno__seat {
+  border: 2px solid var(--border);
+  padding: var(--sp-2) var(--sp-3);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  background: var(--bg-sunk);
+}
+.uno__seat.is-turn { border-color: var(--ink-100); box-shadow: 3px 3px 0 var(--ink-100); }
+.uno__seat-name { font-size: var(--fs-xs); }
+.uno__seat-count { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--fg-soft); }
+.uno__seat-tag {
+  margin-left: auto;
+  font-size: var(--fs-2xs);
+  background: var(--signal);
+  color: var(--signal-ink);
+  padding: 1px 6px;
+}
+
+/* 桌面中央：摸牌堆 + 牌面 */
+.uno__table {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-5);
+  flex-wrap: wrap;
+}
+.uno__pile, .uno__discard {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  width: 82px;
+  height: 112px;
+  border: 2px dashed var(--border);
+  background: var(--bg-sunk);
+  color: var(--fg-soft);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+.uno__pile { cursor: pointer; }
+.uno__pile:hover { border-color: var(--ink-100); color: var(--fg); }
+.uno__pile-back { font-size: var(--fs-lg); color: var(--signal-deep); }
+.uno__discard { border-style: solid; border-color: var(--ink-100); }
+
+/* 一张牌 */
+.uno__card {
+  position: relative;
+  width: 72px;
+  height: 100px;
+  border: 2px solid var(--ink-100);
+  background: var(--paper);
+  color: var(--ink-100);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--ink-100) 25%, transparent);
+  transition: transform 90ms ease, box-shadow 90ms ease;
+}
+[data-theme="night"] .uno__card, [data-theme="blueprint"] .uno__card { background: var(--bg-sunk); color: var(--fg); }
+.uno__card b {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--uno-c, var(--ink-100));
+  -webkit-text-stroke: 1px currentColor;
+}
+.uno__card i {
+  position: absolute;
+  bottom: 4px;
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: var(--fs-2xs);
+  color: var(--fg-faint);
+}
+.uno__card::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 0;
+  background: var(--uno-c, transparent);
+  opacity: 0.16;
+}
+[data-theme="night"] .uno__card::after, [data-theme="blueprint"] .uno__card::after { opacity: 0.28; }
+.uno__card.is-playable { transform: translateY(-6px); box-shadow: 3px 5px 0 var(--signal); }
+.uno__card.is-playable:hover { background: var(--signal); }
+.uno__card.is-playable:hover b, .uno__card.is-playable:hover i { color: var(--signal-ink); }
+.uno__card:disabled { cursor: default; opacity: 0.72; }
+.uno__card--mini { width: 82px; height: 112px; cursor: default; box-shadow: none; }
+
+/* 自己的手牌 */
+.uno__mine { border-top: 2px solid var(--border); padding-top: var(--sp-3); }
+.uno__mine-label {
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--ls-wide);
+  color: var(--fg-soft);
+  margin-bottom: var(--sp-2);
+}
+.uno__hand { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+/* 日志与说明 */
+.uno__log {
+  margin-top: var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--signal);
+  background: var(--bg-sunk);
+  font-size: var(--fs-2xs);
+  color: var(--fg-soft);
+  line-height: 1.7;
+}
+.uno__note { margin-top: var(--sp-3); font-size: var(--fs-2xs); color: var(--fg-faint); }
+.uno__over {
+  margin: var(--sp-4) 0;
+  padding: var(--sp-3);
+  border: 2px solid var(--ink-100);
+  background: var(--signal);
+  color: var(--signal-ink);
+  font-size: var(--fs-sm);
+}
+
+/* 变色牌的颜色选择 */
+.uno__ask {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--ink-100) 45%, transparent);
+}
+.uno__ask-box {
+  background: var(--paper);
+  color: var(--fg);
+  border: 2px solid var(--ink-100);
+  box-shadow: 6px 6px 0 var(--ink-100);
+  padding: var(--sp-4);
+  display: grid;
+  gap: var(--sp-3);
+  justify-items: center;
+}
+[data-theme="night"] .uno__ask-box, [data-theme="blueprint"] .uno__ask-box { background: var(--bg-sunk); }
+.uno__ask-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.uno__ask-btn {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: var(--sp-2);
+  border: 2px solid var(--ink-100);
+  background: var(--paper);
+  cursor: pointer;
+}
+.uno__ask-btn span { width: 38px; height: 26px; background: var(--uno-c); display: block; }
+.uno__ask-btn i { font-style: normal; font-size: var(--fs-2xs); color: var(--fg-soft); }
+.uno__ask-btn:hover { background: var(--signal); }
+
+@media (max-width: 560px) {
+  .uno__card { width: 58px; height: 82px; }
+  .uno__card b { font-size: 1.25rem; }
+  .uno__card--mini { width: 72px; height: 100px; }
+  .uno__pile, .uno__discard { width: 72px; height: 100px; }
+  .uno__newbtns .btn { padding: 4px 8px; }
+}
