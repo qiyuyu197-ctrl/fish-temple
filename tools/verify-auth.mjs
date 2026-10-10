@@ -236,6 +236,18 @@ try {
   check('账号文档没有把同名站长权限写给别人',
     userDoc?.role === 'member' || userDoc?.email === OWNER,
     `role=${userDoc?.role} email=${userDoc?.email}`);
+
+  /* ---- 7. 站长看账号列表 / 普通用户看不到 ---- */
+  const usersAsOwner = await api('/api/auth/users', { token: ownerToken });
+  check('站长能看账号列表',
+    usersAsOwner.status === 200 && (usersAsOwner.json?.users || []).length >= 1,
+    JSON.stringify({ status: usersAsOwner.status, total: usersAsOwner.json?.total }));
+
+  const usersAsMember = await api('/api/auth/users', { token: memberToken });
+  check('⚠️ 普通用户看不到账号列表 → 403', usersAsMember.status === 403, `${usersAsMember.status}`);
+
+  const usersAnon = await api('/api/auth/users');
+  check('未登录看不到账号列表 → 401', usersAnon.status === 401, `${usersAnon.status}`);
 } catch (err) {
   check('自检过程没有抛异常', false, String(err?.message || err));
 } finally {

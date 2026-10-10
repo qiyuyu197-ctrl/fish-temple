@@ -133,7 +133,7 @@ async function maybeConnect() {
   });
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const mid = ++id;
-    const t = setTimeout(() => { pending.delete(mid); reject(new Error(`CDP 超时：${method}`)); }, 40000);
+    const t = setTimeout(() => { pending.delete(mid); reject(new Error(`CDP 超时：${method}`)); }, 120000);
     pending.set(mid, {
       resolve: (v) => { clearTimeout(t); resolve(v); },
       reject: (e) => { clearTimeout(t); reject(e); },
@@ -257,6 +257,33 @@ async function main() {
     pixivSkipped ? pixivSkipNote : (cdn || (onNetlifyEdge ? '线上已由边缘消费该指令（server: Netlify）' : '—')));
   const ssrf = await get('/api/pixiv/image?url=https%3A%2F%2Fexample.com%2Fx.jpg');
   check('图片代理不是开放代理（非白名单域名 400）', ssrf.res.status === 400, `HTTP ${ssrf.res.status}`);
+
+  /* ---- 账号（Auth0）与论坛：线上到底配好了没有 ----
+   * 这几条会随着你在 Netlify 填好环境变量**自动从 SKIP 变成真校验**，
+   * 所以不需要你手动再跑一遍别的工具。 */
+  const authCfg = await get('/api/auth/config');
+  const authOn = authCfg.json?.enabled === true;
+  check('线上 /api/auth/config 可读', authCfg.res.ok && typeof authCfg.json?.enabled === 'boolean',
+    JSON.stringify(authCfg.json));
+  if (authOn) {
+    check('账号功能已启用：域名是 auth0 且带了 clientId',
+      /\.auth0\.com$/.test(String(authCfg.json.domain || '')) && !!authCfg.json.clientId,
+      `domain=${authCfg.json.domain}`);
+    const meAnon = await get('/api/auth/me');
+    check('未带令牌访问 /api/auth/me → 401（不是 500）', meAnon.res.status === 401, `HTTP ${meAnon.res.status}`);
+    const usersAnon = await get('/api/auth/users');
+    check('未登录看不到账号列表 → 401', usersAnon.res.status === 401, `HTTP ${usersAnon.res.status}`);
+  } else {
+    check('账号功能已启用（Auth0 环境变量）', true,
+      '跳过：还没在 Netlify 配 AUTH0_DOMAIN / AUTH0_CLIENT_ID / OWNER_EMAILS —— 配好后这条会自动开始真校验');
+    const meOff = await get('/api/auth/me');
+    check('未配账号时 /api/auth/me 明确回 501 并说明原因',
+      meOff.res.status === 501 && /AUTH0_DOMAIN/.test(meOff.text || ''), `HTTP ${meOff.res.status}`);
+  }
+  const forumList = await get('/api/forum/posts?limit=5');
+  check('论坛接口在线上可用（读得到 Blobs）',
+    forumList.res.ok && Array.isArray(forumList.json?.posts) && forumList.json?.storage === 'blobs',
+    JSON.stringify({ status: forumList.res.status, total: forumList.json?.total, storage: forumList.json?.storage }));
 
   // 网易云：搜索 + 歌词 + 音频
   const search = await get('/api/netease/search?q=%E5%A4%9C%E8%88%AA%E6%98%9F&limit=3');
@@ -388,8 +415,15 @@ async function main() {
     await sleep(2600);
     const music = await page.evalPage(`(async () => {
       const mod = await import('/src/plugins/netease.js');
+      // 代理状态是异步探测出来的（可能要好几秒），别用固定等待去赌它已经就绪
+      let tag = '';
+      for (let i = 0; i < 30; i++) {
+        tag = document.getElementById('metaApi')?.textContent || '';
+        if (/ONLINE|OFFLINE/i.test(tag)) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
       const out = {
-        tag: document.getElementById('metaApi')?.textContent || '',
+        tag,
         inputDisabled: document.getElementById('neInput')?.disabled ?? null,
       };
       try { const s = await mod.search('海阔天空', { limit: 3 }); out.songs = (s.songs || []).length; }

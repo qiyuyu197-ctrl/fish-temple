@@ -1769,6 +1769,26 @@ async function handleApi(req, res, url, opts = {}) {
     return ok(res, { ok: true, user: who.user });
   }
 
+  // GET /api/auth/users —— 仅站长：看有哪些账号（账号数据存了就要能用起来）
+  if (seg[0] === 'auth' && seg[1] === 'users') {
+    const owner = await requireOwner(req, res, opts);
+    if (!owner) return undefined;
+    const store = storageFor(opts);
+    const keys = await store.listItems('users');
+    const users = [];
+    for (const k of keys.slice(-500)) {
+      const doc = await store.readItem('users', k).catch(() => null);
+      if (doc) users.push(doc);
+    }
+    users.sort((a, b) => String(b.lastSeenAt || '').localeCompare(String(a.lastSeenAt || '')));
+    return ok(res, {
+      ok: true,
+      total: users.length,
+      users,
+      note: '邮箱只对站长可见；公开接口一律不返回作者邮箱。',
+    });
+  }
+
   /* ---------------- 论坛 ---------------- */
   if (seg[0] === 'forum') return handleForum(req, res, url, opts, seg.slice(1));
 
@@ -1867,10 +1887,12 @@ async function handleHttp(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const started = Date.now();
 
-  // CORS：方便你在别的前端里调用内容 API
+  // CORS：方便你在别的前端里调用内容 API。
+  // 必须把 Authorization 也列进 allow-headers —— 论坛/内容写入要带 Bearer 令牌，
+  // 跨域场景下浏览器会先发预检请求，不带这一项就会被拦在预检那一步。
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   try {
@@ -2008,8 +2030,8 @@ export async function handleApiRequest(request, opts = {}) {
   }
 
   sink.setHeader('Access-Control-Allow-Origin', '*');
-  sink.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  sink.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  sink.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  sink.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (reqLike.method === 'OPTIONS') { sink.writeHead(204); sink.end(); return sink.toResponse(); }
 
   try {
