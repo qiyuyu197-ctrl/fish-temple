@@ -41,7 +41,10 @@ python -m http.server 5173
 ```
 .
 ├── index.html              页面骨架：顶栏 / 播报条 / 视图容器 / 播放条 / 命令面板
-├── server.mjs              零依赖本地服务器 + 内容写入 API（导出 handleApiRequest，Netlify Function 复用的就是它）
+├── server.mjs              本地服务器 + 全部 /api 实现（导出 handleApiRequest，Netlify Function 复用的就是它）
+├── auth.mjs                Auth0 令牌校验（RS256 + JWKS，只用 node:crypto）+ 角色判定（站长 / 普通成员）
+├── storage.mjs             内容存储双驱动：本地写 data/ 文件，线上写 Netlify Blobs
+├── package.json            只为函数声明 @netlify/blobs（站点本身仍零依赖；本地开发不需要装）
 ├── netlify.toml            Netlify 部署配置：发布根目录 / Functions 目录与打包 / 缓存头；函数路由由 config.path 声明，**故意不写 /api/* 重写**（见「部署」）
 ├── netlify/
 │   └── functions/
@@ -74,7 +77,9 @@ python -m http.server 5173
 │   ├── views/              页面：home / logs / music / gallery / mine / tools /
 │   │                       admin / notfound（+ post、newsItem 作为详情渲染器）
 │   │                       redirect.js 负责老路由跳转（#/posts → #/logs）
+│   │                       forum.js 论坛板块（#/forum）—— **界面正在实现中**
 │   └── plugins/            扩展示例
+│       ├── auth.js         Auth0 PKCE 登录（零依赖实现 code_verifier/challenge）—— **界面正在实现中**
 │       ├── stage.js        随机插画引擎
 │       ├── netease.js      网易云集成（搜索 / 直放 provider `netease-audio` / 官方播放器回退 / 列表持久化）
 │       ├── almanac.js      黄历判定（干支 / 建除十二神 / 二十八宿 / 黄道黑道 / 宜忌 → 吉凶 + 依据）
@@ -92,7 +97,10 @@ python -m http.server 5173
 │   ├── posts.json          文章种子数据
 │   ├── news.json           公告种子数据
 │   ├── gallery.json        本地插画清单
+│   ├── users/              账号资料（角色 / 首次与最近出现；本地跑时生成）
+│   ├── forum/              论坛帖（一条一个文件；线上则写进 Netlify Blobs）
 │   └── .backup/            服务器写入时自动生成的历史备份（可删）
+├── .blobs-dev/             本地仿真「线上 Blobs」的替身目录（tools/netlify-dev.mjs 写入，已 gitignore）
 ├── assets/
 │   ├── audio/              音频文件放这里
 │   ├── img/                图片 / 本地插画
@@ -100,11 +108,13 @@ python -m http.server 5173
 │   └── vendor/             原样引入的第三方库（不动源码，LICENSE 放在旁边）
 │       └── lunar-javascript/  MIT 通书数据（© 2018 6tail；黄历的宜忌 / 建除 / 星宿 / 黄道黑道，懒加载，~425KB）
 └── tools/                  开发期自检脚本（不影响站点运行）
-    ├── verify.mjs          全站自动化自检（203 项）
+    ├── verify.mjs          全站自动化自检（204 项）
     ├── responsive.mjs      多断点布局溢出检查 + 截图（1920→360）
     ├── verify-playback.mjs 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏黄历按钮不被裁切（43 项）
-    ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs（默认 5199）
-    ├── verify-deploy.mjs   线上形态自检：打包安全 lint + `/api/*` 语义 + 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）+ 手机形态两条（iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（29 项）
+    ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs + 注入 Blobs 替身（默认 5199）
+    ├── verify-deploy.mjs   线上形态自检：打包安全 lint + `/api/*` 语义 + 账号与论坛（health/config、论坛真读线上 Blobs、配好 Auth0 后校验令牌）+ 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）+ 手机形态两条（iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（33 项，配好 Auth0 后 35 项）
+    ├── verify-auth.mjs     账号 / 权限 / 论坛自检：本地模拟 IdP（真 RSA 密钥 + JWKS + 真签名）跑权限矩阵，
+    │                       再用仿真器验「部署形态下站长在线发布 → 写 Blobs → 读覆盖层」（40 项）
     ├── test-markdown.mjs   Markdown 渲染器单元测试（33 项）
     ├── content-build.mjs   批量写作：tools/content/*.md → data/posts.json & news.json（整份覆盖）
     ├── content/            批量写作的正文源文件（Markdown）
@@ -1151,9 +1161,9 @@ export const Albums = createCollection('albums', { seedFile: 'data/albums.json',
 | --- | --- | --- |
 | `GET` | `/api/health` | 服务状态、内容目录、是否可写（只读部署下 `writable: false`）、`deploy`（`'local'` / `'netlify'`）与 `readonly`、网易云代理是否启用（`netease` 端点里含 `audio`）、pixiv 端点列表（含 `image`） |
 | `GET` | `/api/tree` | 项目文件树（控制台展示用） |
-| `GET` | `/api/content/:collection` | 读取集合（`posts` / `news` / `gallery`） |
-| `POST` | `/api/content/:collection` | 新增或更新（按 `id` 去重合并） |
-| `DELETE` | `/api/content/:collection/:id` | 删除一条 |
+| `GET` | `/api/content/:collection` | 读取集合（`posts` / `news` / `gallery`）。**本地**回文件的完整内容（`overlayOnly:false`）；**线上**回"线上发布的覆盖层"（`overlayOnly:true`），由前端按 `id` 合并到静态 `data/*.json` 之上（覆盖层胜出） |
+| `POST` | `/api/content/:collection` | 新增或更新（按 `id` 去重合并）。**仅站长**：本地本机免登录（写 `data/`，可 git 提交）；线上必须带站长令牌（写 Blobs） |
+| `DELETE` | `/api/content/:collection/:id` | 删除一条（同样仅站长） |
 | `GET` | `/api/netease/search?q=关键词&limit=20` | 搜索网易云曲目（元数据）。**按顺序试 5 个搜索入口**，第一个有结果的就用：响应里 `via` 说明命中了哪个入口；只有全都拿不到结果时才回显 `upstreamTried`（每个入口的结果或报错）。见下面的「搜索为什么有 5 个入口」|
 | `GET` | `/api/netease/songs?ids=1,2,3` | 批量取曲目详情（封面 / 时长 / 付费标记，单次最多 50 个 id） |
 | `GET` | `/api/netease/playlist?id=3778678&limit=300` | 公开歌单：元数据 + 完整曲目 id 列表（导入歌单用） |
@@ -1163,10 +1173,19 @@ export const Albums = createCollection('albums', { seedFile: 'data/albums.json',
 | `GET` | `/api/netease/playable?detail=1&id=2041508513` | 从音频本身量出的真实秒数（`seconds`/`bitrate`/`mode`），iframe 回退路径的自动下一首与"试听片段"判定都用它 |
 | `GET` | `/api/netease/audio?id=643982` | **音频**：`resolveNeteaseAudio(id)` 按顺序试**两个入口** —— ① `song/media/outer/url`（302 → CDN）② `/api/song/enhance/player/url?ids=[id]&br=128000`，各带独立超时；URL 过网易云 CDN 白名单并升级 https，解析结果缓存 15 分钟。本地是**同源流**（支持 Range/206，`Cache-Control: private, max-age=86400`，**服务端不落盘**）；serverless 部署下改成 **302** 到解析出的 CDN 地址（Range / 拖动 / 后台播放交给 CDN，函数不扛流量）。两种模式都带诊断头 `X-Netease-Audio-Via` / `-Bitrate` / `-Trial`；两处都拿不到流时返回 `404`，响应体里列明每个入口的结果（如 `（outer:no、enhance@128000:code-110）`） |
 | `GET` | `/api/netease/status` | 代理状态与各缓存条目数（含 `audioEntries`） |
+| `GET` | `/api/auth/config` | 公开：`{ enabled, domain, clientId, audience, ownerConfigured }`。`enabled:false`（没配环境变量）时前端不显示登录入口，账号相关接口回 `501` |
+| `GET` | `/api/auth/me` | 校验 `Authorization: Bearer <token>`（也认 `Cookie: ft_token=`）并回当前身份 `{ sub, email, name, picture, verified, role }`（`role` = `owner` / `member`）；顺便把账号资料落一份到 `users/` |
+| `GET` | `/api/auth/users` | **仅站长**：列出账号（昵称 / 邮箱 / 角色 / 最近出现 / 访问次数），邮箱只对站长可见；普通账号 `403`、未登录 `401` |
+| `GET` | `/api/forum/posts?limit=&offset=&q=` | 论坛列表（公开可读，返回摘要，最新在前） |
+| `GET` | `/api/forum/posts/:id` | 论坛帖详情（公开） |
+| `GET` | `/api/forum/mine` | 我发的帖（需登录） |
+| `POST` | `/api/forum/posts` | 发帖（需登录且邮箱已验证；同账号 15 秒一贴、每天 40 贴） |
+| `PATCH` / `DELETE` | `/api/forum/posts/:id` | 改 / 删：**只有作者本人**（站长可代管），否则 `403` |
 
-`/api/content/*` 在**只读部署**（Netlify）下不再落盘，直接返回 `501`
-（`这份部署是只读的（Netlify 上没有可写磁盘）…`）：前台页面照旧读打包进去的 `data/*.json`，
-发布控制台退化成"只导出"。详见下面的「部署」一节。
+`/api/content/*` 的**写入**现在不是"只读"而是"**要有身份**"：配好 Auth0 就必须是站长
+（未登录 `401`、登录了但不是站长 `403`）；没配 Auth0 时，本机访问仍可写 —— 也就是你原来
+"本地控制台写 `data/` + git 提交"的工作流原样保留 —— 线上则回 `501` 并明确告诉你要配哪三个
+环境变量。**无论哪种情况都不会假装成功**。详见「账号 / 权限 / 论坛」与「部署」两节。
 
 > 顺带修掉一个真实的老 bug：`/api/pixiv/illust` 原本有**两个一模一样的分支**，
 > 而且第一个分支直接把**未代理**的 `pixiv.re` 原链返回并提前 return —— 也就是说那个
@@ -1214,6 +1233,8 @@ export const Albums = createCollection('albums', { seedFile: 'data/albums.json',
 - 写入前自动备份到 `data/.backup/`（同一集合最多保留 20 份）
 - 采用「写临时文件 + rename」的原子写入，避免中断导致文件损坏
 - 只允许读写白名单集合，静态文件服务限制在项目根目录内（拒绝路径穿越）
+- 跨域预检（`OPTIONS`）放行 **`Authorization` 请求头**与 **`PATCH` 方法** ——
+  论坛改帖与内容写入都要带 Bearer 令牌，少了这两项浏览器会在预检就被拦下
 
 ```bash
 node server.mjs          # 默认 5173
@@ -1272,13 +1293,16 @@ HTTP 监听）、HTTP 处理抽成 `handleHttp()`、`server.listen()` 与 SIGINT
 
 | 差异 | 本地 `node server.mjs` | Netlify |
 | --- | --- | --- |
-| 内容写入 `/api/content/*` | 可写（落盘 `data/`，自动备份到 `data/.backup/`） | **只读**：返回 `501` +「这份部署是只读的（Netlify 上没有可写磁盘）…」。前台照旧读打包进去的 `data/*.json`，发布控制台退化成"只导出"（和以前静态部署一样） |
+| 内容写入 `/api/content/*` | 可写（落盘 `data/`，自动备份到 `data/.backup/`） | 代码已支持在线发布（写 **Netlify Blobs**），但**必须带站长令牌**；没配账号时回 `501` 并提示配哪三个环境变量。前台读取：线上返回"覆盖层"，由前端合并到静态 `data/*.json` 之上 |
 | 音频 `/api/netease/audio?id=…` | **同源流**（支持 Range / 206） | **302** 到解析出来的网易云 CDN 地址（`https://m*.music.126.net/...`）：Range / 拖动进度 / 后台播放都由 CDN 原生处理，函数不扛流量 |
 | Pixiv 图片缓存 | 磁盘缓存（`data/.cache/pixiv-img/`） | 不写盘（`cachePixivImage(..., { noDisk: true })`，函数目录只读），响应加 `Netlify-CDN-Cache-Control: public, max-age=604800, durable` —— 用 **Netlify 边缘缓存**顶替本地磁盘缓存 |
+| 内容存储 | 文件（`data/`，可 git diff / 回滚） | **Netlify Blobs**（跨部署持久，发布不用重新部署）——见 `storage.mjs` 的双驱动 |
 
 `/api/health` 会报 `deploy: 'netlify' | 'local'` 与 `readonly`（只读时 `writable: false`），
 pixiv 端点列表里也补上了 `image`；serverless 下还会多一个 `netlifyEvent`
 （`{ requestUrl, resolvedPath, resolvedBy }`），用来确认线上给函数的是哪种路径形状。
+现在还多了三项：`auth`（`{ enabled, domain, clientId, ownerConfigured }`）、
+`storage`（`'fs'` / `'blobs'`）与 `forum`（端点列表）。
 
 #### ⚠️ 1. 函数声明了 `config.path` 之后，不要再加 `/api/*` 重写（最容易误判的一条）
 
@@ -1361,13 +1385,16 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 并把 `/api/*` 与 `/.netlify/functions/api/*` 两条路都交给真实的 `netlify/functions/api.mjs`
 （v2 形态：直接传 Web `Request`）；`NETLIFY_FAKE_FN_PATH=1` 可以模拟"平台给的是函数自己路径"那种语义。
 `verify-deploy.mjs` 先做**打包安全 lint**（顶层 `__filename` 之类撞 CJS 包装器 = 线上 502），
-再查接口语义（`health` / `deploy` / `readonly`、Pixiv 返回的是代理 URL、图片代理返回真 JPEG 字节、
-SSRF 守卫仍 400、网易云搜索 / 歌词、音频 302 到 CDN、内容写入 501、`data/album.json` 仍是 JSON
-且相册图能加载），也开真浏览器验客户端端到端（含"搜到的歌真的放出声"），
+再查接口语义（`health` / `deploy` / `readonly`、`/api/auth/config` 可读、论坛真的能读线上 Blobs
+（`GET /api/forum/posts` → `storage:"blobs"`）、配好 Auth0 时校验域名是 `*.auth0.com`
+且未带令牌访问 `/api/auth/me`、`/api/auth/users` 都回 `401`、Pixiv 返回的是代理 URL、
+图片代理返回真 JPEG 字节、SSRF 守卫仍 400、网易云搜索 / 歌词、音频 302 到 CDN、
+内容写入不会被假装成功、`data/album.json` 仍是 JSON 且相册图能加载），
+也开真浏览器验客户端端到端（含"搜到的歌真的放出声"），
 最后用 **iPhone UA + 390×844 + 触摸**再验一遍手机形态：用户报过的那首曲目必须
 **要么同源出声、要么官方播放器真的落在视口里**（失败时会把几何信息
 `vh/docH/scrollY/dock/hostRect/position` 一并打印出来）。
-实测 **29/29 PASS**（本地仿真与线上 https://yumiao.netlify.app 都跑过）。
+实测 **33/33 PASS**（本地仿真与线上 https://yumiao.netlify.app 都跑过；配好 Auth0 后会再多两条真校验，共 35 项）。
 
 ### 本地 / 线上能力对照
 
@@ -1377,11 +1404,117 @@ SSRF 守卫仍 400、网易云搜索 / 歌词、音频 302 到 CDN、内容写�
 | Pixiv 抽卡 + 图片代理 | ✅ | ✅（走 Function） |
 | 网易云搜索 / 导入歌单 / 站内试听 | ✅ | ✅（音频是 302 到 CDN） |
 | 黄历吉日之歌 | ✅ | ✅ |
-| 发布控制台写入 | ✅ | ❌ 只读（`501`） |
+| 发布控制台写入 | ✅ 免登录（本机） | ⚠️ 代码已支持（**仅站长**、写 Netlify Blobs），需先配 `AUTH0_DOMAIN` / `AUTH0_CLIENT_ID` / `OWNER_EMAILS`；没配时明确回 `501` |
+| 邮箱注册 / 登录 / 论坛发帖 | ⚠️ 需本机配同样的三个环境变量才能登 | ⚠️ 同上；界面正在实现中 |
 | `nekos.best` / `waifu.pics` | 浏览器直连，取决于你的网络能不能到 | 同上（**不走代理**，所以"能不能用"因人而异） |
 
-> 想让线上也能发布内容，就得换成带可写存储的后端，并把 `API.base` 指向它 ——
-> 而且**务必加上身份验证**：当前写入接口没有任何鉴权，只适合本机使用。
+> 线上发布走的是 **Netlify Blobs**（见 `storage.mjs` 的双驱动），权限由 Auth0 令牌 + 站长白名单决定：
+> 普通账号只能在论坛发帖，公告与网站现有文案只有站长能改。安全边界与实测见「账号 / 权限 / 论坛」一节。
+
+---
+
+## 账号 / 权限 / 论坛
+
+> **进度**：服务端已经完成并且在线上跑着（`auth.mjs` / `storage.mjs` / `/api/auth/*` / `/api/forum/*`，
+> 由 `tools/verify-auth.mjs` 以 **40/40** 覆盖）；**客户端界面（顶栏登录入口、`#/forum` 论坛板块、
+> 控制台仅站长可写）正在实现中**。这一节写的是已经定下来并被验证过的接口与权限契约。
+
+### 谁能做什么
+
+| 角色 | 论坛发帖 / 改自己的帖 | 改别人的帖 | 改公告与网站现有文案 | 看账号列表 |
+| --- | --- | --- | --- | --- |
+| 游客（未登录） | ❌ `401` | ❌ | ❌ `401` | ❌ `401` |
+| 登录用户（member） | ✅（需邮箱已验证） | ❌ `403` | ❌ `403` | ❌ `403` |
+| 站长（owner） | ✅ | ✅（可代管） | ✅ | ✅ |
+
+角色只有一个判据：令牌里的邮箱在 `OWNER_EMAILS` 白名单里，**并且** `email_verified === true`。
+
+### 为什么用 Auth0（而不是自己存密码）
+
+- **Netlify Identity 已弃用**，Netlify 把账号需求引向 Auth0 这类外部服务，所以这里用 Auth0。
+- 浏览器走 **Universal Login + PKCE**：密码只在 Auth0 的页面上输入，**从不经过我们的代码**；
+  邮箱验证邮件与「忘记密码」也由 Auth0 负责 —— 这两件事自建账号体系做不到。
+- 服务端只干两件事：验签（`auth.mjs`：RS256 + JWKS，只用 `node:crypto`，无第三方库）与判角色。
+- ⚠️ **站长判定要求 `email_verified === true`**：否则任何人都能用站长邮箱注册一个未验证账号来冒充站长。
+
+### Auth0 配置清单
+
+1. Auth0 后台 → **Applications → Create Application**，类型选 **Single Page Application**（我们是浏览器端 PKCE）。
+2. 在该应用的 **Settings** 里填：
+   - **Allowed Callback URLs**：`https://yumiao.netlify.app/`（本机调试再加 `http://localhost:5173/`、`http://127.0.0.1:5173/`）
+   - **Allowed Logout URLs**：同上
+   - **Allowed Web Origins**：`https://yumiao.netlify.app`（本机再加 `http://localhost:5173`）
+3. 复制 **Domain**（形如 `dev-xxxx.us.auth0.com`）与 **Client ID**。
+4. Netlify → **Site configuration → Environment variables** 新增三条：
+
+   | 变量 | 值 | 说明 |
+   | --- | --- | --- |
+   | `AUTH0_DOMAIN` | `dev-xxxx.us.auth0.com` | **只填域名**，不要带 `https://` |
+   | `AUTH0_CLIENT_ID` | 你的 Client ID | |
+   | `OWNER_EMAILS` | `qiyuyu197@gmail.com` | 站长白名单，逗号或空格分隔，可写多个 |
+
+   （可选 `AUTH0_AUDIENCE`：只有建了 Auth0 API 才填；本实现用 ID Token 校验，留空即可。）
+5. 注册之后去邮箱点验证链接 —— **验证通过**才会被认成站长（这是我特意加的安全边界，不是 bug）。
+
+没配这三条时整套账号功能**优雅降级**：`/api/auth/config` 报 `enabled:false`、账号相关接口回 `501`、
+前端不显示登录入口；线上的内容写入也回 `501` 并提示去配这三个变量 —— **不会假装成功**。
+
+### 存储：本地写文件，线上写 Netlify Blobs
+
+`storage.mjs` 把两种后端藏在一个接口后面：
+
+| 形态 | 写在哪 | 为什么 |
+| --- | --- | --- |
+| 本地 `node server.mjs` | `data/`（`posts.json` / `news.json` / `gallery.json` / `forum/*.json` / `users/*.json`） | 写完就是一条 git diff：能 review、能回滚 |
+| 线上（Netlify Functions） | **Netlify Blobs**（跨部署持久） | 部署产物是只读的，但 Blobs 能写；发布内容**不用重新部署** |
+
+- `@netlify/blobs` 是**唯一**的 npm 依赖，而且**只在线上动态引入**（本地开发不需要装）；
+  站点本身仍然是零依赖的静态站。
+- 线上读取走**覆盖层**：`GET /api/content/:collection` 回 `{ items, storage:'blobs', overlayOnly:true }`，
+  由前端按 `id` 合并到静态 `data/*.json` **之上**（覆盖层胜出）。函数里读不到仓库那份
+  `data/*.json`（被打包产物排除在外），所以合并放在前端 —— 这样「网站现有文案」不会因为上线而消失。
+- 本地仿真：`tools/netlify-dev.mjs` 注入一个 **Blobs 替身**（目录即 store，写在 `.blobs-dev/`，已 gitignore），
+  于是「线上发布 → 写覆盖层 → 读到覆盖层」这条链路在没有 Netlify 凭据时也能被真实验证。
+- 账号资料也落库：`users/<sha1(sub) 前 32 位>.json`，记 `sub / email / name / role / verified /
+  firstSeenAt / lastSeenAt / visits`。键要哈希是因为 Auth0 的 `sub` 形如 `auth0|6ac9…`（含 `|`），
+  不能直接当文件路径或 Blob 键。
+
+### 论坛接口
+
+| 方法 | 路径 | 权限 |
+| --- | --- | --- |
+| `GET` | `/api/forum/posts?limit=&offset=&q=` | 公开（摘要、最新在前） |
+| `GET` | `/api/forum/posts/:id` | 公开（全文） |
+| `GET` | `/api/forum/mine` | 需登录 |
+| `POST` | `/api/forum/posts` | 需登录且邮箱已验证；限流：同账号 15 秒一贴、每天 40 贴 |
+| `PATCH` / `DELETE` | `/api/forum/posts/:id` | **只有作者本人**（站长可代管） |
+
+- 帖子字段：`{ id, title, body, tags, author: { sub, name }, createdAt, updatedAt, edited }`；
+  作者邮箱只存服务端，公开接口不会带出去。
+- 限制：标题 ≤120 字、正文 ≤200000 字、标签 ≤6 个 × 24 字。
+- 论坛与「文章与公告」（`#/logs`）是**两个东西**：后者是站长的公告与文章，只有站长能改；
+  论坛放用户创作，作者能改自己的、改不了别人的。
+- 跨域预检放行了 `Authorization` 与 `PATCH`（见「服务器 API」末尾），否则浏览器在预检就会被拦下。
+
+### 这一块怎么验（`tools/verify-auth.mjs`，40 项）
+
+Auth0 的真实登录要真人点（要跳转、要收验证邮件），没法在自检里点；但**真正危险的部分**
+—— 令牌校验与权限判定 —— 完全可以在本地真验。这个脚本起一个**本地模拟 IdP**
+（自己生成 RSA 密钥、按标准暴露 `/.well-known/jwks.json`、用私钥真签 RS256 令牌），
+让 `server.mjs` 走**完全相同**的校验代码路径：
+
+- 伪造签名 / 过期 / 受众不对 / `alg=none` → 全部 `401`；
+- **用站长邮箱但 `email_verified=false` → 只能是普通成员**（防冒充）；
+- 普通用户：能发帖、能改自己的帖；改 / 删别人的帖 → `403`；
+- 站长：能改公告文案、能代管别人的帖、能看账号列表；普通用户看账号列表 → `403`、未登录 → `401`；
+- 空标题 / 空正文 → `400`；同账号连发 → `429`；未登录发帖 → `401`；
+  未登录改文案 → `401`、普通用户改文案 → `403`；
+- 账号资料确实落库（键是哈希、角色没串）；
+- 再用仿真器跑一遍**部署形态**：`deploy=netlify` / `storage=blobs`，站长在线发布 → `200` 且
+  `storage:"blobs"`（不再是 `501`），内容确实落到 `.blobs-dev/collections/news.json`，
+  公开读取拿到 `overlayOnly:true`，普通用户仍 `403`，论坛帖也写进 Blobs 且别人改不了。
+
+整个过程把内容写进临时目录（`FT_DATA_DIR`），**绝不碰仓库里的 `data/`** —— 跑完 `git status` 应该是干净的。
 
 ---
 
@@ -1389,11 +1522,12 @@ SSRF 守卫仍 400、网易云搜索 / 歌词、音频 302 到 CDN、内容写�
 
 ```bash
 node tools/test-markdown.mjs              # Markdown 渲染器单元测试（33 项）
-node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ XSS（203 项）
+node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ XSS（含 Markdown 危险协议链接）（204 项）
 node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢出检查（1920→360）+ 截图
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（43 项）
-node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs）
-node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 客户端端到端 + 手机形态（29 项）
+node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs + Blobs 替身）
+node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 账号与论坛 + 客户端端到端 + 手机形态（33 项，配好 Auth0 后 35）
+node tools/verify-auth.mjs                # 账号 / 权限 / 论坛自检：本地模拟 IdP + Blobs 替身，验权限矩阵与"站长在线发布"（40 项）
 node tools/make-audio.mjs                 # 生成示例音频（可选，本地播放列表用）
 
 # 相册导入（需要手机连线 / Pillow）
@@ -1410,7 +1544,7 @@ node tools/eval.mjs "http://localhost:5173/#/gallery" @.shots/check.js
 黄历小组件另有 12 条：懒加载、按钮位置、真实鼠标点击打开、今天/明天两张卡、
 每张卡都有标签 + 宜 + 忌 + 依据、可信手势证据、出现吉日才自动播、
 已知凶日 2026-10-09 判凶（忌「诸事不宜」）、已知吉日 2026-10-10 判吉（危日 · 明堂黄道）、
-查询吉日会自动播 `id=1345751384`、Esc 关闭、点面板内部不关（实测 **203/203 PASS**）。
+查询吉日会自动播 `id=1345751384`、Esc 关闭、点面板内部不关（实测 **204/204 PASS**）。
 `responsive.mjs` 在 1920→360px 之间逐档检查横向滚动与导航重叠，并把截图存到
 `.shots/responsive/`。
 `verify-playback.mjs [baseUrl]` 用无头 Edge/Chrome（CDP）种入 3 首匿名可播的曲目，断言
@@ -1426,7 +1560,7 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 （v2 形态：直接传 Web `Request`、收 Web `Response`，与线上同一个入口）；默认端口 5199。
 `NETLIFY_FAKE_FN_PATH=1` 可模拟"平台给的是函数自己的路径"那种语义。
 `verify-deploy.mjs [baseUrl]` 就是对着它（或真实站点 URL）验"部署完之后到底能不能用"，
-一共 **29 项**，分两层：
+一共 **33 项**（配好 Auth0 后会再多两条真校验，共 35），分两层：
 
 **① 静态 + 接口层**
 - **打包安全 lint（零依赖，先跑）**：扫 `server.mjs` 与 `netlify/functions/api.mjs` 的顶层声明
@@ -1438,11 +1572,16 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
   （本地仿真两条路都挂着，则两条都应通）；
 - `/api/health` 的 `deploy` / `readonly`、Pixiv 抽卡返回的是**代理 URL**、图片代理给的是真 JPEG 字节
   （缓存指令本地回显、线上由 Netlify 边缘消费，两种都接受）、SSRF 守卫仍然 400、
-  网易云搜索与歌词可用、音频在 serverless 下答 `302` 到 CDN、内容写入答 `501`、
-  `data/album.json` 仍是 JSON 且相册图能加载。
+  网易云搜索与歌词可用、音频在 serverless 下答 `302` 到 CDN、内容写入**不会被假装成功**
+  （未登录时 `501`/`401` + 说明）、`data/album.json` 仍是 JSON 且相册图能加载；
+- **账号与论坛**：`/api/auth/config` 可读；论坛接口必须真的能读线上 Blobs
+  （`GET /api/forum/posts` → `storage:"blobs"`）；**配好 Auth0 时**再验域名是 `*.auth0.com`、
+  且未带令牌访问 `/api/auth/me` 与 `/api/auth/users` 都回 `401` —— 这两条在没配 Auth0 时会
+  如实记成 SKIP 并说明该配哪三个环境变量，配好后自动变成真校验。
 
 **② 真浏览器端到端**：Pixiv 抽卡出真图、相册抽卡出图、音乐台显示 `PROXY ONLINE` 并能搜索、
-**搜到的歌真的放出声**（`<audio>` 起播且进度在走）、黄历在已知吉日 2026-10-10 真的把吉日之歌放出来，
+**搜到的歌真的放出声**（`<audio>` 起播且进度在走）、歌词时钟跟着真实进度走、
+右下角的 Netlify 徽章没有遮挡底栏、黄历在已知吉日 2026-10-10 真的把吉日之歌放出来，
 再用 **iPhone UA + 390×844 + 触摸**跑两条手机形态检查：
 
 - **用户报过的那首（`2757934332`）**：必须**要么同源出声，要么官方播放器真的在视口里**
@@ -1450,10 +1589,16 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
   免得又变成"界面在转但没声音"却无从下手；
 - **一首真 VIP 曲目（`fee=1`）**：不允许静默失败 —— 官方播放器要在视口里，或者给出明确提示。
 
-线上实测：**29/29 PASS against https://yumiao.netlify.app**，其中那首曲目的手机检查
+线上实测：**33/33 PASS against https://yumiao.netlify.app**，其中那首曲目的手机检查
 报 `inView:true`，几何为 `geo: {dock:"docked", expanded:"1", hostRect:{top:630,bottom:776}, vh:844}` ——
 也就是官方播放器确实被停靠并展开在 844px 高的视口里，▶ 摸得到。
 它的价值在于：**相册 / 音乐台 / 吉日之歌 这三件事一旦线上失效，最先坏的就是这里**。
+
+`verify-auth.mjs` 验账号、权限与论坛：它起一个**本地模拟 IdP**（真 RSA 密钥 + 标准 JWKS +
+真签名的 RS256 令牌），让 `server.mjs` 走与线上**完全相同**的校验路径，再用仿真器配
+**Blobs 替身**跑一遍部署形态（站长在线发布 → 写 Blobs → 读覆盖层）。整个过程写进临时目录
+（`FT_DATA_DIR`），**不碰仓库里的 `data/`** —— 跑完 `git status` 应该是干净的；实测 **40/40 PASS**。
+细节（权限矩阵、Auth0 配置清单、论坛接口）见「账号 / 权限 / 论坛」一节。
 
 有几件事**看起来像失败、其实不是**，别把数字读歪：
 
