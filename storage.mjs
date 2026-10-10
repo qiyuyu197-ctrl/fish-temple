@@ -43,22 +43,25 @@ function mergeById(base, over) {
 
 export function createStorage({ root, dataDir: dataDirIn, serverless = false, storeName = 'fish-temple', driver: injected = null } = {}) {
   const dataDir = dataDirIn || path.join(root, 'data');
-  let storePromise = null;
 
   /** 线上：惰性拿 Blobs store；用 strong 一致性，避免"刚发布却读不到" */
+  /**
+   * ⚠️ **不要缓存这个 store 实例**（线上真实踩过）：
+   * Netlify 给函数注入的 Blobs 凭据是**短时效令牌**（放在 NETLIFY_BLOBS_CONTEXT 里）。
+   * `getStore()` 会在构造时把当时的令牌读进去；函数实例变"热"以后如果一直复用同一个实例，
+   * 令牌一过期，所有读写在服务端就被判 `Failed to decode token: Token expired` ——
+   * 表现是"刚部署能用、过一阵子发布就全部失败"。
+   * 每次操作都重新 getStore() 很便宜（只是读环境变量 + 造一个对象），
+   * 但能让库每次都从最新上下文里取到有效令牌。
+   */
   async function blobs() {
-    if (!storePromise) {
-      storePromise = (async () => {
-        let mod;
-        try {
-          mod = await import('@netlify/blobs');
-        } catch (err) {
-          throw new Error(`线上发布需要 @netlify/blobs（请确认 package.json 已提交且 Netlify 装好了依赖）：${err.message}`);
-        }
-        return mod.getStore({ name: storeName, consistency: 'strong' });
-      })();
+    let mod;
+    try {
+      mod = await import('@netlify/blobs');
+    } catch (err) {
+      throw new Error(`线上发布需要 @netlify/blobs（请确认 package.json 已提交且 Netlify 装好了依赖）：${err.message}`);
     }
-    return storePromise;
+    return mod.getStore({ name: storeName, consistency: 'strong' });
   }
 
   /* ---------------- 文件驱动（本地） ---------------- */
