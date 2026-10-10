@@ -87,6 +87,8 @@ export function createGame(players, { seed = Date.now() % 2147483647 } = {}) {
     color: top.color,             // 当前有效颜色（Wild 出牌后由出牌者指定）
     pending: 0,                   // 罚牌累积（本实现不叠，仅用于提示）
     log: [`开局，起始牌是 ${label(top)}`],
+    unoCalled: players.map(() => false),   // 这一手出到剩一张后，本人喊过没
+    unoPending: null,                      // 谁正处在"欠一声 UNO"的窗口里
     winner: null,
   };
   return state;
@@ -150,7 +152,31 @@ export function applyMove(state, move) {
   const events = [];
   const seat = move.seat;
   if (s.winner) return { state: s, events, error: '这局已经结束了' };
+
+  // 喊 UNO 不占回合：只要还剩一张、且还没喊过，本人任何时候都能喊（不受"轮到你"限制）
+  if (move.type === 'uno') {
+    if ((s.hands[seat] || []).length !== 1 || s.unoCalled[seat]) {
+      return { state: s, events, error: '现在不用喊 UNO' };
+    }
+    s.unoCalled[seat] = true;
+    s.unoPending = null;
+    s.log.push(`${s.players[seat].name} 喊了 UNO`);
+    events.push({ type: 'uno', seat });
+    s.version += 1;
+    return { state: s, events };
+  }
+
   if (seat !== s.turn) return { state: s, events, error: '还没轮到你' };
+
+  // 上一手出到只剩一张却没喊 → **在下一手之前**罚摸两张（这就是官方的"抓 UNO"）
+  if (s.unoPending !== null && s.unoPending !== undefined) {
+    const who = s.unoPending;
+    draw(s, who, 2);
+    events.push({ type: 'unoPenalty', seat: who, n: 2 });
+    s.log.push(`${s.players[who].name} 忘了喊 UNO，被罚摸 2 张`);
+    s.unoPending = null;
+    s.unoCalled[who] = false;
+  }
 
   if (move.type === 'draw') {
     const got = draw(s, seat, 1);
@@ -180,6 +206,25 @@ export function applyMove(state, move) {
     s.version += 1;
     events.push({ type: 'win', seat });
     return { state: s, events };
+  }
+
+  // 出到只剩一张：
+  //   · 人类玩家 → 进入"欠一声 UNO"的窗口（下一手之前没喊就被罚两张）
+  //   · 机器人   → 直接算喊过。否则会死循环：被罚两张 → 再出到一张 → 又被罚 → 永远打不完
+  //     （自测真的踩到过：三个机器人互打 600 步都分不出胜负）
+  if (s.hands[seat].length === 1) {
+    if (s.players[seat]?.bot) {
+      s.unoCalled[seat] = true;
+      s.unoPending = null;
+      s.log.push(`${s.players[seat].name} 喊了 UNO`);
+      events.push({ type: 'uno', seat });
+    } else {
+      s.unoPending = seat;
+      s.unoCalled[seat] = false;
+      events.push({ type: 'unoPending', seat });
+    }
+  } else {
+    s.unoCalled[seat] = false;
   }
 
   let step = 1;
@@ -213,9 +258,16 @@ export function applyMove(state, move) {
   return { state: s, events };
 }
 
+/** 现在该不该喊 UNO：手里正好一张、且这一手还没喊过 */
+export function canCallUno(state, seat) {
+  return (state.hands?.[seat] || []).length === 1 && state.unoCalled?.[seat] !== true;
+}
+
 /** 轮到机器人时该出什么（纯函数：给定 state 返回一个 move） */
 export function botMove(state) {
   const seat = state.turn;
+  // 机器人不会忘记喊 UNO（喊 UNO 不占回合，所以先喊再出）
+  if (canCallUno(state, seat)) return { type: 'uno', seat };
   const cards = playableCards(state, seat);
   if (!cards.length) return { type: 'draw', seat };
   // 简单策略：先出"能压的数字牌"，再出功能牌，最后才动变色牌（把变色牌留到没别的选择时）
@@ -251,6 +303,8 @@ export function viewFor(state, seat) {
       id: p.id, name: p.name, bot: p.bot, count: (state.hands[i] || []).length,
     })),
     log: state.log.slice(-6),
+    unoPending: state.unoPending,
+    canUno: canCallUno(state, seat),
     playable: state.turn === seat && !state.winner ? playableCards(state, seat).map((c) => c.id) : [],
   };
 }

@@ -1,114 +1,144 @@
 /**
  * views/uno.js — UNO 视图（板块 / MINES → UNO 页签）
  * ------------------------------------------------------------------
- * 规则在 plugins/uno.js，这里只管画面与交互。风格与扫雷一致：
- * 纸色底 + 墨色 2px 描边 + 信号黄强调 + 等宽小标签。
+ * 规则在 plugins/uno.js，这里只管画面与交互。牌桌式布局：
+ *   · 场地是一块"桌垫"（纸色/墨色边框 + 细网格纹理），对手席位沿桌边摆开
+ *   · 中央：弃牌堆（当前牌面）+ 摸牌堆 + 当前颜色环 + 方向指示
+ *   · 底部：自己的手牌做扇形微rotation，能出的牌抬起并高亮
+ *   · 剩最后一张时出现醒目的「喊 UNO」按钮；错过窗口会被引擎罚摸两张（规则在引擎里）
  *
- * 交互一览：
- *   点手牌      如果压得上就出（变色牌会先弹颜色选择）
- *   点牌堆      摸一张（摸完自动轮到下家）
- *   键  N       新开一局；U 摸牌；1–4 选颜色（变色时）；Esc 关掉颜色选择
- *   联机        本文件已按 `viewFor(state, seat)` 的接口拿数据，
- *               下一步接房间时把本地 state 换成"服务端下发的视图"即可（见文件末注释）
+ * 交互：点能出的牌出牌 / 变色牌弹颜色选择（1–4、Esc）/ 点摸牌堆摸一张 /
+ *       点「喊 UNO」/ N 新开一局 / U 摸牌
+ * 联机：本视图只通过 `viewFor(state, seat)` 的数据作画，下一步接房间时把本地 state
+ *       换成服务端下发的视图即可（引擎已按这个接口准备好）。
  */
 
 import { esc } from '../util/dom.js';
 import { Toast } from '../ui/toast.js';
 import { viewhead } from '../ui/bits.js';
 import {
-  COLORS, COLOR_CN, FACE, createGame, applyMove, botMove, isPlayable,
+  COLORS, COLOR_CN, FACE, createGame, applyMove, botMove, isPlayable, canCallUno,
   topCard, label, serializeGame, deserializeGame,
 } from '../plugins/uno.js';
 
 const SAVE_KEY = 'ft.terminal.unoGame';
-const BOT_DELAY = 620;   // 机器人思考一下再走，太快看不清
+const BOT_DELAY = 620;
 
-/** 自检用的句柄（与扫雷的 MinesLive 同思路） */
+/** 自检句柄（与扫雷的 MinesLive 同思路） */
 export const UnoLive = {
   get state() { return live ? live.state : null; },
   get ready() { return !!live; },
-  /** 直接把当前局的 state 换掉（自检用） */
   setState(s) { if (live) { live.state = s; paint(); } },
   play(seat, cardId, color) { return move({ type: 'play', seat, cardId, color }); },
   draw(seat) { return move({ type: 'draw', seat }); },
+  callUno(seat) { return move({ type: 'uno', seat }); },
   newGame(n = 3) { start(n); },
-  bots() { return live ? live.state.players.filter((p) => p.bot).length : 0; },
 };
 
-let live = null;      // 当前这一局的运行时句柄
-let handoff = null;   // 会话内交接：切板块时留在内存里，切回来接着打
+let live = null;
+let handoff = null;
 
 const glyph = (c) => (c.kind === 'num' ? String(c.value) : FACE[c.kind]);
 const colorVar = (c) => (c ? `var(--uno-${c})` : 'var(--ink-100)');
 
 /* ---------------- 片段 ---------------- */
 
-function cardHTML(card, { playable = false, mini = false } = {}) {
-  const cls = ['uno__card', mini ? 'uno__card--mini' : '', playable ? 'is-playable' : '', card.color ? '' : 'is-wild'].filter(Boolean).join(' ');
-  const face = glyph(card);
-  return `<button class="${cls}" data-card="${esc(card.id)}" style="--uno-c:${colorVar(card.color)}"${playable ? '' : ' disabled'} aria-label="${esc(label(card))}">
-    <b>${esc(face)}</b><i>${esc(card.color ? COLOR_CN[card.color] : '变色')}</i>
+function cardHTML(card, { playable = false, mini = false, seat = false } = {}) {
+  const cls = ['uno__card', mini ? 'uno__card--mini' : '', playable ? 'is-playable' : '', card.color ? '' : 'is-wild', seat ? 'uno__card--seat' : ''].filter(Boolean).join(' ');
+  return `<button class="${cls}" data-card="${esc(card.id)}" style="--uno-c:${colorVar(card.color)}"${playable ? '' : ' disabled'} aria-label="${esc(label(card))}" title="${esc(label(card))}">
+    <b class="uno__card-face">${esc(glyph(card))}</b>
+    <i class="uno__card-tag">${esc(card.color ? COLOR_CN[card.color] : '变色')}</i>
   </button>`;
 }
 
+/** 对手席位：沿桌边的一位玩家（含手牌张数、是否轮到、是不是欠一声 UNO） */
 function seatHTML(p, i, state, me) {
-  const isTurn = state.turn === i && !state.winner;
-  const isMe = i === me;
-  return `<div class="uno__seat ${isTurn ? 'is-turn' : ''} ${isMe ? 'is-me' : ''}" data-seat="${i}">
-    <span class="uno__seat-name mono">${esc(p.name)}${p.bot ? ' · AI' : ''}</span>
-    <span class="uno__seat-count"><b>${(state.hands[i] || []).length}</b> 张</span>
-    ${isTurn ? '<span class="uno__seat-tag mono">TURN</span>' : ''}
+  const isTurn = state.turn === i && state.winner === null;
+  const owesUno = state.unoPending === i;
+  const n = (state.hands[i] || []).length;
+  return `<div class="uno__seat ${isTurn ? 'is-turn' : ''}" data-seat="${i}">
+    <div class="uno__seat-plate">
+      <span class="uno__seat-name">${esc(p.name)}${p.bot ? ' · AI' : ''}</span>
+      <span class="uno__seat-count mono">${n} 张</span>
+    </div>
+    <div class="uno__seat-cards" aria-hidden="true">
+      ${Array.from({ length: Math.min(n, 7) }).map(() => '<span class="uno__mini-back"></span>').join('')}
+      ${n > 7 ? `<span class="uno__mini-more mono">+${n - 7}</span>` : ''}
+    </div>
+    ${isTurn ? '<span class="uno__seat-turn mono">TURN</span>' : ''}
+    ${owesUno ? '<span class="uno__seat-uno mono">欠 UNO</span>' : ''}
   </div>`;
 }
 
 function boardHTML() {
   const s = live.state;
   const me = live.me;
-  const v = { playable: s.turn === me && !s.winner ? s.hands[me].filter((c) => isPlayable(s, c)).map((c) => c.id) : [] };
+  const mine = s.players[me];
+  const others = s.players.map((p, i) => ({ p, i })).filter((x) => x.i !== me);
   const top = topCard(s);
+  const myTurn = s.turn === me && s.winner === null;
+  const playable = myTurn ? s.hands[me].filter((c) => isPlayable(s, c)).map((c) => c.id) : [];
+  const needUno = canCallUno(s, me);
+
   return `
     <div class="uno">
       <div class="uno__head">
         <div class="uno__status mono">
-          <span>颜色 <b class="uno__dot" style="--uno-c:${colorVar(s.color)}"></b>${esc(COLOR_CN[s.color] || '—')}</span>
-          <span>方向 ${s.dir > 0 ? '↻' : '↺'}</span>
-          <span>牌堆 ${s.deck.length}</span>
+          <span>当前颜色 <b class="uno__dot" style="--uno-c:${colorVar(s.color)}"></b>${esc(COLOR_CN[s.color] || '—')}</span>
+          <span>方向 <b>${s.dir > 0 ? '顺时针 ↻' : '逆时针 ↺'}</b></span>
+          <span>牌堆 <b>${s.deck.length}</b></span>
+          <span>弃牌 <b>${s.discard.length}</b></span>
         </div>
         <div class="uno__newbtns">
+          <span class="uno__newbtns-label mono">开局</span>
           <button class="btn btn--sm" data-new="2">2 人</button>
           <button class="btn btn--sm btn--signal" data-new="3">3 人</button>
           <button class="btn btn--sm" data-new="4">4 人</button>
         </div>
       </div>
 
-      <div class="uno__seats">
-        ${s.players.map((p, i) => (i === me ? '' : seatHTML(p, i, s, me))).join('')}
-      </div>
+      <div class="uno__table-area">
+        <div class="uno__seats">
+          ${others.map(({ p, i }) => seatHTML(p, i, s, me)).join('')}
+        </div>
 
-      <div class="uno__table">
-        <button class="uno__pile" id="unoDraw" aria-label="摸一张">
-          <span class="uno__pile-back mono">+1</span>
-          <i class="mono">摸牌</i>
-        </button>
-        <div class="uno__discard">
-          ${top ? cardHTML(top, { mini: true }) : ''}
-          <i class="mono">牌面</i>
+        <div class="uno__center">
+          <button class="uno__pile" id="unoDraw" aria-label="摸一张" ${myTurn ? '' : 'disabled'}>
+            <span class="uno__pile-back">UNO</span>
+            <i class="mono">摸牌</i>
+          </button>
+
+          <div class="uno__discard">
+            ${top ? cardHTML(top, { mini: true }) : ''}
+            <span class="uno__ring" style="--uno-c:${colorVar(s.color)}" aria-hidden="true"></span>
+          </div>
+
+          <div class="uno__side mono">
+            <span>上家出的：${esc(top ? label(top) : '—')}</span>
+            <span>轮到：${esc(s.winner === null ? s.players[s.turn].name : '—')}</span>
+          </div>
+        </div>
+
+        <div class="uno__mine">
+          <div class="uno__mine-label mono">
+            你的手牌（${s.hands[me].length}）${myTurn ? ' · 轮到你了' : ''}${needUno ? ' · 该喊 UNO 了' : ''}
+          </div>
+          <div class="uno__hand">
+            ${s.hands[me].map((c, idx) => cardHTML(c, { playable: playable.includes(c.id), seat: true }).replace('class="uno__card', `data-i="${idx}" style="--i:${idx};--n:${s.hands[me].length}" class="uno__card`)).join('')}
+          </div>
+          ${needUno ? `<button class="uno__uno-btn" id="unoCall">喊 UNO！</button>` : ''}
         </div>
       </div>
 
-      ${s.winner !== null ? `<div class="uno__over mono">${s.winner === me ? '你赢了' : `${esc(s.players[s.winner].name)} 赢了`} —— 点人数按钮再来一局</div>` : ''}
-
-      <div class="uno__mine">
-        <div class="uno__mine-label mono">你的手牌（${s.hands[me].length}）${s.turn === me && !s.winner ? ' · 轮到你了' : ''}</div>
-        <div class="uno__hand">
-          ${s.hands[me].map((c) => cardHTML(c, { playable: v.playable.includes(c.id) })).join('')}
-        </div>
-      </div>
+      ${s.winner !== null ? `<div class="uno__over">${s.winner === me ? '你赢了' : `${esc(s.players[s.winner].name)} 赢了`} —— 上面点人数再来一局</div>` : ''}
 
       <div class="uno__log mono">
         ${s.log.slice(-6).map((l) => `<div>· ${esc(l)}</div>`).join('')}
       </div>
-      <p class="uno__note">不叠 +2/+4；摸到能出的牌也轮下家（简化规则）。两人局里反转视同跳过。</p>
+      <p class="uno__note">
+        规则：能出必须出；不叠 +2/+4，被罚直接过；摸不到能出的就摸一张并轮下家；两人局里反转视同跳过。
+        <b>出到只剩一张时必须在下一手之前点「喊 UNO」，否则被罚摸两张。</b>
+      </p>
     </div>`;
 }
 
@@ -128,31 +158,36 @@ function move(m) {
   const res = applyMove(live.state, m);
   if (res.error) { Toast.show(res.error, 'err'); return res; }
   live.state = res.state;
-  try { localStorage.setItem(SAVE_KEY, serializeGame(live.state)); } catch { /* 隐私模式下写不了，忽略 */ }
+  try { localStorage.setItem(SAVE_KEY, serializeGame(live.state)); } catch { /* 隐私模式忽略 */ }
   for (const ev of res.events) {
     if (ev.type === 'win') Toast.ok(ev.seat === live.me ? '你赢了！' : `${live.state.players[ev.seat].name} 赢了`);
     if (ev.type === 'penalty' && ev.seat === live.me) Toast.show(`被罚摸 ${ev.n} 张`, '', { ttl: 3500 });
+    if (ev.type === 'unoPending' && ev.seat === live.me) Toast.show('别忘了喊 UNO！（下一手之前）', '', { ttl: 4000 });
+    if (ev.type === 'unoPenalty') Toast.show(`${live.state.players[ev.seat].name} 忘了喊 UNO，被罚摸 2 张`, 'err', { ttl: 4000 });
+    if (ev.type === 'uno' && ev.seat === live.me) Toast.ok('UNO！');
   }
   paint();
   scheduleBot();
   return res;
 }
 
-/** 机器人按顺序自动走（每步之间留点"思考"时间，观感更像在打牌） */
+/** 机器人依次自动走（喊 UNO 不占回合，所以会先喊再出） */
 function scheduleBot() {
   if (!live) return;
   clearTimeout(live.timer);
   const s = live.state;
   if (s.winner !== null) return;
-  if (!s.players[s.turn]?.bot) return;
+  if (!s.players[s.turn]?.bot && !(s.unoPending !== null && s.players[s.unoPending]?.bot)) return;
   live.timer = setTimeout(() => {
     if (!live || live.state.winner !== null) return;
-    if (!live.state.players[live.state.turn]?.bot) return;
-    move(botMove(live.state));
+    const st = live.state;
+    // 机器人欠 UNO 就补喊（引擎允许它自己喊）
+    if (st.unoPending !== null && st.players[st.unoPending]?.bot) { move({ type: 'uno', seat: st.unoPending }); return; }
+    if (!st.players[st.turn]?.bot) return;
+    move(botMove(st));
   }, BOT_DELAY);
 }
 
-/** 变色牌：弹出选择（键盘 1–4；Esc 取消） */
 function askColor(cardId) {
   const wrap = document.createElement('div');
   wrap.className = 'uno__ask';
@@ -191,28 +226,29 @@ export default {
   id: 'uno',
   title: 'UNO',
   render() {
-    if (handoff && !live) { live = handoff; }
+    if (handoff && !live) live = handoff;
     if (!live) {
       const saved = (() => { try { return deserializeGame(localStorage.getItem(SAVE_KEY)); } catch { return null; } })();
-      if (saved && saved.winner === null) { live = { state: saved, me: 0, timer: null }; }
-      else { start(3); }
+      if (saved && saved.winner === null && saved.unoCalled) live = { state: saved, me: 0, timer: null };
+      else start(3);
     }
     return `${viewhead({ title: 'UNO', sub: '和扫雷同一个板块 · 单机对 AI（联机房间开发中）', idx: 'MINES / UNO' })}
       <div id="unoRoot">${live ? boardHTML() : ''}</div>`;
   },
   mount(root) {
-    const rootEl = root.querySelector('#unoRoot');
+    const host = root.querySelector('#unoRoot');
 
     root.addEventListener('click', (e) => {
       const nb = e.target.closest('[data-new]');
       if (nb) { start(Number(nb.dataset.new)); return; }
+      if (e.target.closest('#unoCall')) { move({ type: 'uno', seat: live.me }); return; }
       if (e.target.closest('#unoDraw')) {
         if (live.state.turn !== live.me) { Toast.show('还没轮到你', 'err'); return; }
         move({ type: 'draw', seat: live.me });
         return;
       }
       const cardBtn = e.target.closest('[data-card]');
-      if (cardBtn && rootEl.contains(cardBtn)) {
+      if (cardBtn && host.contains(cardBtn)) {
         const id = cardBtn.dataset.card;
         const card = live.state.hands[live.me].find((c) => c.id === id);
         if (!card) return;
@@ -225,11 +261,12 @@ export default {
     const onKey = (e) => {
       if (e.target.matches('input, textarea')) return;
       if (e.key === 'n' || e.key === 'N') { start(3); return; }
-      if (e.key === 'u' || e.key === 'U') { if (live.state.turn === live.me) move({ type: 'draw', seat: live.me }); }
+      if (e.key === 'u' || e.key === 'U') { if (live.state.turn === live.me) move({ type: 'draw', seat: live.me }); return; }
+      if (e.key === 'c' || e.key === 'C') { if (canCallUno(live.state, live.me)) move({ type: 'uno', seat: live.me }); }
     };
     document.addEventListener('keydown', onKey);
 
-    // 切走时把定时器收掉、把这一局交接出去（回来接着打）
+    // 切走：收掉定时器、把这局交接出去（回来接着打）
     return () => {
       document.removeEventListener('keydown', onKey);
       if (live) { clearTimeout(live.timer); live.timer = null; handoff = live; live = null; }
