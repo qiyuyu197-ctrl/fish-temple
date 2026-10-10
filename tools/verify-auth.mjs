@@ -295,6 +295,18 @@ try {
     Object.keys(roomMove.json?.room?.revealers || {}).length > 0,
     JSON.stringify(Object.entries(roomMove.json?.room?.revealers || {}).slice(0, 3)));
 
+  // 插旗（左键模式是"插旗"时前端也走这条）—— 这一条是补的：
+  // 上一版服务端的统计代码在插旗分支里引用了尚未声明的变量，插旗直接 500，
+  // 而当时的断言只测了揭开，所以没抓到。
+  const roomFlag = await api(`/api/mine/rooms/${roomId}/move`, {
+    method: 'POST', token: memberToken, body: { action: 'flag', r: 0, c: 0 },
+  });
+  const flaggedCell = roomFlag.json?.room?.game?.cells?.[0];
+  const flagStats = roomFlag.json?.room?.stats?.['auth0|member-1'] || roomFlag.json?.room?.stats?.[Object.keys(roomFlag.json?.room?.stats || {})[0]] || {};
+  check('联机扫雷：插旗能成功（格子有旗、统计里有插旗数；不会 500）',
+    roomFlag.status === 200 && flaggedCell?.flag === true && (flagStats.flags || 0) >= 1,
+    JSON.stringify({ status: roomFlag.status, flag: flaggedCell?.flag, stats: flagStats }));
+
   const roomSteal = await api(`/api/mine/rooms/${roomId}/restart`, { method: 'POST', token: member2Token });
   const roomRestart = await api(`/api/mine/rooms/${roomId}/restart`, { method: 'POST', token: memberToken });
   const openedAfterRestart = (roomRestart.json?.room?.game?.cells || []).filter((c) => c.open).length;
