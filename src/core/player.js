@@ -418,17 +418,33 @@ export const Player = {
   _armStallWatch(track) {
     this._clearStallWatch();
     const startedAt = Date.now();
+    let lastTime = -1;          // 上一次采样到的播放进度
+    let lastProgressAt = Date.now();
     const tick = () => {
       this._stallTimer = null;
       const a = this.audio;
       if (!a) return;
       if (this.isEmbed || !this._intent || this.current !== track) return;  // 已换路 / 换歌 / 用户暂停
-      if (a.readyState > 0) return;                                          // 已经在出声或至少拿到元数据
-      // 三种"确实不行"：
-      //   ① 已经带 error；② 明确没有可用源；③ 声称在播却**十秒**一个字节都没拿到
-      //（③ 是实测踩到的：换歌时新请求被挂在上一首大文件的长流后面，既没 error 也一直
-      //  readyState 0 —— 只认前两条就会漏掉它，界面就一直显示"正在播放"却没有声音）
-      const dead = !!a.error || a.networkState === 3 || (Date.now() - startedAt > 10000);
+
+      // 进度在走就说明真的出声了，撤防
+      if (a.currentTime > lastTime + 0.05) {
+        lastTime = a.currentTime;
+        lastProgressAt = Date.now();
+      }
+      // ⚠️ 不能只看 readyState：实测踩到过"拿到元数据（readyState 1）却一直不出声"的流
+      //（官方外链在弱网/被限速时就长这样：networkState 仍是 2 在加载、也没有 error）。
+      // 原来这里 `readyState > 0` 就直接放行，于是界面一直显示"正在播放"、既没声音也没说明 ——
+      // 正是自检里那条「不许静默无声」要抓的情况。所以改成**按进度判**：
+      // 只要"声称在播"却连续 8 秒 currentTime 不动、且还没到能连续播放的状态，就认为这路死了。
+      const stalled = a.currentTime <= 0.05 || (Date.now() - lastProgressAt > 8000);
+      // 四种"确实不行"：
+      //   ① 已经带 error；② 明确没有可用源；
+      //   ③ 声称在播却**十秒**连元数据都没拿到（readyState 0）；
+      //   ④ 拿到数据却**八秒**没有进度（卡在缓冲，不出声也不报错）
+      const dead = !!a.error
+        || a.networkState === 3
+        || (a.readyState === 0 && Date.now() - startedAt > 10000)
+        || (stalled && Date.now() - startedAt > 8000 && a.readyState < 3);
       if (!dead) { this._stallTimer = setTimeout(tick, 2000); return; }
       this._onError({ force: true });                                        // 状态已确认，绕开 abort 去抖
     };

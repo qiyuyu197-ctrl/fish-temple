@@ -754,9 +754,12 @@ async function main() {
       const track = mod.toTrack(songs[0]);
       const name = String(track.title || '').slice(0, 34);
       Player.add(track, { play: true });
-      // 直放失败 → HEAD 问一句 → 换 iframe，链路稍长；中途多采几次，记录最后状态
+      // 直放失败 → HEAD 问一句 → 换 iframe，链路稍长；中途多采几次，记录最后状态。
+      // 采样窗口要覆盖**最坏情况**：看门狗判"卡住"要约 8 秒，之后交接（外链期限 6 秒 →
+      // 换 iframe → iframe 加载）还要几秒 —— 原来 10×1.5s=15 秒太短，会把这条件判成
+      // "从没交接"（分不清"永远不出声"和"交接得慢"）。这里给到 30 秒。
       let last = null;
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 20; i++) {
         await nap(1500);
         const host = document.getElementById('embedHost');
         const r = host ? host.getBoundingClientRect() : null;
