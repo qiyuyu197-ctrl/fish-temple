@@ -262,6 +262,161 @@ async function main() {
   const bgIdx = await page.eval('window.Terminal.Player.index');
   check('后台：切歌后仍在播放', (await page.eval('window.Terminal.Player.playing')) === true, `index=${bgIdx}`);
 
+  /**
+   * ---- 4b) 后台切歌被自动播放策略拦下（站主真机上报的那个缺陷） ----
+   *
+   * 真机上报的是"后台切歌不出声、回到网站才响"。要把它变成本地可**确定性**复现的回归检查：
+   *   · 音频用**页面内现场生成的 WAV**（data URL）—— 不依赖网络与任何外部音频文件；
+   *   · 把控件的 play() 改成**只在 document.hidden 时拒绝**（这正是 iOS Safari 的行为），
+   *     页面可见后立刻放行。
+   *
+   * ⚠️ 顺序很关键（这是实测踩出来的）：**必须在可见状态下先让它播起来**，再切后台。
+   * 隐藏标签页里浏览器连"开始播放"都会挂住（Promise 既不 resolve 也不 reject），
+   * 所以"先隐藏再起播"根本复现不到"后台切歌被拒"这一步。
+   *
+   * 断言：① 被拦下时界面不谎报在播、媒体面板如实 paused、登记了待播状态；
+   *      ② 回到前台**不需要任何点击**就自己接上（本次修复的核心）；③ 接上后待播状态清掉。
+   */
+  await browser.send('Target.activateTarget', { targetId: pageTarget.id }).catch(() => {});
+  await sleep(600);
+  const interceptSetup = await page.eval(`(async () => {
+    const P = window.Terminal.Player;
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const wav = (secs, freq) => {
+      const rate = 8000, n = rate * secs;
+      const buf = new ArrayBuffer(44 + n), dv = new DataView(buf);
+      const ws = (off, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(off + i, s.charCodeAt(i)); };
+      ws(0, 'RIFF'); dv.setUint32(4, 36 + n, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+      dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+      dv.setUint32(24, rate, true); dv.setUint32(28, rate, true); dv.setUint16(32, 1, true); dv.setUint16(34, 8, true);
+      ws(36, 'data'); dv.setUint32(40, n, true);
+      for (let i = 0; i < n; i++) dv.setUint8(44 + i, 128 + Math.round(40 * Math.sin(i / freq)));
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+      return 'data:audio/wav;base64,' + btoa(bin);
+    };
+    // ⚠️ 两首要**不同的 data URL**：来源的 prepare 只在 src 变化时才重载媒体，
+    // 而同一个 src 会让"已 ended"的旧媒体留在元素上，于是刚接完下一首又被判"到头了"、
+    // 再切一次 —— 索引 0→1→0 绕回来，看起来像"没切歌"（实测踩过）。
+    window.__savedTracks = P.tracks.slice();
+    P.setTracks([
+      { id: 'loc-test-1', title: '本地测试音 A', src: wav(5, 16) },
+      { id: 'loc-test-2', title: '本地测试音 B', src: wav(5, 24) },
+    ], { autoplay: true });
+    // 等真正的"开始播放"落地（可见状态下浏览器允许）
+    for (let i = 0; i < 40; i++) {
+      if (P.playing === true && !P.audio.paused && P.audio.currentTime > 0.1) break;
+      await wait(250);
+    }
+    // 现在就装上"只在后台拒绝"的 play()
+    window.__origPlay = HTMLMediaElement.prototype.play;
+    window.__blockedCalls = 0;
+    HTMLMediaElement.prototype.play = function () {
+      if (document.hidden) {
+        window.__blockedCalls += 1;
+        return Promise.reject(new DOMException('blocked while hidden (test)', 'NotAllowedError'));
+      }
+      return window.__origPlay.apply(this, arguments);
+    };
+    // 诊断：把"放完 → 接下一首"这条链上的关键节点记下来。
+    // 断言失败时能一眼看出卡在"ended 没来"还是"next() 没换索引"，而不是靠猜。
+    const origAdv = P._advanceFromEnd.bind(P);
+    const origNext = P.next.bind(P);
+    window.__advDiag = { ended: 0, timeup: 0, advanceCalls: 0, nextCalls: [], errors: [] };
+    P.audio.addEventListener('ended', () => { window.__advDiag.ended += 1; });
+    P.audio.addEventListener('timeupdate', () => { window.__advDiag.timeup += 1; });
+    P.audio.addEventListener('error', () => { window.__advDiag.errors.push('audio-error:' + (P.audio.error?.code ?? '?')); });
+    P._advanceFromEnd = function () { window.__advDiag.advanceCalls += 1; return origAdv(); };
+    P.next = function (o) {
+      const r = origNext(o);
+      window.__advDiag.nextCalls.push({ auto: !!(o && o.auto), r: r === true, idx: P.index, n: P.tracks.length });
+      return r;
+    };
+    const a = P.audio;
+    return {
+      provider: P.providerId, tracks: P.tracks.length, playing: P.playing === true,
+      hidden: document.hidden, dur: Number((a.duration || 0).toFixed(1)),
+      paused: a.paused, t: Number(a.currentTime.toFixed(2)),
+    };
+  })()`);
+  check('后台拦截复现：可见状态下本地音频（页面内生成的 WAV）已在播',
+    interceptSetup.tracks === 2 && interceptSetup.playing === true && interceptSetup.hidden === false
+      && interceptSetup.dur > 2 && interceptSetup.paused === false,
+    JSON.stringify(interceptSetup));
+
+  // 切后台，再让它"放完" → 自动接下一首时的 play() 必然被拦下
+  await browser.send('Target.activateTarget', { targetId: created.targetId }).catch(() => {});
+  await sleep(1200);
+  await page.eval(`(() => {
+    const a = window.Terminal.Player.audio;
+    if (a && Number.isFinite(a.duration)) a.currentTime = Math.max(0, a.duration - 1.2);
+    return true;
+  })()`);
+  const blockedCut = await page.eval(`(async () => {
+    const P = window.Terminal.Player;
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const from = P.index;
+    for (let i = 0; i < 80; i++) { await wait(200); if (P.index !== from) break; }
+    await wait(900);                      // 等 play() 的 rejection 走完
+    const a = P.audio;
+    return {
+      advanced: P.index !== from, hidden: document.hidden,
+      playing: P.playing === true, blockedFlag: P.autoplayBlocked === true,
+      paused: a ? a.paused : null, t: a ? Number(a.currentTime.toFixed(2)) : null,
+      blockedCalls: window.__blockedCalls,
+      msState: (navigator.mediaSession && navigator.mediaSession.playbackState) || '',
+      diag: window.__advDiag,
+    };
+  })()`);
+  check('后台切歌被拦下：切歌发生了，但界面**不谎报**在播',
+    blockedCut.advanced === true && blockedCut.hidden === true && blockedCut.playing === false,
+    JSON.stringify(blockedCut));
+  check('后台切歌被拦下：登记了待播状态（供回前台 / 手势恢复）',
+    blockedCut.blockedFlag === true && blockedCut.blockedCalls >= 1, JSON.stringify(blockedCut));
+  check('后台切歌被拦下：媒体面板如实显示为 paused（锁屏不谎报在播）',
+    blockedCut.msState === 'paused', `state=${blockedCut.msState} calls=${blockedCut.blockedCalls}`);
+
+  // 回到前台：**不做任何点击**，只把页面切回可见
+  await browser.send('Target.activateTarget', { targetId: pageTarget.id }).catch(() => {});
+  const resumed = await page.eval(`(async () => {
+    const P = window.Terminal.Player;
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const t0 = Date.now();
+    for (let i = 0; i < 60; i++) {
+      const a = P.audio;
+      if (document.hidden === false && a && !a.paused && a.currentTime > 0.25) {
+        return { ok: true, hidden: false, t: Number(a.currentTime.toFixed(2)), ready: a.readyState,
+          ms: Date.now() - t0, blockedFlag: P.autoplayBlocked === true };
+      }
+      await wait(250);
+    }
+    const a = P.audio;
+    return { ok: false, hidden: document.hidden, paused: a ? a.paused : null,
+      t: a ? Number(a.currentTime.toFixed(2)) : null, ready: a ? a.readyState : null,
+      blockedFlag: P.autoplayBlocked === true, blockedCalls: window.__blockedCalls };
+  })()`);
+  check('回到前台后**不需要任何点击**就自己接上了（本次修复的核心）', resumed.ok === true, JSON.stringify(resumed));
+  check('接上之后待播状态被清掉', resumed.ok === true && resumed.blockedFlag === false, JSON.stringify(resumed));
+
+  // 复原，别影响后面的用例：
+  //   · 还原 play()
+  //   · 还原播放列表并**暂停**（后面的移动端宽度检查不该受"还在放"的影响）
+  //   · 清掉本用例触发的 toast —— 我这条路径会提示一句"已继续播放"，
+  //     它固定在视口上、宽度不受控，留着会污染后面的"没有横向滚动"断言（实测撞到过）
+  const interceptRestore = await page.eval(`(() => {
+    const P = window.Terminal.Player;
+    if (window.__origPlay) HTMLMediaElement.prototype.play = window.__origPlay;
+    try { P.pause(); } catch { /* noop */ }
+    if (window.__savedTracks && window.__savedTracks.length) P.setTracks(window.__savedTracks, { autoplay: false });
+    document.querySelectorAll('.toast').forEach((n) => n.remove());
+    return { tracks: P.tracks.length, patched: HTMLMediaElement.prototype.play === window.__origPlay,
+      toasts: document.querySelectorAll('.toast').length, playing: P.playing === true };
+  })()`);
+  check('后台拦截用例已复原（play() / 播放列表 / toast 都还原，不污染后续用例）',
+    interceptRestore.patched === true && interceptRestore.tracks > 0 && interceptRestore.toasts === 0,
+    JSON.stringify(interceptRestore));
+
   await browser.send('Target.closeTarget', { targetId: created.targetId }).catch(() => {});
   await browser.send('Target.activateTarget', { targetId: pageTarget.id }).catch(() => {});
   await sleep(800);

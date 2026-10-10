@@ -87,6 +87,13 @@ const localProvider = {
   label: '本地音频',
   embed: false,
   canHandle: (t) => !!t?.src,
+  /**
+   * ⚠️ 这一行不能少：`play()` 会用 `_audioUrlFor()` 判断"这首到底有没有音频"，
+   * 而那只问来源要 `audioUrl`。本地来源以前没提供它 → 返回空串 → `play()` 直接
+   * `player:noaudio` 掉头返回，**本地音频（带 src 的曲目）永远播不出来**。
+   * 站点曲库以网易云为主，所以这个洞一直没被撞到；后台播放在此之前也复现不出来。
+   */
+  audioUrl: (t) => t?.src || '',
   /** 进入该来源：设置 src 并等待后续 play()（建立频谱图要等播放稳定后再做） */
   prepare(track, ctx) {
     const audio = ctx.audio;
@@ -132,6 +139,18 @@ export const Player = {
   _directAudioPref: null,
   /** 「点了播放但音频其实没加载出来」的看门狗定时器（见 _armStallWatch） */
   _stallTimer: null,
+  /**
+   * 「后台切歌被系统拦下、还没出声」的待播状态（见 _markBlockedAutoplay）。
+   * 有它才能做到两件事：① 界面**不谎报**在播；② 回到前台 / 用户一碰 / 退避重试
+   * 都有明确的"要把这首接上"的目标，而不是各写一套判断。
+   */
+  _blockedPlay: null,
+  /** 待播状态的退避重试定时器（换歌 / 暂停 / 成功时都要清掉） */
+  _resumeTimers: [],
+  /** 本次拦截是否已经提示过用户（避免每次回到前台都弹一条） */
+  _blockedNoticed: false,
+  /** 手势重试的监听函数（失败时要能继续等下一次手势，所以得留着它才能摘） */
+  _gestureOnce: null,
 
   init() {
     this.audio = document.getElementById('audio');
@@ -314,6 +333,9 @@ export const Player = {
     this._clearAdvance();
     this._primedUrl = '';                // 换歌 = 该为新的"下一首"重新预取
     this._advanceSuspended = false;      // 换歌 = 位置重新可知，恢复估算
+    // 换歌 = 上一次"被拦下没出声"的待播目标作废（新的待播状态会在随后的 play() 里重新登记）
+    this._clearBlockedAutoplay();
+    this._disarmGestureRetry();
 
     // 换源时先停掉上一个来源
     if (prevProvider !== this.providerId) this.getProvider(prevProvider).deactivate?.(this);
@@ -381,7 +403,9 @@ export const Player = {
       if (result === false) {
         // 被浏览器的自动播放策略拒了。移动端最容易在"后台自动接下一首"时遇到
         // （iOS 上系统只保证**有用户手势**的那一次能起播）。
-        // 关键：不要把这首丢掉 —— 记下意图，等用户下一次触屏立刻把它接上。
+        // 关键：不要把这首丢掉 —— 登记成待播状态，回到前台 / 用户一碰 / 退避重试
+        // 都会把它接上（见 _markBlockedAutoplay）。
+        this._markBlockedAutoplay(track, 'play-rejected');
         this._armGestureRetry();
         // 来源自己能处理失败时（网易云直放会回退到官方播放器）不要叠一条通用提示：
         // 同一件事出现"无法播放"+"已切回官方播放器"两条互相矛盾的话，比没有提示更糟
@@ -391,6 +415,8 @@ export const Player = {
         return false;
       }
       this._failCount = 0;
+      // 起播成功 = 待播状态解除（用户自己按的播放也走这条，不该再留着"被拦下"的旧状态）
+      if (this._blockedPlay) this._clearBlockedAutoplay();
       this._scheduleGraph();
       // 起播成功了，但"成功"只代表浏览器接受了 play() —— 源可能随后才 404/加载不出来。
       // 挂个看门狗，杜绝"界面显示在放、既没声音也没提示"的死状态。
@@ -463,28 +489,117 @@ export const Player = {
    *
    * 场景：后台自动接下一首时，个别移动端浏览器（典型是 iOS Safari）只允许
    * "由用户手势触发"的那一次播放，于是下一首被静默拒掉 —— 用户切回前台看到的是
-   * "停在上一首的结尾、按播放也没用"。这里挂一次性监听：用户下一次**任何**触屏 /
-   * 按键就立刻把当前这首放出来，不会白丢一首。
+   * "停在上一首的结尾、按播放也没用"。
+   *
+   * 这里不再"只赌一次手势"：把这次失败登记成**待播状态**（_blockedPlay），
+   * 由四条路径一起负责把它接上 ——
+   *   ① 回到前台 / 页面恢复（见 _bindLifecycle，这条最贴近站主报的现象）；
+   *   ② 用户任意一次触屏 / 按键（下面的监听，**失败会继续等下一次**，不再一击即弃）；
+   *   ③ 少量退避重试（有些安卓浏览器在会话里已有手势之后，后台也允许起播）；
+   *   ④ 锁屏 / 通知栏的播放键（MediaSession 的 play 动作，各平台都认）。
+   * 直到成功为止；成功后清状态、更新媒体面板并提示一句。
    */
+  get autoplayBlocked() { return !!this._blockedPlay; },
+
+  /** 登记"这首被系统拦下了"（幂等：同一首重复登记不会叠加定时器） */
+  _markBlockedAutoplay(track, reason) {
+    const same = this._blockedPlay && this._blockedPlay.track?.id === track?.id;
+    if (same) return;
+    this._clearBlockedAutoplay();
+    this._blockedPlay = { track: track || null, reason: reason || 'play-rejected', at: Date.now() };
+    this._blockedNoticed = false;
+    // 媒体面板必须**如实**显示为暂停：不能锁屏上写着"正在播放"、其实一点声音都没有
+    this._updateMediaSession();
+    bus.emit('player:autoplay-blocked', { track: this._blockedPlay.track, reason: this._blockedPlay.reason });
+    // 退避重试：只试几次就够（后台被拒是常态，真正的解法是回到前台或用户一碰）
+    for (const [i, ms] of [1500, 4000, 9000].entries()) {
+      const t = setTimeout(() => {
+        this._resumeTimers = this._resumeTimers.filter((x) => x !== t);
+        if (!this._blockedPlay || !this._intent) return;
+        void this._tryResumeBlockedAutoplay(i === 2 ? 'retry-last' : 'retry');
+      }, ms);
+      this._resumeTimers.push(t);
+    }
+  },
+
+  _clearBlockedAutoplay() {
+    for (const t of this._resumeTimers) clearTimeout(t);
+    this._resumeTimers = [];
+    this._blockedPlay = null;
+    this._blockedNoticed = false;
+  },
+
+  /**
+   * 尝试把"被拦下、还没出声"的那首接上。所有恢复路径都走这里，避免各写一套判断。
+   * @param {'visible'|'gesture'|'retry'|'retry-last'|'playsession'} trigger
+   * @returns {Promise<boolean>} 是否真的开始出声了
+   */
+  async _tryResumeBlockedAutoplay(trigger) {
+    if (!this._blockedPlay || !this._intent) return false;
+    const a = this.audio;
+    if (!a || !a.src) return false;
+    // 已经在放了（例如用户自己按了播放）→ 当成已恢复
+    if (!a.paused && a.currentTime > 0) { this._onAutoplayResumed(trigger); return true; }
+    try {
+      await a.play();
+      this._onAutoplayResumed(trigger);
+      return true;
+    } catch {
+      // 还是被拒：**不要假装在播**。已经回到前台还接不上，就明确告诉用户点一下继续
+      //（这一步是站点"不许静默无声"原则的落点）。
+      if (!document.hidden && !this._blockedNoticed) {
+        this._blockedNoticed = true;
+        bus.emit('toast', { message: '后台切歌被系统拦下了：点一下 ▶ 继续播放', kind: 'warn' });
+      }
+      return false;
+    }
+  },
+
+  /** 待播状态收尾：清状态、补看门狗、更新媒体面板，并在合适时提示用户 */
+  _onAutoplayResumed(trigger) {
+    const was = this._blockedPlay;
+    this._clearBlockedAutoplay();
+    this._disarmGestureRetry();
+    this._scheduleGraph?.();
+    this._armStallWatch(this.current);
+    this._updateMediaSession();
+    if (was && (trigger === 'visible' || trigger === 'gesture')) {
+      bus.emit('toast', { message: '刚才在后台切歌被系统拦下了，已继续播放', kind: 'ok' });
+    }
+    bus.emit('player:autoplay-resumed', { track: this.current, trigger });
+  },
+
+  _disarmGestureRetry() {
+    this._gestureRetry = false;
+    if (this._gestureOnce) {
+      window.removeEventListener('pointerdown', this._gestureOnce, true);
+      window.removeEventListener('touchend', this._gestureOnce, true);
+      window.removeEventListener('keydown', this._gestureOnce, true);
+      this._gestureOnce = null;
+    }
+  },
+
   _armGestureRetry() {
     if (this._gestureRetry) return;
     this._gestureRetry = true;
-    const once = () => {
-      this._gestureRetry = false;
-      window.removeEventListener('pointerdown', once, true);
-      window.removeEventListener('touchend', once, true);
-      window.removeEventListener('keydown', once, true);
-      if (!this._intent) return;
-      const p = this.audio?.play();
-      p?.catch?.(() => { /* 还是不行就再等下一次手势 */ this._gestureRetry = false; });
+    const once = async () => {
+      if (!this._intent) { this._disarmGestureRetry(); return; }   // 用户自己暂停了：不再重试
+      const ok = await this._tryResumeBlockedAutoplay('gesture');
+      // ⚠️ 只有成功才摘掉监听：以前失败时也摘了，于是"碰一下没成功"就再也没有第二次机会
+      if (ok) this._disarmGestureRetry();
     };
+    this._gestureOnce = once;
     window.addEventListener('pointerdown', once, true);
     window.addEventListener('touchend', once, true);
     window.addEventListener('keydown', once, true);
   },
 
+
   pause() {
     this._intent = false;
+    // 用户明确要停：待播状态与手势重试都作废，不要在后面偷偷把声音放出来
+    this._clearBlockedAutoplay();
+    this._disarmGestureRetry();
     if (this.isEmbed) {
       // 交给来源真正停止发声（网易云是重建 auto=0 的播放器）
       this.provider.pause?.(this.current, this);
@@ -751,9 +866,16 @@ export const Player = {
       if (this.isEmbed) { this._checkAdvanceNow(); return; }
       const a = this.audio;
       if (!a) return;
-      if (this._intent && a.paused && !a.ended && a.currentTime > 0 && a.src) {
-        const p = a.play();
-        p?.catch?.(() => { /* 没有用户手势时可能被拒，那就等用户自己点 */ });
+      // 自愈：用户本来就在听（_intent），却停着 → 接着放。
+      //
+      // ⚠️ 这里原来还有 `a.currentTime > 0` 这个条件，**它正是"后台切歌不出声、回到网站才响"
+      // 的元凶**：后台自动接下一首时 play() 被系统拒掉，新曲目刚换成、位置就是 0，
+      // 于是这个条件不成立 → 回前台这条恢复路径整个失效，只剩"用户再点一下"。
+      // 现在只看"用户想听 + 有音源 + 停着"（用户自己按的暂停会把 _intent 置 false，
+      // 所以不会被覆盖），并把真正的重试交给 _tryResumeBlockedAutoplay：
+      // 成功就继续播，仍被拒就在前台明确提示一次，绝不假装在播。
+      if (this._intent && a.paused && !a.ended && a.src) {
+        void this._tryResumeBlockedAutoplay(document.hidden ? 'retry' : 'visible');
       }
       this._guardEnd();
       this._pump();
