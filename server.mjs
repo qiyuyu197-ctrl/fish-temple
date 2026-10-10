@@ -1823,7 +1823,10 @@ async function handleMine(req, res, url, opts, seg) {
   const who = await authenticate(req);
   if (!who.ok) return fail(res, who.status, who.error);
   const sub = who.user.sub;
-  const name = who.user.name || '匿名';
+  // 成员名用**我们自己的资料昵称**（users/<hash>.json 的 displayName），空才回落到 Auth0 的 name。
+  // 之前直接用令牌里的 name，结果房间里显示的是邮箱（站主实测反馈）。
+  const myDoc = await store.readItem('users', userKey(sub)).catch(() => null);
+  const name = String(myDoc?.displayName || '').trim() || who.user.name || '匿名';
 
   // POST /api/mine/rooms —— 建房
   if (seg[0] === 'rooms' && !seg[1] && req.method === 'POST') {

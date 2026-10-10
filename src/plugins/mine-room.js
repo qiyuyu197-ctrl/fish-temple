@@ -11,7 +11,10 @@
 
 import { Auth } from './auth.js';
 
-const POLL_MS = 1200;
+// 轮询间隔：站主反馈"反应慢不够丝滑"，从 1200ms 收紧到 450ms ——
+// 这是短请求（只回房间状态），450ms 在 VPS 与 Netlify 上都很轻；
+// 自己的动作不等这个间隔（move 的响应里就带回了新棋盘）。
+const POLL_MS = 450;
 
 export const MineRoom = {
   id: null,
