@@ -11,9 +11,11 @@
 
 import { Auth } from './auth.js';
 
-// 轮询间隔：站主反馈"反应还是慢、要更快"。250ms（每秒 4 次短请求，只回房间状态）
-// 在 VPS 上毫无压力，Netlify Functions 对小房间也够用；自己的动作不等这个间隔。
-const POLL_MS = 250;
+// 轮询间隔：站主连续两次要求"再快一点"。150ms（每秒约 6-7 次短请求，只回房间状态），
+// 对方动作到自己屏幕上的延迟 ≈ 往返 + 半个间隔，手感基本即时。
+// 代价是请求数上去了：VPS 上无所谓；Netlify Functions 免费额度对几个人的房间也够用。
+// 自己的动作不等这个间隔（move 响应里就带回了新棋盘）。
+const POLL_MS = 150;
 
 export const MineRoom = {
   id: null,
