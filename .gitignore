@@ -20,6 +20,13 @@ pnpm-debug.log*
 # 内容自动备份（服务器写入 data/ 时生成，属于运行期产物）
 data/.backup/
 
+# 运行期的账号与论坛数据。
+# ⚠️ 这两个目录**必须忽略**：里面有账号邮箱（data/users/<hash>.json）与访客写的帖子，
+#    而这个仓库是公开的 —— 一旦 `git add -A` 提交上去就是隐私泄露。
+#    线上它们存在 Netlify Blobs 里，本来也不进仓库。
+data/users/
+data/forum/
+
 # 本地仿真"线上 Blobs"的替身目录（tools/netlify-dev.mjs 写入，纯运行期产物）
 .blobs-dev/
 

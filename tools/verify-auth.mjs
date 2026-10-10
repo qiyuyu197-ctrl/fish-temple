@@ -237,6 +237,15 @@ try {
     userDoc?.role === 'member' || userDoc?.email === OWNER,
     `role=${userDoc?.role} email=${userDoc?.email}`);
 
+  /* ---- 6.5 仓库卫生：账号与论坛的运行时数据绝不能被提交 ----
+   * 这个仓库是公开的，而 data/users/ 里存的是邮箱。任何人都可能顺手 `git add -A`，
+   * 所以用 .gitignore 挡住，并在这里钉住这条规则别被删掉。 */
+  const ignore = await fs.readFile(path.join(ROOT, '.gitignore'), 'utf8').catch(() => '');
+  check('⚠️ .gitignore 挡住了运行期账号数据（data/users/ 含邮箱，仓库是公开的）',
+    /^\s*data\/users\/\s*$/m.test(ignore), ignore.includes('data/users/') ? '已忽略' : '缺失！');
+  check('⚠️ .gitignore 挡住了运行期论坛数据（data/forum/）',
+    /^\s*data\/forum\/\s*$/m.test(ignore), ignore.includes('data/forum/') ? '已忽略' : '缺失！');
+
   /* ---- 7. 站长看账号列表 / 普通用户看不到 ---- */
   const usersAsOwner = await api('/api/auth/users', { token: ownerToken });
   check('站长能看账号列表',
