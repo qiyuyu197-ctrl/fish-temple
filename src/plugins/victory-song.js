@@ -14,7 +14,10 @@
  * 失败不抛异常：找不到歌 / 网易云不可用时返回 { ok:false, reason }，由调用方决定要不要提示。
  */
 
-import { Netease, toTrack, isVipOnly } from './netease.js';
+// ⚠️ 用**模块级导出**（isAvailable / search / fetchSongs），不要走 Netease 那个对象：
+//    那个对象上并没有 available / fetchSongs，写成 Netease.available?.() 会永远得到 undefined
+//    → 判定成"通道不可用" → 功能静默失效（我第一版就是这么写的，核对导出时才抓到）。
+import { toTrack, isVipOnly, isAvailable, search as neteaseSearch, fetchSongs } from './netease.js';
 import { Player } from '../core/player.js';
 
 const QUERY = '关羽之歌';
@@ -31,16 +34,16 @@ let cachedId = null;     // 同一会话里记住找到的那首，避免每次�
 export async function playVictorySong({ force = false } = {}) {
   const now = Date.now();
   if (!force && now - lastAt < COOLDOWN_MS) return { ok: false, reason: '刚播过（一分钟内只播一次）' };
-  if (!Netease?.available?.()) return { ok: false, reason: '网易云通道当前不可用' };
+  if (!isAvailable()) return { ok: false, reason: '网易云通道当前不可用' };
 
   try {
     let song = null;
-    if (cachedId && typeof Netease.fetchSongs === 'function') {
-      const list = await Netease.fetchSongs([cachedId]).catch(() => null);
+    if (cachedId) {
+      const list = await fetchSongs([cachedId]).catch(() => null);
       song = (list || [])[0] || null;
     }
     if (!song) {
-      const res = await Netease.search(QUERY, { limit: 10 });
+      const res = await neteaseSearch(QUERY, { limit: 10 });
       const songs = (res && res.songs) || [];
       // 优先挑非 VIP-only 的（VIP 的在我们这里放不出声，选了反而尴尬）
       song = songs.find((s) => !isVipOnly(s)) || songs[0] || null;
