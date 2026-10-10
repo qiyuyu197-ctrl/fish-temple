@@ -100,6 +100,24 @@ function anthemHTML() {
   </div>`;
 }
 
+/**
+ * 「继续播放刚才的歌」这一行的片段。
+ *
+ * 单独抽出来是因为它**不能依赖**某一次成功的 render：让位（暂停站内播放）发生在
+ * `Anthem.play()` 内部，而面板此刻可能正在加载（busy）或一次渲染恰好在暂停之前完成 ——
+ * 那样这个入口就会消失，用户被暂停了音乐却找不到恢复的地方。
+ * 所以凡是会重写提示行的地方都带上它。
+ */
+function resumeHTML() {
+  return Anthem.pausedMusic
+    ? '<button class="almanac__linkbtn" id="almanacResume" type="button">继续播放刚才的歌</button>'
+    : '';
+}
+
+function onResumeClick() {
+  if (Anthem.resumeMusic()) { Toast.ok('已继续站内播放'); render(); }
+}
+
 function hintHTML() {
   const lucky = shown.filter((d) => d.lucky);
   const autoplay = Almanac.config?.anthem?.autoplay !== false;
@@ -114,7 +132,8 @@ function hintHTML() {
     bits.push('这一天不是吉日 · 吉日才会响起吉日之歌');
   }
 
-  if (Anthem.pausedMusic) bits.push('<button class="almanac__linkbtn" id="almanacResume" type="button">继续播放刚才的歌</button>');
+  const resume = resumeHTML();
+  if (resume) bits.push(resume);
   if (mode === 'single') bits.push('<button class="almanac__linkbtn" id="almanacBackToday" type="button">回到今天</button>');
 
   return bits.join(' <span class="almanac__sep">·</span> ');
@@ -130,13 +149,20 @@ function render() {
 
   if (busy) {
     body.innerHTML = '<p class="almanac__loading mono">正在加载黄历数据…</p>';
-    if (hint) hint.innerHTML = '';
+    // 加载中也不要把「继续播放」抹掉：让位就发生在这段时间里
+    if (hint) {
+      hint.innerHTML = resumeHTML();
+      $('#almanacResume')?.addEventListener('click', onResumeClick);
+    }
     return;
   }
 
   if (!shown.length) {
     body.innerHTML = '<p class="almanac__loading mono">暂时取不到黄历数据。</p>';
-    if (hint) hint.innerHTML = '';
+    if (hint) {
+      hint.innerHTML = resumeHTML();
+      $('#almanacResume')?.addEventListener('click', onResumeClick);
+    }
     return;
   }
 
@@ -158,9 +184,7 @@ function render() {
 function wireDynamic() {
   $('#almanacAnthemPlay')?.addEventListener('click', () => playAnthem('手动播放'));
   $('#almanacAnthemStop')?.addEventListener('click', () => Anthem.stop());
-  $('#almanacResume')?.addEventListener('click', () => {
-    if (Anthem.resumeMusic()) { Toast.ok('已继续站内播放'); render(); }
-  });
+  $('#almanacResume')?.addEventListener('click', onResumeClick);
   $('#almanacBackToday')?.addEventListener('click', () => showPair());
 }
 
@@ -279,6 +303,15 @@ export const AlmanacUI = {
 
     // 播放状态变化（含手机锁屏/系统暂停）时把面板同步一下
     bus.on('almanac:anthem', () => { if (open) render(); });
+    /**
+     * 再挂一道"让位"的双保险。
+     *
+     * `Anthem.play()` 里的顺序是：先 `pausedMusic = true`，再 `Player.pause()`。
+     * 于是 `player:state`（暂停引发）到达时，pausedMusic 一定已经是 true —— 这次渲染
+     * 必然能把「继续播放」画出来。只靠 almanac:anthem 那一次渲染不够稳：
+     * 它可能正好撞上面板在加载（busy）或早于暂停完成，入口就漏了。
+     */
+    bus.on('player:state', () => { if (open && !busy) render(); });
 
     return this;
   },

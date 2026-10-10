@@ -33,6 +33,7 @@ import { Boot } from './ui/boot.js';
 
 import home from './views/home.js';
 import logs from './views/logs.js';
+import forum from './views/forum.js';
 import music from './views/music.js';
 import gallery from './views/gallery.js';
 import mine from './views/mine.js';
@@ -50,6 +51,7 @@ import { sessionWidget, footerWidget } from './plugins/example-widget.js';
 import { dashboardView } from './plugins/dashboard-view.js';
 import { bootstrapPlaylist } from './plugins/netease.js';
 import { Almanac } from './plugins/almanac.js';
+import { Auth } from './plugins/auth.js';
 import * as Mines from './plugins/minesweeper.js';
 import { MinesLive } from './views/mine.js';
 
@@ -135,6 +137,17 @@ async function boot() {
   Toast.init();
   Shell.init();
 
+  // 3.5) 账号（Auth0 PKCE）
+  //      先读 /api/auth/config：服务端没说启用就整块降级（顶栏不显示登录入口）。
+  //      放这么早是因为它还要处理 Auth0 回调（地址里带着 ?code=&state=）——
+  //      换完令牌会把人送回登录前所在的板块，等路由跑起来时地址已经是对的。
+  //      失败不阻塞启动：账号不可用时，站点其余部分照常。
+  try {
+    await Auth.init();
+  } catch (err) {
+    console.warn('[auth] 初始化失败', err);
+  }
+
   // 4) 音频引擎 + 迷你播放条
   Player.init();
   if (Settings.get('shuffle')) Player.setShuffle(true);
@@ -159,7 +172,7 @@ async function boot() {
   //    文章与公告已合并到 #/logs；#/posts、#/news、#/post/<id>、#/newsItem/<id>
   //    注册成兼容跳转，老链接不会 404（见 views/redirect.js）
   [
-    home, logs, music, gallery, mine, tools, admin, notfound,
+    home, logs, forum, music, gallery, mine, tools, admin, notfound,
     redirectView('posts', 'logs'),
     redirectView('post', 'logs'),
     redirectView('news', 'logs'),
@@ -217,4 +230,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* 供调试：window.Terminal.randomArt() 等 */
-window.Terminal = { ctx, Player, Stage, Lyrics, Registry, Router, Posts, News, Settings, Theme, Palette, openPalette, EmbedHost, Mines, MinesLive, Almanac, AlmanacUI };
+window.Terminal = { ctx, Player, Stage, Lyrics, Registry, Router, Posts, News, Settings, Theme, Palette, openPalette, EmbedHost, Mines, MinesLive, Almanac, AlmanacUI, Auth };

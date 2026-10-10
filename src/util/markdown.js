@@ -46,6 +46,45 @@ export function slugify(str, fallback = 'section') {
   return s || fallback;
 }
 
+/** 允许出现在 href / src 里的协议 */
+const SAFE_SCHEMES = new Set(['http', 'https', 'mailto']);
+
+/**
+ * 链接 / 图片地址的白名单校验。
+ *
+ * 为什么必须在渲染层做：`[点我](javascript:alert(1))` 会被拼成
+ * `<a href="javascript:alert(1)">` —— 引号虽然已经 esc() 过（所以不是属性逃逸），
+ * 但读者一点就执行脚本，这是一条**可点的存储型 XSS**。文章只有站长写，风险低；
+ * 论坛对任意注册用户开放后，人人都能写，必须在渲染这一层一次堵住（论坛与文章共用它）。
+ *
+ * 放行：http / https / mailto，以及相对地址（`/`、`#`、`./`、`../`，或显然不含协议的 `foo/bar`）。
+ * 其余（`javascript:`、`data:`、`vbscript:`、`blob:`、`file:` …）一律不放行。
+ *
+ * 校验要点：
+ *   · 先 trim() 再取协议，比较时小写 —— `JavaScript:`、` javascript:` 都要挡住；
+ *   · 含控制字符（\t \n \r 等）直接拒绝 —— 浏览器解析 URL 时会忽略它们，
+ *     于是 `java\tscript:alert(1)` 等价于 `javascript:`，不能靠"看起来不像"来放行；
+ *   · 冒号前必须等于一个已知协议，其它写法一律按"没有协议"处理（相对地址）。
+ */
+export function safeUrl(raw) {
+  const url = String(raw ?? '').trim();
+  if (!url) return null;
+  if (/[\u0000-\u001f\u007f]/.test(url)) return null;
+
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(url);
+  if (m) return SAFE_SCHEMES.has(m[1].toLowerCase()) ? url : null;
+
+  // 没匹配到"干净协议"时，再看冒号出现在哪儿：如果在第一个 `/` 或 `?` 之前，
+  // 说明这段地址**想装成协议**（例如把 javascript 写成 java&#115;cript: ——
+  // 实体是我们自己 esc() 出来的，浏览器解析属性时只解码一次，所以它其实不可利用，
+  // 但没有任何理由放行这种写法）。
+  // ⚠️ 这里刻意只把 `/` 与 `?` 当分隔符，**不看 `#`**：`&#115;` 这种数字实体里就带 `#`，
+  //    拿它当分隔符会算出一个不含冒号的 head，于是又把危险写法放过去了。
+  const head = url.split(/[/?]/, 1)[0];
+  if (head.includes(':')) return null;
+  return url;    // 相对地址 / 锚点：本来就没有协议可执行
+}
+
 /** 行内语法。注意：传入的必须是「已转义」的纯文本 */
 function inline(src) {
   let s = src;
@@ -55,13 +94,19 @@ function inline(src) {
     codes.push(c);
     return `\u0000C${codes.length - 1}\u0000`;
   });
-  // 图片
+  // 图片（地址不过白名单时不生成 <img>，降级成 alt 文本 + 原地址）
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
-    (_, alt, url, title) => `<img src="${url}" alt="${alt}"${title ? ` title="${title}"` : ''} loading="lazy" />`);
-  // 链接（外链自动加 target）
+    (_, alt, url, title) => {
+      const safe = safeUrl(url);
+      if (!safe) return `${alt || '图片'}（${url}）`;
+      return `<img src="${safe}" alt="${alt}"${title ? ` title="${title}"` : ''} loading="lazy" />`;
+    });
+  // 链接（外链自动加 target；地址不过白名单时不生成 <a>，降级成文字 + 括号里的原地址）
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_, txt, url, title) => {
-    const ext = /^https?:\/\//i.test(url);
-    return `<a href="${url}"${ext ? ' target="_blank" rel="noopener noreferrer"' : ''}${title ? ` title="${title}"` : ''}>${txt}</a>`;
+    const safe = safeUrl(url);
+    if (!safe) return `${txt}（${url}）`;
+    const ext = /^https?:\/\//i.test(safe);
+    return `<a href="${safe}"${ext ? ' target="_blank" rel="noopener noreferrer"' : ''}${title ? ` title="${title}"` : ''}>${txt}</a>`;
   });
   // 裸链接
   s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_, pre, url) =>

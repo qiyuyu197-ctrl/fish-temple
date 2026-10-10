@@ -9,6 +9,7 @@
 
 import { $, $$, esc, ICON } from '../util/dom.js';
 import { bus } from '../core/bus.js';
+import { Router } from '../core/router.js';
 import { Posts, News, Api, ReadState, Settings, fmtDate, fmtRelative, normalizeItem, uid } from '../core/store.js';
 import { render, excerpt, stats, parseFrontmatter } from '../util/markdown.js';
 import { CATEGORIES, SITE, API, STORAGE_PREFIX } from '../config/site.config.js';
@@ -16,6 +17,7 @@ import { Toast, copyText, download } from '../ui/toast.js';
 import { Motion } from '../core/motion.js';
 import { viewhead, emptyState } from '../ui/bits.js';
 import { Theme } from '../core/theme.js';
+import { Auth } from '../plugins/auth.js';
 
 /** 内容类型定义：新增集合时在这里加一项即可获得完整表单 + 列表 */
 const KINDS = {
@@ -76,6 +78,8 @@ console.log('code block with language tag');
 let tab = 'posts';
 let draft = null;      // 当前编辑中的记录
 let serverOnline = false;
+/** 本次渲染依据的账号状态签名：登录态是异步确认的，状态变了要重画一次（见 mount） */
+let renderedAuthSig = '';
 
 /* ---------------- 表单 ---------------- */
 
@@ -296,14 +300,67 @@ function toolsHTML() {
 
 /* ---------------- 视图 ---------------- */
 
+/** 当前账号状态的"签名"：用来判断要不要因为登录态变化而重画 */
+function authSig() {
+  return `${Auth.enabled ? 1 : 0}:${Auth.state}:${Auth.user?.sub || ''}:${Auth.user?.role || ''}`;
+}
+
 export default {
   id: 'admin',
   title: '发布控制台',
 
   render() {
+    renderedAuthSig = authSig();
     const params = new URLSearchParams(location.hash.split('?')[1] || '');
     tab = params.get('tab') || tab;
     if (!KINDS[tab]) tab = 'posts';
+
+    /**
+     * 站长专用。
+     *
+     * 账号功能一启用，这个板块就只能站长进 —— 非站长要给的是**明确说明**，
+     * 不能让他填完表单、按了保存、以为存上了（服务端其实会拒绝，界面上却像成功了，
+     * 那比直接拦住更糟）。
+     *
+     * 账号功能没启用时（纯静态部署、或服务端还没配 Auth0）保持原样：
+     * 内容只落浏览器本地，可以导出后入库 —— 这条老路对没有服务端的部署仍然有用。
+     */
+    if (Auth.enabled && !Auth.isOwner) {
+      renderedAuthSig = authSig();
+      return `
+      <section class="admin">
+        ${viewhead({
+          title: 'CONSOLE',
+          sub: '这里只改站点的文章与公告，因此只有站长能进。用户内容请发到「论坛」。',
+          idx: 'MODULE / 05',
+          meta: [
+            { label: 'ACCOUNT', value: Auth.loggedIn ? '已登录' : '未登录' },
+            { label: 'ROLE', value: Auth.isOwner ? 'OWNER' : 'MEMBER' },
+          ],
+          actions: Auth.loggedIn
+            ? ''
+            : `<button class="btn btn--sm" id="adminLogin">${ICON.user || ICON.doc}登录</button>`,
+        })}
+        <div class="panel" style="margin-top:var(--sp-5)">
+          <div class="panel__head"><span class="panel__title">权限不足</span></div>
+          <div class="panel__body" style="display:flex;flex-direction:column;gap:var(--sp-3)">
+            <p class="muted">
+              ${Auth.loggedIn
+                ? `当前登录的是 <b>${esc(Auth.user?.name || Auth.user?.email || '普通用户')}</b>，不是站长，因此不能修改公告与网站文案。`
+                : '你还没有登录。这个板块需要<b>站长</b>身份。'}
+            </p>
+            <p class="muted">
+              要发自己的内容，请去 <a href="#/forum" data-nav>论坛</a> —— 登录后就能发帖，
+              而且只有作者本人（或站长）能修改。
+            </p>
+            <div class="hero__cta" style="margin:0">
+              <a class="btn btn--sm" href="#/forum" data-nav>${ICON.doc}去论坛</a>
+              ${Auth.loggedIn ? '' : `<button class="btn btn--sm" id="adminLogin2">${ICON.user || ICON.doc}登录</button>`}
+            </div>
+          </div>
+        </div>
+      </section>`;
+    }
 
     const editId = params.get('edit');
     const store = KINDS[tab].store();
@@ -396,6 +453,22 @@ export default {
   },
 
   async mount(root) {
+    /**
+     * 登录态是**异步**确认的：`Auth.init()` 要先拿到令牌再问 `/api/auth/me` 才知道谁是站长。
+     * 于是直接打开 #/admin 时首帧可能还不知道自己是谁 —— 站长会先看到"权限不足"。
+     * 这里在账号状态真正回来时重画一次（用签名比对，避免无谓重画与死循环）。
+     */
+    const offAuth = bus.on('auth:user', () => { if (authSig() !== renderedAuthSig) Router.resolve(); });
+    const offReady = bus.on('auth:ready', () => { if (authSig() !== renderedAuthSig) Router.resolve(); });
+    const cleanupAuth = () => { offAuth(); offReady(); };
+
+    // 非站长看到的是"权限不足"说明页：只挂登录按钮，别去碰不存在的表单
+    if (!$('.admin__grid', root)) {
+      $('#adminLogin', root)?.addEventListener('click', () => Auth.login());
+      $('#adminLogin2', root)?.addEventListener('click', () => Auth.login());
+      return cleanupAuth;
+    }
+
     serverOnline = await Api.probe();
     const paintServerState = () => {
       const state = $('#serverState');
@@ -454,12 +527,34 @@ export default {
       if (!draft.title) { Toast.err('请先填写标题'); $('#fTitle')?.focus(); return; }
       if (!draft.summary) draft.summary = excerpt(draft.content, 150);
       const store = KINDS[tab].store();
+      // 记下改动前的样子：写入被服务端拒绝（未登录 / 非站长）时要能**原样回滚**，
+      // 否则那条内容会以"已发布"的样子留在列表里，而线上其实什么都没有 —— 最误导的一种失败
+      const before = store.get(draft.id) ? { ...store.get(draft.id) } : null;
       const saved = store.upsert({ ...draft, __kind: undefined });
-      let landed = false;
+      let landed = { ok: false, status: 0, storage: '', file: '' };
       if (remote && serverOnline) {
         landed = await Api.save(tab, saved);
         if (!silent) {
-          landed ? Toast.ok('已保存并写入 data/ 目录') : Toast.show('已保存到本地（服务器写入失败）');
+          if (!landed.ok) {
+            if (landed.status === 401) {
+              Toast.show('需要登录后才能发布到线上：内容没有上传（表单里的文字还在，登录后可再点保存）', 'err', { ttl: 9000 });
+            } else if (landed.status === 403) {
+              Toast.show('只有站长才能修改公告与网站文案：内容没有上传（表单里的文字还在）', 'err', { ttl: 9000 });
+            } else {
+              Toast.show(`已保存到本地（服务器写入失败：${landed.error || '未知原因'}）`);
+            }
+          } else if (landed.storage === 'blobs') {
+            // 线上内容存在 Netlify Blobs 里，仓库的 data/ 目录不会被改动 ——
+            // 说"已写入 data/xxx.json"就是假话，用户会去仓库里白找
+            Toast.ok('已发布到线上内容存储 · 刷新页面即可看到');
+          } else {
+            Toast.ok(`已保存并写入 ${landed.file || 'data/ 目录'}`);
+          }
+        }
+        // 权限类失败：把本地那份回滚掉，别让界面看起来像存上了
+        if (!landed.ok && (landed.status === 401 || landed.status === 403)) {
+          if (before) store.upsert(before);
+          else store.remove(saved.id);
         }
       } else if (!silent) {
         Toast.ok('已保存到本地浏览器 · 可导出 JSON 入库');
@@ -517,7 +612,13 @@ export default {
         if (!item) return;
         if (!confirm(`确定删除「${item.title}」？此操作不可撤销。`)) return;
         store.remove(item.id);
-        if (serverOnline) await Api.remove(tab, item.id);
+        if (serverOnline) {
+          const gone = await Api.remove(tab, item.id);
+          if (!gone.ok) {
+            Toast.show(`本地已删除，但服务端删除失败：${gone.error || '未知原因'}`, 'err');
+            return;
+          }
+        }
         Toast.ok('已删除');
         $$('.datalist__row').forEach((row) => {
           if (row.querySelector('[data-del]')?.dataset.del === item.id) row.remove();
@@ -633,5 +734,6 @@ export default {
     });
 
     Motion.reveal(root);
+    return cleanupAuth;      // 视图卸载时退订账号事件
   },
 };

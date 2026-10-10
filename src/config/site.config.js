@@ -49,6 +49,7 @@ export const THEMES = [
 export const NAV = [
   { id: 'home',    path: '#/',          label: 'HOME',    cn: '首页' },
   { id: 'logs',    path: '#/logs',      label: 'LOGS',    cn: '文章与公告', badgeKey: 'unreadNews' },
+  { id: 'forum',   path: '#/forum',     label: 'FORUM',   cn: '论坛' },
   { id: 'music',   path: '#/music',     label: 'MUSIC',   cn: '音乐' },
   { id: 'gallery', path: '#/gallery',   label: 'GALLERY', cn: '插画' },
   { id: 'mine',    path: '#/mine',      label: 'MINES',   cn: '扫雷' },

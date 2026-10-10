@@ -100,6 +100,10 @@
       <button class="iconbtn" id="themeBtn" title="切换主题" aria-label="切换主题">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.6"/></svg>
       </button>
+      <!-- 账号：未登录是「登录」按钮，已登录是名字/头像 + 下拉里的「退出」。
+           内容由 src/ui/shell.js 画；服务端没启用账号功能时它一直保持 hidden，
+           顶栏与以前完全一样（不改动既有图标的位置与顺序）。 -->
+      <div class="authbox" id="authBox" hidden></div>
       <button class="iconbtn iconbtn--menu" id="menuBtn" title="菜单" aria-label="菜单" aria-expanded="false">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="1.8"/></svg>
       </button>

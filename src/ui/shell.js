@@ -13,6 +13,7 @@ import { Registry } from '../core/registry.js';
 import { News, ReadState, Settings } from '../core/store.js';
 import { SITE, TICKER, FOOTER_LINKS, STORAGE_PREFIX } from '../config/site.config.js';
 import { Toast } from './toast.js';
+import { Auth } from '../plugins/auth.js';
 
 const navItems = () => Registry.nav;
 
@@ -43,6 +44,7 @@ export const Shell = {
     this.paintNav(null);
     this.paintTicker();
     this.paintFooter();
+    this.paintAuth();
     this.clock();
     this.wire();
 
@@ -50,6 +52,83 @@ export const Shell = {
     bus.on('content:change', () => { this.paintTicker(); this.paintNav(Router.current); });
     bus.on('theme:change', () => this.paintThemeBtn());
     this.paintThemeBtn();
+
+    // 账号状态：ready 是配置读完（决定要不要显示入口），user 是登录态变化，
+    // error 只弹一条说明 —— 界面别因为一次网络抖动就变形
+    bus.on('auth:ready', () => this.paintAuth());
+    bus.on('auth:user', ({ notice } = {}) => { this.paintAuth(); if (notice) Toast.show(notice, '', { ttl: 7000 }); });
+    bus.on('auth:error', ({ message } = {}) => { this.paintAuth(); if (message) Toast.show(message, 'err', { ttl: 8000 }); });
+  },
+
+  /**
+   * 顶栏右侧的账号控件。
+   *
+   * 三种形态：
+   *   · 账号功能没启用（纯静态部署 / 服务端没配 Auth0）→ 整块保持 hidden，顶栏和以前一模一样；
+   *   · 未登录 → 一个小「登录」按钮（窄屏只留图标，见 CSS）；
+   *   · 已登录 → 头像/首字母 + 名字，点开是下拉（邮箱、角色、退出）。
+   * 这里只管"画出来"，鉴权一律交给服务端；界面上藏起来的按钮永远不是安全边界。
+   */
+  paintAuth() {
+    const box = $('#authBox');
+    if (!box) return;
+
+    // 配置还没读回来时也先不显示：避免"闪一下登录按钮又消失"
+    if (!Auth.enabled || Auth.state === 'loading') {
+      box.hidden = true;
+      box.innerHTML = '';
+      delete box.dataset.open;
+      return;
+    }
+
+    box.hidden = false;
+    const user = Auth.user;
+
+    if (!user) {
+      box.innerHTML = `<button class="authbox__btn" id="authLogin" type="button" title="登录 / 注册（Auth0）">
+        ${ICON.user}<span class="authbox__label">登录</span>
+      </button>`;
+      delete box.dataset.open;
+      return;
+    }
+
+    const name = user.name || user.email || '已登录';
+    const initial = String(name).trim().slice(0, 1).toUpperCase() || 'U';
+    const avatar = user.picture
+      ? `<img class="authbox__avatar" src="${esc(user.picture)}" alt="" width="22" height="22" loading="lazy" referrerpolicy="no-referrer" />`
+      : `<span class="authbox__initial" aria-hidden="true">${esc(initial)}</span>`;
+
+    box.innerHTML = `
+      <button class="authbox__btn is-user" id="authToggle" type="button"
+              aria-expanded="${box.dataset.open === '1' ? 'true' : 'false'}" aria-haspopup="menu"
+              title="${esc(name)}${user.email ? ` · ${esc(user.email)}` : ''}">
+        ${avatar}<span class="authbox__label clamp-1">${esc(name)}</span>
+      </button>
+      <div class="authbox__menu" role="menu">
+        <div class="authbox__head">
+          ${avatar}
+          <span class="authbox__id">
+            <b class="clamp-1">${esc(name)}</b>
+            <i class="mono clamp-1">${esc(user.email || '（未提供邮箱）')}</i>
+          </span>
+        </div>
+        <div class="authbox__rows mono">
+          <span><i>角色</i><b>${Auth.isOwner ? '站长 OWNER' : '普通用户 MEMBER'}</b></span>
+          <span><i>邮箱</i><b>${user.verified ? '已验证' : (Auth.enabled ? '未验证' : '—')}</b></span>
+          ${user.source === 'token' ? '<span><i>身份</i><b>服务端未确认</b></span>' : ''}
+        </div>
+        <button class="authbox__logout" id="authLogout" type="button" role="menuitem">退出登录</button>
+      </div>`;
+
+    if (box.dataset.open === '1') box.dataset.open = '1';
+    else delete box.dataset.open;
+  },
+
+  closeAuthMenu() {
+    const box = $('#authBox');
+    if (!box) return;
+    delete box.dataset.open;
+    $('#authToggle')?.setAttribute('aria-expanded', 'false');
   },
 
   paintNav(current) {
@@ -136,6 +215,33 @@ export const Shell = {
 
   wire() {
     $('#themeBtn')?.addEventListener('click', () => Theme.cycle());
+
+    /* 账号控件：#authBox 是 index.html 里的静态容器，里面的按钮由 paintAuth() 动态画，
+       所以这里一律用容器上的事件委托，避免"重画一次就丢监听"。 */
+    const authBox = $('#authBox');
+    authBox?.addEventListener('click', (e) => {
+      if (e.target.closest('#authLogin')) { Auth.login(); return; }
+      if (e.target.closest('#authLogout')) {
+        Auth.logout();
+        this.closeAuthMenu();
+        Toast.show('已退出登录');
+        return;
+      }
+      if (e.target.closest('#authToggle')) {
+        const open = authBox.dataset.open === '1';
+        if (open) this.closeAuthMenu();
+        else {
+          authBox.dataset.open = '1';
+          $('#authToggle')?.setAttribute('aria-expanded', 'true');
+        }
+      }
+    });
+    // 点空白处收起下拉（Esc 也收，见下面的全局快捷键）
+    document.addEventListener('click', (e) => {
+      if (!authBox || authBox.hidden) return;
+      if (e.target.closest('#authBox')) return;
+      this.closeAuthMenu();
+    });
     $('#menuBtn')?.addEventListener('click', () => {
       const hidden = $('#drawer')?.hasAttribute('hidden');
       hidden ? this.openDrawer() : this.closeDrawer();
@@ -162,7 +268,7 @@ export const Shell = {
       const tag = (e.target.tagName || '').toLowerCase();
       const typing = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
       if (typing) return;
-      if (e.key === 'Escape') this.closeDrawer();
+      if (e.key === 'Escape') { this.closeDrawer(); this.closeAuthMenu(); }
       if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey) Theme.cycle();
     });
 

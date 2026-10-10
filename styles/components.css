@@ -1568,6 +1568,123 @@ body.has-docked-embed .miniplayer { padding-right: calc(340px + var(--gutter)); 
   .tool-row__acts { width: 100%; }
 }
 
+/* ============================================================
+   账号（顶栏右侧）
+   ------------------------------------------------------------
+   未登录 = 一个和 iconbtn 同高的小「登录」按钮；已登录 = 头像/首字母 + 名字，
+   点开是下拉。整块在服务端没启用账号功能时保持 hidden（见 ui/shell.js），
+   所以顶栏的图标顺序、间距与以前完全一致。
+   ============================================================ */
+.authbox { position: relative; display: flex; align-items: center; min-width: 0; flex: 0 1 auto; }
+.authbox[hidden] { display: none !important; }
+
+.authbox__btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; max-width: 168px; min-width: 0; padding: 0 10px;
+  border: 1px solid var(--border-hard); background: transparent; color: var(--fg-muted);
+  font-family: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+              background var(--t-fast) var(--ease);
+}
+.authbox__btn:hover { color: var(--fg); background: var(--bg-alt); }
+.authbox__btn svg { width: 16px; height: 16px; flex: none; }
+.authbox__btn.is-user { border-color: transparent; padding-left: 6px; }
+.authbox__btn.is-user:hover { border-color: var(--border-hard); }
+.authbox__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.authbox__avatar,
+.authbox__initial {
+  width: 22px; height: 22px; flex: none; border-radius: 50%;
+  display: inline-grid; place-items: center; object-fit: cover;
+  background: var(--signal); color: var(--signal-ink);
+  font-size: 11px; font-weight: 700; line-height: 1;
+  border: 1px solid color-mix(in srgb, var(--ink-100) 16%, transparent);
+}
+
+.authbox__menu {
+  display: none; position: absolute; top: calc(100% + 10px); right: 0; z-index: var(--z-topbar);
+  min-width: 244px; max-width: min(320px, calc(100vw - 24px));
+  padding: var(--sp-3); background: var(--bg);
+  border: 1px solid var(--border-hard);
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--ink-100) 20%, transparent);
+}
+.authbox[data-open="1"] .authbox__menu { display: block; }
+.authbox__head { display: flex; align-items: center; gap: var(--sp-2); padding-bottom: var(--sp-3); border-bottom: 1px solid var(--border); }
+.authbox__id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.authbox__id b { font-size: var(--fs-sm); }
+.authbox__id i { font-style: normal; font-size: var(--fs-2xs); color: var(--fg-faint); }
+.authbox__rows { display: flex; flex-direction: column; gap: 5px; padding: var(--sp-3) 0; font-size: var(--fs-2xs); }
+.authbox__rows span { display: flex; justify-content: space-between; gap: var(--sp-3); }
+.authbox__rows i { font-style: normal; color: var(--fg-faint); }
+.authbox__logout {
+  width: 100%; text-align: left; padding: 9px 10px;
+  border: 1px solid transparent; background: var(--bg-sunk); color: var(--fg-muted);
+  font-family: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.authbox__logout:hover { color: #fff; background: var(--alert); border-color: var(--alert); }
+
+/* ============================================================
+   论坛（#/forum）
+   ------------------------------------------------------------
+   与「文章与公告」是两套东西：那边是站点编辑内容，这里是用户创作。
+   样式刻意复用站内既有的 panel / btn / tag 语言，不引入新配色。
+   ============================================================ */
+.forum__banner {
+  display: flex; flex-direction: column; gap: 3px;
+  margin-top: var(--sp-4); padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border); border-left: 3px solid var(--signal);
+  background: var(--bg-sunk); font-size: var(--fs-2xs); color: var(--fg-muted);
+}
+.forum__banner b { font-size: var(--fs-xs); color: var(--fg); }
+.forum__banner--warn { border-left-color: var(--alert); }
+
+.forum__tools { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-5); }
+.forum__search {
+  display: flex; align-items: center; gap: var(--sp-2); flex: 1 1 240px; max-width: 520px;
+  padding: 0 var(--sp-3); border: 1px solid var(--border-hard); background: var(--bg);
+}
+.forum__search input {
+  width: 100%; padding: 9px 0; border: 0; background: transparent; outline: none;
+  font: inherit; color: inherit;
+}
+
+.forum__list { display: flex; flex-direction: column; margin-top: var(--sp-4); border: 1px solid var(--border); }
+.forum__row {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) auto 18px;
+  gap: var(--sp-3); align-items: center;
+  padding: var(--sp-4); border-bottom: 1px solid var(--border);
+  text-decoration: none; color: inherit;
+  transition: background var(--t-fast) var(--ease);
+}
+.forum__row:last-child { border-bottom: 0; }
+.forum__row:hover { background: var(--bg-alt); }
+.forum__row.is-ghost { height: 66px; opacity: 0.3; pointer-events: none; }
+.forum__no { font-size: var(--fs-2xs); color: var(--fg-faint); text-align: right; }
+.forum__main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.forum__meta { font-size: var(--fs-2xs); color: var(--fg-faint); }
+.forum__tags { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.forum__arrow { color: var(--fg-faint); }
+.forum__more { display: flex; justify-content: center; margin-top: var(--sp-4); }
+
+.forum__owner {
+  font-style: normal; padding: 1px 5px; font-size: 9px; letter-spacing: 0.04em;
+  background: var(--signal); color: var(--signal-ink);
+}
+
+.forum__post { margin-top: var(--sp-5); padding: var(--sp-5); border: 1px solid var(--border); background: var(--bg); }
+.forum__postmeta { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-2xs); color: var(--fg-faint); }
+.forum__posttags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--sp-3); }
+
+.forum__form { display: flex; flex-direction: column; gap: var(--sp-4); max-width: 900px; margin-top: var(--sp-5); }
+.forum__form textarea { width: 100%; font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 1.6; }
+.forum__formacts { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+
+@media (max-width: 720px) {
+  .forum__row { grid-template-columns: 24px minmax(0, 1fr) 14px; }
+  .forum__tags { display: none; }
+}
+
 /* 打印 */
 @media print {
   .topbar, .ticker, .footer, .miniplayer, .hud-corner, .grain, .scanlines, .cmdk, .drawer { display: none !important; }

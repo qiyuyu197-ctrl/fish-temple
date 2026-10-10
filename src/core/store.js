@@ -6,14 +6,17 @@
  * 数据流：
  *   data/posts.json, data/news.json (内置种子)
  *        └─→ 首次访问播种到 localStorage
+ *   GET /api/content/<集合>（可选的"线上覆盖层"，见 loadServerOverlay）
+ *        └─→ 合并到种子之上，线上发布的内容才能在公开页面显示出来
  *   用户在后台「发布」→ 写入 localStorage（local: true）
- *        └─→ 若运行在 server.mjs 上，同时 POST /api/content 落盘到 data/
+ *        └─→ 若运行在 server.mjs 上，同时 POST /api/content（本地写文件 / 线上写 Blobs）
  *
  * 扩展新集合：在 COLLECTIONS 里加一项，然后 createCollection 即可。
  */
 
 import { STORAGE_PREFIX, CONTENT_VERSION, API } from '../config/site.config.js';
 import { bus } from './bus.js';
+import { Auth } from '../plugins/auth.js';
 import { parseFrontmatter, excerpt, stats } from '../util/markdown.js';
 
 const LS = {
@@ -147,6 +150,70 @@ export function normalizeItem(input, kind = 'posts') {
   };
 }
 
+/* ---------------- 服务端内容覆盖层 ---------------- */
+
+/**
+ * 取"线上发布的那部分内容"。
+ *
+ * 为什么必须有这一步：线上部署里函数读不到仓库那份 `data/*.json`（产物只含 server.mjs），
+ * 所以 `GET /api/content/<集合>` 在线上只能回**线上发布过的覆盖层**
+ * （`overlayOnly: true`），由前端把它合并到静态种子之上；本地跑 server.mjs 时它回的是
+ * 文件里的全量（`overlayOnly: false`），那就直接用。
+ *
+ * 另外注意：这个接口现在返回的是**对象**（`{ ok, items, deleted, storage, overlayOnly }`），
+ * 不再是裸数组 —— 两种都认，免得服务端回退时把页面搞白。
+ *
+ * 失败一律静默：纯静态托管、没网、接口不存在时，站点必须照旧能用（这块是增强，不是依赖）。
+ */
+async function loadServerOverlay(name) {
+  if (!API.enabled || location.protocol === 'file:') return null;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), API.timeout || 4000);
+    const res = await fetch(`${API.base}/content/${encodeURIComponent(name)}`, {
+      signal: ctrl.signal,
+      cache: 'no-store',
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const json = await res.json();
+    const items = Array.isArray(json) ? json : (Array.isArray(json?.items) ? json.items : []);
+    return {
+      items,
+      /**
+       * 墓碑：线上**删除过**的 id 列表。
+       *
+       * 为什么需要它：线上覆盖层只记"写过什么"，删除只是把那条从覆盖层里拿掉 ——
+       * 合并到静态种子之上时，仓库里那份又会冒出来，表现就是"线上删掉的公告，
+       * 刷新一次又回来了"。所以服务端把删除记成 id 列表，客户端在合并之后按它过滤。
+       * 字段不存在（旧服务端 / 纯静态部署）时当空数组，不要报错。
+       */
+      deleted: (Array.isArray(json) ? [] : (Array.isArray(json?.deleted) ? json.deleted : [])).map(String),
+      overlayOnly: Array.isArray(json) ? false : json?.overlayOnly === true,
+      storage: (Array.isArray(json) ? '' : json?.storage) || '',
+    };
+  } catch {
+    return null;   // 静默：没有服务端也要能看内容
+  }
+}
+
+/**
+ * 合并覆盖层与种子：**覆盖层在前、种子在后，同 id 只留一份**（覆盖层胜出）。
+ * 顺序很重要 —— 列表是按日期排的，但"线上发布的那条"应当出现在种子之前，
+ * 这样即使时间字段没变，用户也能立刻看到自己刚发的内容。
+ */
+function mergeOverlay(overlay, base) {
+  const seen = new Set();
+  const out = [];
+  for (const item of [...overlay, ...base]) {
+    const id = item?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(item);
+  }
+  return out;
+}
+
 /* ---------------- 集合 ---------------- */
 
 /**
@@ -164,10 +231,20 @@ export function createCollection(name, { seedFile, kind }) {
     listeners.forEach((fn) => fn(items));
   };
 
+  /**
+   * 排序：置顶在前，其余按日期倒序。
+   * 日期这里要"容错 + 确定"：线上覆盖层里若有条目没带（或带坏了）date，
+   * `new Date(undefined) - new Date(x)` 会算出 NaN —— 比较器返回 NaN 时排序结果是不确定的，
+   * 表现为列表每次刷新顺序都不一样，甚至盖掉刚发布的那条。缺日期一律当最旧。
+   */
+  const timeOf = (x) => {
+    const t = new Date(x?.date).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
   const sort = (arr) =>
     arr.sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      return new Date(b.date) - new Date(a.date);
+      return timeOf(b) - timeOf(a);
     });
 
   async function loadSeed() {
@@ -197,22 +274,45 @@ export function createCollection(name, { seedFile, kind }) {
 
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
-    /** 首次播种：本地没有数据时用种子填充 */
+    /** 首次播种：本地没有数据时用种子填充；随后叠加服务端的线上覆盖层 */
     async init(force = false) {
+      // ① 基底：上次访问留在浏览器里的那份，其次是仓库里的静态种子。
+      //    静态种子在线上也一定存在（它是部署产物的一部分），所以它同时是离线兜底。
       const stored = readJSON(LS[name], null);
+      let base;
       if (!force && Array.isArray(stored)) {
-        items = stored.map((x) => normalizeItem(x, kind));
-        // 若本地为空但有种子，则合并种子（首次升级场景）
-        if (!items.length) {
-          const seed = await loadSeed();
-          if (seed.length) { items = seed; persist(); }
-        }
+        base = stored.map((x) => normalizeItem(x, kind));
+        if (!base.length) base = await loadSeed();
       } else {
-        const seed = await loadSeed();
-        items = sort(seed);
-        persist();
+        base = await loadSeed();
       }
-      bus.emit('content:change', { collection: name, phase: 'init' });
+
+      // ② 叠加服务端：本地（fs）回的是全量，线上（blobs）回的只是覆盖层
+      const remote = await loadServerOverlay(name);
+      const tombstones = new Set(remote?.deleted || []);
+      if (remote && !remote.overlayOnly) {
+        // 服务端说"这就是完整内容"（本地读的就是 data/<集合>.json）→ 直接以它为准
+        items = remote.items.map((x) => normalizeItem(x, kind));
+      } else if (remote && remote.overlayOnly) {
+        // 线上：静态种子打底，线上发布的那部分盖在上面
+        items = mergeOverlay(
+          remote.items.map((x) => normalizeItem(x, kind)),
+          base,
+        );
+      } else {
+        items = base;
+      }
+
+      // ③ 墓碑过滤：线上删过的 id 一律不出现 —— 不管它来自覆盖层还是仓库种子。
+      //    没有这一步，线上删掉一条本来写在 data/*.json 里的公告，刷新一次它就又回来了。
+      //    本地形态 / 旧服务端没有 deleted 字段时集合恒为空，这里等于没执行。
+      if (tombstones.size) {
+        items = items.filter((x) => !tombstones.has(String(x?.id)));
+      }
+
+      items = sort(items);
+      persist();
+      bus.emit('content:change', { collection: name, phase: 'init', storage: remote?.storage || '' });
       return items;
     },
 
@@ -358,26 +458,64 @@ export const Api = {
     }
     return this.available;
   },
+  /**
+   * 保存到服务端。
+   * 返回 { ok, status, storage, file, error } —— storage 是 'fs'（本地写文件）或 'blobs'（线上内容存储），
+   * 界面据此决定提示语：线上说"已写入 data/xxx.json"是假话，用户会去仓库里找不到东西。
+   */
   async save(collection, item) {
-    if (!this.available) return false;
+    if (!this.available) return { ok: false, status: 0, storage: '', file: '', error: '服务器不在线' };
+
+    /**
+     * 带上登录令牌（配了账号体系时）。
+     *
+     * 为什么必须带：服务端把"公告 / 网站文案"的写入判为**仅站长**，不带 Bearer 直接 401。
+     * 而界面若把它当成"写入失败、已存本地"，用户会以为发布成功了 —— 线上其实什么都没有，
+     * 这是最误导的一种失败。
+     *
+     * 为什么要有分支：`Auth.enabled === false`（没配 Auth0 的纯本机部署）时必须保持老路 ——
+     * 本地那台 node server.mjs 对回环地址免登录，不带令牌也能写文件 + git。
+     * （core 直接引 plugins/auth 看着像跨层，但这条写入路径的鉴权就在这里，抽一层反而绕。）
+     */
+    if (Auth.enabled) {
+      const r = await Auth.api(`/content/${encodeURIComponent(collection)}`, { method: 'POST', body: item });
+      return {
+        ok: r.ok,
+        status: r.status,
+        storage: r.data?.storage || '',
+        file: r.data?.file || '',
+        error: r.error,
+      };
+    }
+
     try {
       const res = await fetch(`${API.base}/content/${collection}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item),
       });
-      return res.ok;
-    } catch {
-      return false;
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        return { ok: false, status: res.status, storage: data?.storage || '', file: '', error: data?.error || `HTTP ${res.status}` };
+      }
+      return { ok: true, status: res.status, storage: data?.storage || '', file: data?.file || '', data };
+    } catch (err) {
+      return { ok: false, status: 0, storage: '', file: '', error: String(err?.message || err) };
     }
   },
   async remove(collection, id) {
-    if (!this.available) return false;
+    if (!this.available) return { ok: false, status: 0, error: '服务器不在线' };
+    if (Auth.enabled) {
+      const r = await Auth.api(`/content/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      return { ok: r.ok, status: r.status, error: r.error };
+    }
     try {
       const res = await fetch(`${API.base}/content/${collection}/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      return res.ok;
-    } catch {
-      return false;
+      if (res.ok) return { ok: true, status: res.status, error: null };
+      const data = await res.json().catch(() => null);
+      return { ok: false, status: res.status, error: data?.error || `HTTP ${res.status}` };
+    } catch (err) {
+      return { ok: false, status: 0, error: String(err?.message || err) };
     }
   },
   async tree() {
