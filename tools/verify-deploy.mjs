@@ -376,18 +376,32 @@ async function main() {
      * 而不是显示一个点不动的空壳（那比没有入口更糟）。配了 Auth0 但未登录时，
      * 则应当能看到登录入口。两种形态都在这里钉住。
      */
-    const authUi = await page.evalPage(`(() => {
-      const box = document.getElementById('authBox');
-      const cs = box ? getComputedStyle(box) : null;
-      const visible = !!(box && !box.hidden && cs && cs.display !== 'none' && cs.visibility !== 'hidden');
-      return {
-        box: !!box,
-        hidden: box ? box.hidden === true : null,
-        visible,
-        login: !!document.getElementById('authLogin'),
-        toggle: !!document.getElementById('authToggle'),
-        label: (document.querySelector('#authBox .authbox__label')?.textContent || '').trim(),
+    // 账号控件要**等它画出来**再判：客户端的 Auth.init() 会先请求 /api/auth/config，
+    // 线上首次调用可能是冷启动（1-2 秒），期间 #authBox 仍是 hidden。
+    // 早采样会把"还没画完"误判成"没有登录入口"。
+    const authUi = await page.evalPage(`(async () => {
+      const read = () => {
+        const box = document.getElementById('authBox');
+        const cs = box ? getComputedStyle(box) : null;
+        const visible = !!(box && !box.hidden && cs && cs.display !== 'none' && cs.visibility !== 'hidden');
+        return {
+          box: !!box,
+          hidden: box ? box.hidden === true : null,
+          visible,
+          login: !!document.getElementById('authLogin'),
+          toggle: !!document.getElementById('authToggle'),
+          label: (document.querySelector('#authBox .authbox__label')?.textContent || '').trim(),
+        };
       };
+      const want = ${authOn ? 'true' : 'false'};
+      let out = read();
+      for (let i = 0; i < 30; i++) {
+        // 配了账号：等到出现登录入口；没配：等到它确实保持隐藏（再给一小段时间确认不会闪出来）
+        if (want ? (out.visible && out.login) : (i > 6 && !out.visible)) break;
+        await new Promise((r) => setTimeout(r, 400));
+        out = read();
+      }
+      return out;
     })()`);
     if (authOn) {
       check('已配 Auth0：顶栏出现登录入口', authUi?.box === true && authUi?.visible === true && authUi?.login === true,
