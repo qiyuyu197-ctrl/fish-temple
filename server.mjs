@@ -1611,6 +1611,77 @@ function publicForumPost(post, { full = false } = {}) {
 }
 
 /** /api/forum/* —— 读公开、写在登录后、改删只有作者本人（站长可代为管理） */
+/* ---------------- 论坛索引 ----------------
+ * 为什么需要：Netlify Blobs 一次只能读一个键。列表页若靠"列目录 + 逐条读"，
+ * 一个请求就要读最多 300 个键 —— 慢，而且很快吃掉读配额。
+ * 所以另外维护一份**轻量索引**（标题 / 标签 / 作者 / 时间 / 摘要），列表只读它一个文档。
+ * 索引是"派生数据"：万一和帖子不一致（例如写入中途失败），下一次列表会按需重建。
+ */
+const FORUM_INDEX = 'forum-index';
+
+/** 从一篇完整帖子抽出索引条目（摘要够列表页用，不必再读正文） */
+function forumIndexEntry(post) {
+  return {
+    id: post.id,
+    title: post.title,
+    tags: post.tags || [],
+    author: post.author,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+    edited: !!post.edited,
+    excerpt: String(post.body || '').slice(0, FORUM.excerpt),
+  };
+}
+
+async function readForumIndex(store) {
+  const doc = await store.readCollection(FORUM_INDEX, null);
+  const items = Array.isArray(doc?.items) ? doc.items : [];
+  return items.filter((it) => it && it.id);
+}
+
+async function writeForumIndex(store, items) {
+  await store.writeCollection(FORUM_INDEX, { items, updatedAt: new Date().toISOString() });
+}
+
+/**
+ * 索引里插入/替换一条，并保持"按创建时间倒序"。
+ * 注意**不能**简单插到最前面：编辑一篇旧帖不应该让它跳到列表顶部
+ * （用户看到的是"我改了个错别字，帖子却跑到第一行"）。
+ */
+function upsertForumIndex(items, entry) {
+  const next = [entry, ...items.filter((e) => e.id !== entry.id)];
+  next.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return next;
+}
+
+/** 索引缺失（内容由旧版本写入、或索引被清掉）时，从逐条帖子重建一次并落库 */
+async function rebuildForumIndex(store) {
+  const ids = await store.listItems('forum');
+  const items = [];
+  for (const pid of ids.slice(-300)) {
+    const p = await store.readItem('forum', pid).catch(() => null);
+    if (p && p.id) items.push(forumIndexEntry(p));
+  }
+  items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  await writeForumIndex(store, items).catch(() => {});
+  log(`\x1b[35mFORUM\x1b[0m 索引重建：${items.length} 条`);
+  return items;
+}
+
+/** 取索引（缺失就重建）；索引内部按时间倒序 */
+async function forumIndex(store) {
+  const items = await readForumIndex(store);
+  if (items.length) return items;
+  // 索引为空有两种可能：真的没人发过帖，或者索引还没建过。
+  // 只有"帖库里确实有条目"时才值得重建（否则每次空列表都要列一遍目录）。
+  return rebuildForumIndex(store);
+}
+
+/** 列表/我的帖都用它：索引条目 + 摘要 → 公开对象（不带作者邮箱） */
+function publicFromIndex(entry, { full = false } = {}) {
+  return publicForumPost({ ...entry, body: full ? entry.body : entry.excerpt }, { full });
+}
+
 async function handleForum(req, res, url, opts, seg) {
   const store = storageFor(opts);
   const head = seg[0] || 'posts';
@@ -1623,25 +1694,19 @@ async function handleForum(req, res, url, opts, seg) {
     const q = (url.searchParams.get('q') || '').trim().toLowerCase();
     // 线上存储偶发抽风（冷启动 / Blobs 抖动）时不要吐 500 —— 给一句人话 + 503，
     // 前端可以提示"稍后重试"，而不是让访问者看到一个没有解释的服务端错误。
-    let ids = [];
+    let list = [];
     try {
-      ids = await store.listItems('forum');
+      list = await forumIndex(store);
     } catch (err) {
       log(`\x1b[31mFORUM\x1b[0m 列表读取失败：${err.message}`);
       return fail(res, 503, '论坛列表暂时读不出来（存储服务抖动）：请稍后刷新重试。');
     }
-    const posts = [];
-    // 只读最近 300 条：论坛是列表页，不该为了翻页把整个库读一遍
-    for (const pid of ids.slice(-300)) {
-      const p = await store.readItem('forum', pid).catch(() => null);
-      if (p && p.id) posts.push(p);
-    }
-    let list = posts.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    // 列表只读索引这一个文档（不再逐条读帖子）：摘要在索引里，够列表页用
     if (q) {
-      list = list.filter((p) => `${p.title}\n${p.body}\n${(p.tags || []).join(' ')}`.toLowerCase().includes(q));
+      list = list.filter((e) => `${e.title}\n${e.excerpt}\n${(e.tags || []).join(' ')}`.toLowerCase().includes(q));
     }
     const total = list.length;
-    const page = list.slice(offset, offset + limit).map((p) => publicForumPost(p));
+    const page = list.slice(offset, offset + limit).map((e) => publicFromIndex(e));
     return ok(res, { ok: true, total, offset, limit, posts: page, storage: store.mode });
   }
 
@@ -1649,11 +1714,18 @@ async function handleForum(req, res, url, opts, seg) {
   if (head === 'mine' && req.method === 'GET') {
     const who = await authenticate(req);
     if (!who.ok) return fail(res, who.status, who.error);
-    const ids = await store.listItems('forum');
+    // 先用索引筛出"我的"，再逐条取正文（通常只有几条）
+    let index = [];
+    try {
+      index = await forumIndex(store);
+    } catch (err) {
+      return fail(res, 503, '论坛列表暂时读不出来（存储服务抖动）：请稍后刷新重试。');
+    }
+    const mineIds = index.filter((e) => e.author?.sub === who.user.sub).map((e) => e.id);
     const mine = [];
-    for (const pid of ids.slice(-300)) {
-      const p = await store.readItem('forum', pid);
-      if (p && p.author?.sub === who.user.sub) mine.push(p);
+    for (const pid of mineIds) {
+      const p = await store.readItem('forum', pid).catch(() => null);
+      if (p && p.id) mine.push(p);
     }
     mine.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     return ok(res, { ok: true, posts: mine.map((p) => publicForumPost(p, { full: true })) });
@@ -1686,6 +1758,10 @@ async function handleForum(req, res, url, opts, seg) {
       updatedAt: now,
     };
     await store.writeItem('forum', post.id, post);
+    // 维护索引（派生数据：写失败只记日志，列表下次会按需重建，不影响发帖本身）
+    try {
+      await writeForumIndex(store, upsertForumIndex(await readForumIndex(store), forumIndexEntry(post)));
+    } catch (err) { log(`\x1b[33mFORUM\x1b[0m 索引更新失败（列表下次会重建）：${err.message}`); }
     log(`\x1b[35mFORUM\x1b[0m + ${post.id} ${post.title}`);
     return ok(res, { ok: true, post: publicForumPost(post, { full: true }) });
   }
@@ -1702,6 +1778,9 @@ async function handleForum(req, res, url, opts, seg) {
     }
     if (req.method === 'DELETE') {
       await store.removeItem('forum', id);
+      try {
+        await writeForumIndex(store, (await readForumIndex(store)).filter((e) => e.id !== id));
+      } catch (err) { log(`\x1b[33mFORUM\x1b[0m 索引更新失败（列表下次会重建）：${err.message}`); }
       log(`\x1b[31mFORUM\x1b[0m - ${id}`);
       return ok(res, { ok: true, deleted: id });
     }
@@ -1712,6 +1791,9 @@ async function handleForum(req, res, url, opts, seg) {
     } catch (err) { return fail(res, 400, err.message); }
     const next = { ...p, ...input, updatedAt: new Date().toISOString(), edited: true };
     await store.writeItem('forum', id, next);
+    try {
+      await writeForumIndex(store, upsertForumIndex(await readForumIndex(store), forumIndexEntry(next)));
+    } catch (err) { log(`\x1b[33mFORUM\x1b[0m 索引更新失败（列表下次会重建）：${err.message}`); }
     log(`\x1b[33mFORUM\x1b[0m ~ ${id}`);
     return ok(res, { ok: true, post: publicForumPost(next, { full: true }) });
   }

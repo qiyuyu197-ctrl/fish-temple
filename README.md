@@ -117,7 +117,7 @@ python -m http.server 5173
     │                       + 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）+ 手机形态两条
     │                       （iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（34 项，配好 Auth0 后 36 项）
     ├── verify-auth.mjs     账号 / 权限 / 论坛自检：本地模拟 IdP（真 RSA 密钥 + JWKS + 真签名）跑权限矩阵，
-    │                       再用仿真器验「部署形态下站长在线发布 → 写 Blobs → 读覆盖层 → 删除留墓碑」（47 项）
+    │                       再用仿真器验「部署形态下站长在线发布 → 写 Blobs → 读覆盖层 → 删除留墓碑」（53 项）
     ├── verify-forum-ui.mjs 界面级自检（真浏览器 + 模拟 IdP）：登录入口与三态顶栏、论坛发帖、
     │                       作者专属的编辑删除、越权 403、用户内容不被当 HTML 执行、真登出、
     │                       发布控制台的站长门禁（24 项）
@@ -1426,7 +1426,7 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 
 > **进度**：服务端与客户端界面**都已完成**（`auth.mjs` / `storage.mjs` / `/api/auth/*` / `/api/forum/*`，
 > 以及顶栏登录入口、`#/forum` 论坛板块、控制台仅站长可写）。
-> 自检：`tools/verify-auth.mjs` **47/47**（接口与权限契约）、`tools/verify-forum-ui.mjs` **24/24**
+> 自检：`tools/verify-auth.mjs` **53/53**（接口与权限契约）、`tools/verify-forum-ui.mjs` **24/24**
 > （真浏览器里的登录三态、发帖、作者专属编辑删除、越权 403、用户内容不当 HTML 执行、真登出、站长门禁）。
 > **唯一还没做的是"真实 Auth0 登录"的线上验证** —— 那需要在 Netlify 配好下面那三个环境变量，
 > 并用真实邮箱走一遍注册 / 验证邮件；在此之前本层的接口契约已按模拟 IdP 全覆盖。
@@ -1507,14 +1507,19 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 | `POST` | `/api/forum/posts` | 需登录且邮箱已验证；限流：同账号 15 秒一贴、每天 40 贴 |
 | `PATCH` / `DELETE` | `/api/forum/posts/:id` | **只有作者本人**（站长可代管） |
 
-- 帖子字段：`{ id, title, body, tags, author: { sub, name }, createdAt, updatedAt, edited }`；
+- 帖子字段：`{ id, title, body, tags, author: { sub, name, role }, createdAt, updatedAt, edited }`；
   作者邮箱只存服务端，公开接口不会带出去。
 - 限制：标题 ≤120 字、正文 ≤200000 字、标签 ≤6 个 × 24 字。
+- **列表走索引**：Netlify Blobs 一次只能读一个键，若列表靠"列目录 + 逐条读"，一个请求就要读最多 300 个键
+  （慢，而且很快吃掉读配额）。所以服务端另外维护一份轻量索引（标题 / 标签 / 作者 / 时间 / 摘要，
+  存在 `forum-index` 集合里），`GET /api/forum/posts` 只读它一个文档。索引是**派生数据**：
+  写失败只记日志、不影响发帖本身；索引丢失（例如内容由旧版本写入）时列表会**按需重建**并落库。
+  编辑一篇旧帖**不会**让它跳到列表顶部 —— 顺序始终按创建时间倒序。
 - 论坛与「文章与公告」（`#/logs`）是**两个东西**：后者是站长的公告与文章，只有站长能改；
   论坛放用户创作，作者能改自己的、改不了别人的。
 - 跨域预检放行了 `Authorization` 与 `PATCH`（见「服务器 API」末尾），否则浏览器在预检就会被拦下。
 
-### 这一块怎么验（`tools/verify-auth.mjs`，47 项）
+### 这一块怎么验（`tools/verify-auth.mjs`，53 项）
 
 Auth0 的真实登录要真人点（要跳转、要收验证邮件），没法在自检里点；但**真正危险的部分**
 —— 令牌校验与权限判定 —— 完全可以在本地真验。这个脚本起一个**本地模拟 IdP**
@@ -1545,7 +1550,7 @@ node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢�
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（43 项）
 node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs + Blobs 替身）
 node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 账号与论坛 + 客户端端到端 + 手机形态（34 项，配好 Auth0 后 35）
-node tools/verify-auth.mjs                # 账号 / 权限 / 论坛自检：本地模拟 IdP + Blobs 替身，验权限矩阵与"站长在线发布"（47 项）
+node tools/verify-auth.mjs                # 账号 / 权限 / 论坛自检：本地模拟 IdP + Blobs 替身，验权限矩阵与"站长在线发布"（53 项）
 node tools/make-audio.mjs                 # 生成示例音频（可选，本地播放列表用）
 
 # 相册导入（需要手机连线 / Pillow）
@@ -1615,7 +1620,7 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 `verify-auth.mjs` 验账号、权限与论坛：它起一个**本地模拟 IdP**（真 RSA 密钥 + 标准 JWKS +
 真签名的 RS256 令牌），让 `server.mjs` 走与线上**完全相同**的校验路径，再用仿真器配
 **Blobs 替身**跑一遍部署形态（站长在线发布 → 写 Blobs → 读覆盖层）。整个过程写进临时目录
-（`FT_DATA_DIR`），**不碰仓库里的 `data/`** —— 跑完 `git status` 应该是干净的；实测 **47/47 PASS**。
+（`FT_DATA_DIR`），**不碰仓库里的 `data/`** —— 跑完 `git status` 应该是干净的；实测 **53/53 PASS**。
 细节（权限矩阵、Auth0 配置清单、论坛接口）见「账号 / 权限 / 论坛」一节。
 
 有几件事**看起来像失败、其实不是**，别把数字读歪：

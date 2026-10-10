@@ -254,6 +254,8 @@ try {
     /^\s*data\/users\/\s*$/m.test(ignore), ignore.includes('data/users/') ? '已忽略' : '缺失！');
   check('⚠️ .gitignore 挡住了运行期论坛数据（data/forum/）',
     /^\s*data\/forum\/\s*$/m.test(ignore), ignore.includes('data/forum/') ? '已忽略' : '缺失！');
+  check('⚠️ .gitignore 挡住了论坛索引（data/forum-index.json）',
+    /^\s*data\/forum-index\.json\s*$/m.test(ignore), ignore.includes('data/forum-index.json') ? '已忽略' : '缺失！');
 
   /* ---- 7. 站长看账号列表 / 普通用户看不到 ---- */
   const usersAsOwner = await api('/api/auth/users', { token: ownerToken });
@@ -387,10 +389,57 @@ try {
           body: JSON.stringify({ title: '我要改别人的' }),
         });
         check('部署形态下别人改不了我的帖 → 403', steal.status === 403, `${steal.status}`);
+
+        /* ---- 论坛索引：列表只读一个文档，且顺序/重建都正确 ---- */
+        const idxFile = path.join(ROOT, '.blobs-dev', 'collections', 'forum-index.json');
+        const idx1 = await fs.readFile(idxFile, 'utf8').catch(() => '');
+        check('论坛列表维护了索引文档（列表不必逐条读 Blob）',
+          /线上论坛帖/.test(idx1), idxFile);
+
+        // 第二个人再发一条：列表应按创建时间倒序（新帖在前）
+        const otherPost = await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${other}` },
+          body: JSON.stringify({ title: '第二篇', body: '后发的' }),
+        });
+        const oj = await otherPost.json().catch(() => ({}));
+        const list2 = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts`)).json().catch(() => ({}));
+        const order2 = (list2.posts || []).map((p) => p.title);
+        check('论坛列表按创建时间倒序（新帖在前）',
+          order2[0] === '第二篇' && order2.includes('线上论坛帖'), JSON.stringify(order2));
+
+        // 编辑**旧帖**：可以改内容，但不该跳到列表顶部
+        const editOld = await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts/${fj.post.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberTok}` },
+          body: JSON.stringify({ title: '线上论坛帖（改过）' }),
+        });
+        const list3 = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts`)).json().catch(() => ({}));
+        const order3 = (list3.posts || []).map((p) => p.title);
+        check('编辑旧帖不会让它跳到列表顶部（顺序仍按创建时间）',
+          editOld.status === 200 && order3[0] === '第二篇' && order3.includes('线上论坛帖（改过）'),
+          JSON.stringify(order3));
+
+        // 索引丢了要能按需重建（旧版本写下的内容、或索引被清掉）
+        await fs.rm(idxFile, { force: true }).catch(() => {});
+        const list4 = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts`)).json().catch(() => ({}));
+        const idx4 = await fs.readFile(idxFile, 'utf8').catch(() => '');
+        check('索引丢失后列表会按需重建（内容不丢）',
+          (list4.posts || []).length >= 2 && /线上论坛帖（改过）/.test(idx4),
+          JSON.stringify({ n: (list4.posts || []).length, rebuilt: idx4.length > 0 }));
+
         // 清理仿真写入的痕迹，别把 .blobs-dev 留成垃圾堆
         await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts/${fj.post.id}`, {
           method: 'DELETE', headers: { Authorization: `Bearer ${memberTok}` },
         }).catch(() => {});
+        if (oj.post?.id) {
+          await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts/${oj.post.id}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${other}` },
+          }).catch(() => {});
+        }
+        const idx5 = await fs.readFile(idxFile, 'utf8').catch(() => '');
+        check('删除帖子会同时从索引里移除',
+          !/线上论坛帖/.test(idx5) && !/第二篇/.test(idx5), idx5.slice(0, 160));
       }
     }
   } catch (err) {
