@@ -43,10 +43,16 @@ const colorVar = (c) => (c ? `var(--uno-${c})` : 'var(--ink-100)');
 
 /* ---------------- 片段 ---------------- */
 
-function cardHTML(card, { playable = false, mini = false, seat = false } = {}) {
-  const cls = ['uno__card', mini ? 'uno__card--mini' : '', playable ? 'is-playable' : '', card.color ? '' : 'is-wild', seat ? 'uno__card--seat' : ''].filter(Boolean).join(' ');
-  return `<button class="${cls}" data-card="${esc(card.id)}" style="--uno-c:${colorVar(card.color)}"${playable ? '' : ' disabled'} aria-label="${esc(label(card))}" title="${esc(label(card))}">
-    <b class="uno__card-face">${esc(glyph(card))}</b>
+function cardHTML(card, { playable = false, mini = false, i = null, n = 1 } = {}) {
+  const cls = ['uno__card', mini ? 'uno__card--mini' : '', playable ? 'is-playable' : '', card.color ? '' : 'is-wild'].filter(Boolean).join(' ');
+  // ⚠️ 所有自定义属性必须写进**同一个** style 属性：
+  // 之前我在外面用 String.replace() 又插了一个 style，HTML 只保留一个 →
+  // 牌色变量 --uno-c 被丢掉，手牌全变成灰的（站主截图就是这个现象）。不要再那样拼。
+  const style = [`--uno-c:${colorVar(card.color)}`, i === null ? '' : `--i:${i}`, i === null ? '' : `--n:${n}`]
+    .filter(Boolean).join(';');
+  return `<button class="${cls}" data-card="${esc(card.id)}" style="${style}"${playable ? '' : ' disabled'} aria-label="${esc(label(card))}" title="${esc(label(card))}">
+    <span class="uno__oval"><b class="uno__card-face">${esc(glyph(card))}</b></span>
+    <u class="uno__pip" aria-hidden="true">${esc(glyph(card))}</u>
     <i class="uno__card-tag">${esc(card.color ? COLOR_CN[card.color] : '变色')}</i>
   </button>`;
 }
@@ -124,7 +130,7 @@ function boardHTML() {
             你的手牌（${s.hands[me].length}）${myTurn ? ' · 轮到你了' : ''}${needUno ? ' · 该喊 UNO 了' : ''}
           </div>
           <div class="uno__hand">
-            ${s.hands[me].map((c, idx) => cardHTML(c, { playable: playable.includes(c.id), seat: true }).replace('class="uno__card', `data-i="${idx}" style="--i:${idx};--n:${s.hands[me].length}" class="uno__card`)).join('')}
+            ${s.hands[me].map((c, idx) => cardHTML(c, { playable: playable.includes(c.id), i: idx, n: s.hands[me].length })).join('')}
           </div>
           ${needUno ? `<button class="uno__uno-btn" id="unoCall">喊 UNO！</button>` : ''}
         </div>

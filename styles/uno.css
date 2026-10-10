@@ -288,3 +288,65 @@
   .uno__hand .uno__card.is-playable { transform: translateY(-12px); }
   .uno__center { gap: var(--sp-4); }
 }
+
+/* ============ 牌面重做（放在最后，靠层叠覆盖前面的规则） ============
+ * 之前是"上半部一块颜色"，远看仍像灰牌；现在按 UNO 牌的样子来：
+ * 整张牌用**牌色打底**，中间一个**斜放的白椭圆**，椭圆里是同色大数字，
+ * 左上角一个小角标，底部一行颜色名。变色牌则用四色锥形渐变打底。
+ */
+.uno__card { background: var(--uno-c, var(--ink-100)); }
+.uno__card::before { display: none; }              /* 旧的"上半部色块"作废 */
+.uno__card.is-wild {
+  background: conic-gradient(from 45deg,
+    var(--uno-red) 0 25%, var(--uno-yellow) 0 50%, var(--uno-green) 0 75%, var(--uno-blue) 0);
+}
+.uno__oval {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 80%;
+  height: 54%;
+  transform: translate(-50%, -50%) rotate(-18deg);
+  background: var(--paper);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink-100) 22%, transparent);
+}
+[data-theme="night"] .uno__oval, [data-theme="blueprint"] .uno__oval {
+  background: color-mix(in srgb, var(--paper) 92%, var(--fg) 8%);
+}
+.uno__card-face {
+  position: static;
+  margin: 0;
+  font-size: 1.8rem;
+  color: var(--uno-c, var(--ink-100));
+  text-shadow: none;
+  -webkit-text-stroke: 0;
+  transform: rotate(18deg);                        /* 与椭圆反向，数字保持正着看 */
+}
+.uno__card.is-wild .uno__card-face { color: var(--ink-100); }
+.uno__pip {
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-style: normal;
+  text-decoration: none;
+  color: var(--paper);
+}
+[data-theme="night"] .uno__pip, [data-theme="blueprint"] .uno__pip { color: var(--fg); }
+.uno__card-tag { color: var(--paper); }
+[data-theme="night"] .uno__card-tag, [data-theme="blueprint"] .uno__card-tag { color: var(--fg); }
+/* 能出的牌：抬起时底衬信号黄，牌色仍保留 */
+.uno__card.is-playable { background: var(--uno-c, var(--signal)); }
+.uno__card.is-playable::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 3px var(--signal);
+  pointer-events: none;
+}
+.uno__card.is-playable:hover { background: var(--uno-c, var(--signal)); filter: brightness(1.12); }
+
