@@ -421,6 +421,74 @@ async function main() {
   await browser.send('Target.activateTarget', { targetId: pageTarget.id }).catch(() => {});
   await sleep(800);
 
+  /* ---- 4.5) 站内播放历史：记录 / 位置写回 / 续播 ----
+   * 这一节**故意用页面内生成的 WAV**（不依赖网易云）：历史记录是播放链路的一部分，
+   * 不该因为上游今天不给音频就变红。三条分别守：
+   *   ① 真的出声之后记一条（含位置）；
+   *   ② 切歌时把上一首的位置写回 —— "继续播放"就靠它；
+   *   ③ 记录里的位置**真的能被用来 seek**（不是存了个没人用的数字）。
+   */
+  const hist = await page.eval(`(async () => {
+    const H = await import('/src/core/history.js');
+    const { Player } = await import('/src/core/player.js');
+    const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+    const wav = (() => {
+      const sr = 8000, secs = 3, n = sr * secs;
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      ws(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      ws(36, 'data'); v.setUint32(40, n * 2, true);
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return 'data:audio/wav;base64,' + btoa(bin);
+    })();
+    const mk = (id, title) => ({ id, provider: 'local', src: wav, title, artist: '本站自检', duration: 3 });
+
+    H.clear();
+    Player.clear();
+    Player.add(mk('vh-1', '历史自检一'), { play: true });
+    let played = false;
+    for (let i = 0; i < 50; i++) { await nap(300); if (Player.playing && Player.currentTime > 1.2) { played = true; break; } }
+    await nap(700);
+    const rec1 = H.resumeFor('vh-1');
+    const posBeforeSwitch = Number((Player.currentTime || 0).toFixed(2));
+
+    Player.add(mk('vh-2', '历史自检二'), { play: true });
+    await nap(1200);
+    const rec1After = H.resumeFor('vh-1');
+
+    // ③ 用记录里的位置 seek，落点要接近（回到第一首再定位）
+    const idx1 = Player.tracks.findIndex((t) => String(t.id) === 'vh-1');
+    Player.prepare(idx1, { autoplay: true });
+    for (let i = 0; i < 40 && !(Player.duration > 0); i++) await nap(250);
+    const target = H.resumeFor('vh-1')?.seconds || 0;
+    Player.seek(target);
+    await nap(600);
+    const landed = Number((Player.currentTime || 0).toFixed(2));
+    Player.pause();
+    return {
+      played,
+      rec1Seconds: rec1?.seconds ?? null,
+      rec1Plays: rec1?.plays ?? null,
+      posBeforeSwitch,
+      afterSwitch: rec1After?.seconds ?? null,
+      target,
+      landed,
+      seekClose: target > 0 && Math.abs(landed - target) <= 2.5,
+    };
+  })()`);
+  check('播放历史：真的出声之后记一条（含位置与次数）',
+    hist?.played === true && hist?.rec1Seconds >= 1 && hist?.rec1Plays >= 1, JSON.stringify(hist));
+  check('播放历史：切歌时把上一首的位置写回（"继续播放"靠它）',
+    (hist?.afterSwitch || 0) >= Math.max(1, Math.floor((hist?.posBeforeSwitch || 0) - 1)),
+    JSON.stringify({ posBeforeSwitch: hist?.posBeforeSwitch, afterSwitch: hist?.afterSwitch }));
+  check('播放历史：记录里的位置真的能用来继续播放（seek 落点接近目标）',
+    hist?.seekClose === true, JSON.stringify({ target: hist?.target, landed: hist?.landed }));
+
   // ---- 5) 移动端：触控媒体特性 + 三个常见手机宽度 + 截图 ----
   await page.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   await page.send('Emulation.setUserAgentOverride', {

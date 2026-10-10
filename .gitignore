@@ -29,6 +29,9 @@ data/forum/
 # 论坛列表用的轻量索引（派生数据，可从帖子重建；本地跑论坛时会生成）
 data/forum-index.json
 
+# 站内播放历史（每个账号一份，只有本人能读；属于个人收听记录，绝不该入库）
+data/history/
+
 # 本地仿真"线上 Blobs"的替身目录（tools/netlify-dev.mjs 写入，纯运行期产物）
 .blobs-dev/
 
