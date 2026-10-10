@@ -30,7 +30,13 @@ import { handleApiRequest } from '../../server.mjs';
 
 /** v2 形态：收 Web Request，返回 Web Response */
 export default async function api(request) {
-  return handleApiRequest(request, { serverless: true });
+  return handleApiRequest(request, {
+    serverless: true,
+    // 本地仿真器（tools/netlify-dev.mjs）会把一个 Blobs 替身挂在这个全局上，
+    // 好让"线上写 Blobs → 读覆盖层"这条链路在没有 Netlify 凭据时也能真跑。
+    // 真线上没有这个全局，于是自动走 @netlify/blobs。
+    blobDriver: globalThis.__FT_BLOB_DRIVER || null,
+  });
 }
 
 /**

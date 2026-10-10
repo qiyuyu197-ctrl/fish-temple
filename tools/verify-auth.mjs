@@ -220,12 +220,123 @@ try {
   check('作者能删自己的帖', del.status === 200 && del.json?.ok === true, `${del.status}`);
   const gone = await api(`/api/forum/posts/${postId}`);
   check('删掉之后读不到 → 404', gone.status === 404, `${gone.status}`);
+
+  /* ---- 6. 账号数据是否落库（需求③的"保存账号数据"） ---- */
+  const userFiles = await fs.readdir(path.join(tmpData, 'users')).catch(() => []);
+  check('账号数据已保存到 users/（昵称、角色、首次/最近出现）',
+    userFiles.length >= 1, `${userFiles.length} 个账号文件`);
+  let userDoc = null;
+  if (userFiles.length) {
+    const raw = await fs.readFile(path.join(tmpData, 'users', userFiles[0]), 'utf8').catch(() => '{}');
+    try { userDoc = JSON.parse(raw); } catch { userDoc = null; }
+  }
+  check('账号文档里带 sub / role / firstSeenAt（且键是哈希后的安全键）',
+    !!userDoc && !!userDoc.sub && !!userDoc.role && !!userDoc.firstSeenAt && /^[a-f0-9]{32}$/.test(String(userDoc.key || '')),
+    JSON.stringify(userDoc && { key: userDoc.key, sub: userDoc.sub, role: userDoc.role, visits: userDoc.visits }));
+  check('账号文档没有把同名站长权限写给别人',
+    userDoc?.role === 'member' || userDoc?.email === OWNER,
+    `role=${userDoc?.role} email=${userDoc?.email}`);
 } catch (err) {
   check('自检过程没有抛异常', false, String(err?.message || err));
 } finally {
   try { server?.kill(); } catch { /* noop */ }
-  try { idp.close(); } catch { /* noop */ }
+  // ⚠️ 这里**不能**关模拟 IdP：下面"部署形态"那一段还要用它来验签
   await fs.rm(tmpData, { recursive: true, force: true }).catch(() => {});
+}
+
+/* ---------------- 部署形态（serverless + Blobs）----------------
+ * 上面验的是本地形态（写文件）。线上发布走的是另一条腿：**写 Netlify Blobs、
+ * 且读的是"覆盖层"而不是仓库文件**。这里用仿真器（tools/netlify-dev.mjs）跑一整遍：
+ * 它注入一个 Blobs 替身（目录 .blobs-dev/），并让函数以 serverless 形态运行，
+ * 于是"站长在线发布 → 公开页面能读到"这条链路在本地就能被真实验证。
+ */
+{
+  const SIM_PORT = 5313;
+  const sim = spawn(process.execPath, ['tools/netlify-dev.mjs', String(SIM_PORT)], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      AUTH0_DOMAIN: `http://127.0.0.1:${IDP_PORT}`,
+      AUTH0_CLIENT_ID: CLIENT_ID,
+      OWNER_EMAILS: OWNER,
+    },
+    stdio: 'ignore',
+  });
+  try {
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`http://127.0.0.1:${SIM_PORT}/api/health`)).ok) { up = true; break; } } catch { /* 等 */ }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    check('部署形态仿真起来了（serverless + Blobs 替身）', up);
+    if (up) {
+      const h = await (await fetch(`http://127.0.0.1:${SIM_PORT}/api/health`)).json();
+      check('health 报告 deploy=netlify / storage=blobs',
+        h.deploy === 'netlify' && h.storage === 'blobs', JSON.stringify({ deploy: h.deploy, storage: h.storage }));
+
+      const ownerTok = signToken(baseClaims({ sub: 'auth0|owner', email: OWNER, name: '站长', email_verified: true }));
+      const memberTok = signToken(baseClaims({ sub: 'auth0|member-9', email: 'nine@example.com', name: '九号' }));
+
+      const w = await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerTok}` },
+        body: JSON.stringify({ id: 'online-1', title: '线上发布的公告' }),
+      });
+      const wj = await w.json().catch(() => ({}));
+      check('部署形态下站长能在线发布（写 Blobs，不再 501）',
+        w.status === 200 && wj.storage === 'blobs', `${w.status} ${JSON.stringify(wj).slice(0, 90)}`);
+
+      const blobFile = path.join(ROOT, '.blobs-dev', 'collections', 'news.json');
+      const written = await fs.readFile(blobFile, 'utf8').catch(() => '');
+      check('内容确实写进了 Blobs 替身（.blobs-dev/collections/news.json）',
+        /线上发布的公告/.test(written), blobFile);
+
+      const r = await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news`);
+      const rj = await r.json().catch(() => ({}));
+      check('公开读取拿到覆盖层（overlayOnly=true，前端据此合并静态文件）',
+        rj.overlayOnly === true && (rj.items || []).some((it) => it.id === 'online-1'),
+        JSON.stringify({ overlayOnly: rj.overlayOnly, n: (rj.items || []).length }));
+
+      const mw = await fetch(`http://127.0.0.1:${SIM_PORT}/api/content/news`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberTok}` },
+        body: JSON.stringify({ id: 'nope', title: '普通用户想改公告' }),
+      });
+      check('部署形态下普通用户仍不能改公告 → 403', mw.status === 403, `${mw.status}`);
+
+      const fpost = await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberTok}` },
+        body: JSON.stringify({ title: '线上论坛帖', body: '写进 Blobs' }),
+      });
+      const fj = await fpost.json().catch(() => ({}));
+      const forumBlob = path.join(ROOT, '.blobs-dev', 'forum', `${fj.post?.id}.json`);
+      const forumWritten = await fs.readFile(forumBlob, 'utf8').catch(() => '');
+      check('部署形态下论坛发帖也写进 Blobs',
+        fpost.status === 200 && /线上论坛帖/.test(forumWritten), `${fpost.status} ${fj.post?.id || ''}`);
+      if (fj.post?.id) {
+        const mine = await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts/${fj.post.id}`);
+        check('线上论坛帖公开可读', mine.status === 200, `${mine.status}`);
+        const other = signToken(baseClaims({ sub: 'auth0|member-10', email: 'ten@example.com', name: '十号' }));
+        const steal = await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts/${fj.post.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${other}` },
+          body: JSON.stringify({ title: '我要改别人的' }),
+        });
+        check('部署形态下别人改不了我的帖 → 403', steal.status === 403, `${steal.status}`);
+        // 清理仿真写入的痕迹，别把 .blobs-dev 留成垃圾堆
+        await fetch(`http://127.0.0.1:${SIM_PORT}/api/forum/posts/${fj.post.id}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${memberTok}` },
+        }).catch(() => {});
+      }
+    }
+  } catch (err) {
+    check('部署形态自检没有抛异常', false, String(err?.message || err));
+  } finally {
+    try { sim.kill(); } catch { /* noop */ }
+    await fs.rm(path.join(ROOT, '.blobs-dev'), { recursive: true, force: true }).catch(() => {});
+  }
+  try { idp.close(); } catch { /* noop */ }
 }
 
 const failed = results.filter((r) => !r.ok);

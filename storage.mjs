@@ -41,7 +41,7 @@ function mergeById(base, over) {
   return out;
 }
 
-export function createStorage({ root, dataDir: dataDirIn, serverless = false, storeName = 'fish-temple' } = {}) {
+export function createStorage({ root, dataDir: dataDirIn, serverless = false, storeName = 'fish-temple', driver: injected = null } = {}) {
   const dataDir = dataDirIn || path.join(root, 'data');
   let storePromise = null;
 
@@ -108,10 +108,13 @@ export function createStorage({ root, dataDir: dataDirIn, serverless = false, st
     },
   };
 
-  const driver = serverless ? blobsDriver : fsDriver;
+  const driver = injected || (serverless ? blobsDriver : fsDriver);
 
   return {
+    // mode 表示"部署语义"（线上=覆盖层 + Blobs；本地=文件即真相），
+    // driver 表示"实际谁在写"（本地仿真会注入一个 Blobs 替身，mode 仍是 blobs）
     mode: serverless ? 'blobs' : 'fs',
+    driver: injected ? 'injected' : (serverless ? 'blobs' : 'fs'),
     dataDir,
 
     /**

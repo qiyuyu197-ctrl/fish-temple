@@ -71,7 +71,8 @@ let fsStore = null;
 let blobStore = null;
 function storageFor(opts = {}) {
   if (opts.serverless) {
-    if (!blobStore) blobStore = createStorage({ root: ROOT, dataDir: DATA_DIR, serverless: true });
+    // opts.blobDriver：本地仿真器注入的 Blobs 替身（这样"线上写 Blobs"这条路径本地也能真跑）
+    if (!blobStore) blobStore = createStorage({ root: ROOT, dataDir: DATA_DIR, serverless: true, driver: opts.blobDriver || null });
     return blobStore;
   }
   if (!fsStore) fsStore = createStorage({ root: ROOT, dataDir: DATA_DIR, serverless: false });
@@ -1457,6 +1458,41 @@ function sanitizeItem(input) {
  *               · 图片缓存交给 CDN（Netlify-CDN-Cache-Control）而不是落盘
  *   readonly    true = 强制内容接口只读
  */
+/* ---------------- 账号数据 ---------------- */
+
+/**
+ * 把 Auth0 的 `sub` 变成一个安全的存储键。
+ * 为什么不能直接用：Auth0 的 sub 形如 `auth0|6ac9ba5f…`（含 `|`），
+ * 而我们的键要落到文件路径/Blob 键上，所以只允许 [A-Za-z0-9_-]，
+ * 于是取 sha1 的前 32 位——真实 sub 仍完整保存在文档里，不会丢信息。
+ */
+function userKey(sub) {
+  return createHash('sha1').update(String(sub)).digest('hex').slice(0, 32);
+}
+
+/** 记录/更新一个账号的资料（昵称、角色、首次与最近出现时间） */
+async function rememberUser(user, opts = {}) {
+  if (!user?.sub) return null;
+  const store = storageFor(opts);
+  const key = userKey(user.sub);
+  const prev = await store.readItem('users', key).catch(() => null);
+  const now = new Date().toISOString();
+  const doc = {
+    key,
+    sub: user.sub,
+    email: user.email,
+    name: user.name,
+    picture: user.picture || prev?.picture || '',
+    role: user.role,
+    verified: !!user.verified,
+    firstSeenAt: prev?.firstSeenAt || now,
+    lastSeenAt: now,
+    visits: (Number(prev?.visits) || 0) + 1,
+  };
+  await store.writeItem('users', key, doc);
+  return doc;
+}
+
 /* ---------------- 权限：谁能改"网站现有文案" ---------------- */
 
 /**
@@ -1727,6 +1763,9 @@ async function handleApi(req, res, url, opts = {}) {
   if (seg[0] === 'auth' && seg[1] === 'me') {
     const who = await authenticate(req);
     if (!who.ok) return fail(res, who.status, who.error);
+    // 顺便把账号数据落一份（需求里的"保存账号数据"）：
+    // 记下这个账号第一次/最近一次出现、昵称与角色，站长以后可以在后台看有哪些人。
+    try { await rememberUser(who.user, opts); } catch (err) { log(`\x1b[33mUSER\x1b[0m 记录失败：${err.message}`); }
     return ok(res, { ok: true, user: who.user });
   }
 

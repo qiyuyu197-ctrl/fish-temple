@@ -33,6 +33,53 @@ import apiHandler from '../netlify/functions/api.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.argv[2] || process.env.PORT || 5199);
 
+/**
+ * Blobs 替身（本地仿真用）。
+ *
+ * 线上写的是 Netlify Blobs，那是 npm 模块 + 平台注入的 siteID/token，本地跑不起来。
+ * 但"线上发布"这条链路（写覆盖层 → 读覆盖层）恰恰是最需要验的东西，所以这里
+ * 用一个**目录就是 store** 的替身顶上：键就是文件路径，行为（读/写/删/列）与 Blobs 一致。
+ * 通过 opts.blobDriver 注入，server.mjs 那边只有在真线上才会去 import @netlify/blobs。
+ *
+ * 目录：.blobs-dev/（已 gitignore），你可以直接翻文件看"线上"到底写了什么。
+ */
+const BLOB_DIR = path.join(ROOT, '.blobs-dev');
+
+function makeBlobDriver(dir) {
+  const abs = (key) => path.join(dir, String(key).replace(/^\/+/, ''));
+  return {
+    async readText(key) {
+      try { return await fs.readFile(abs(key), 'utf8'); } catch { return null; }
+    },
+    async writeText(key, text) {
+      const full = abs(key);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, text);
+    },
+    async remove(key) {
+      try { await fs.unlink(abs(key)); } catch { /* 本来就不在 */ }
+    },
+    async list(prefix) {
+      const base = abs(prefix);
+      const out = [];
+      const walk = async (d) => {
+        let entries = [];
+        try { entries = await fs.readdir(d, { withFileTypes: true }); } catch { return; }
+        for (const e of entries) {
+          const full = path.join(d, e.name);
+          if (e.isDirectory()) await walk(full);
+          else out.push(`${prefix}${path.relative(base, full).split(path.sep).join('/')}`);
+        }
+      };
+      await walk(base);
+      return out;
+    },
+  };
+}
+const blobDriver = makeBlobDriver(BLOB_DIR);
+// 函数模块（netlify/functions/api.mjs）会在收到请求时读这个全局，把它当 Blobs 用
+globalThis.__FT_BLOB_DRIVER = blobDriver;
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',

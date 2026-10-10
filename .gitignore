@@ -20,6 +20,9 @@ pnpm-debug.log*
 # 内容自动备份（服务器写入 data/ 时生成，属于运行期产物）
 data/.backup/
 
+# 本地仿真"线上 Blobs"的替身目录（tools/netlify-dev.mjs 写入，纯运行期产物）
+.blobs-dev/
+
 # Pixiv 图片磁盘缓存（700+ 个文件，纯运行期产物，随时可重建）
 data/.cache/
 
