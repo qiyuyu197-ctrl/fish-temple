@@ -256,6 +256,9 @@ try {
     /^\s*data\/forum\/\s*$/m.test(ignore), ignore.includes('data/forum/') ? '已忽略' : '缺失！');
   check('⚠️ .gitignore 挡住了论坛索引（data/forum-index.json）',
     /^\s*data\/forum-index\.json\s*$/m.test(ignore), ignore.includes('data/forum-index.json') ? '已忽略' : '缺失！');
+  // 播放历史是**个人收听记录**，同样不该进公开仓库
+  check('⚠️ .gitignore 挡住了站内播放历史（data/history/ 是个人收听记录）',
+    /^\s*data\/history\/\s*$/m.test(ignore), ignore.includes('data/history/') ? '已忽略' : '缺失！');
 
   /* ---- 7. 站长看账号列表 / 普通用户看不到 ---- */
   const usersAsOwner = await api('/api/auth/users', { token: ownerToken });
@@ -335,6 +338,62 @@ try {
     spoof.status === 200 && spoof.json?.profile?.sub === 'auth0|member-1'
       && ownerEntry && ownerEntry.displayName !== '冒充站长',
     JSON.stringify({ spoofed: spoof.json?.profile?.sub, ownerDisplayName: ownerEntry?.displayName }));
+
+  /* ---- 站内播放历史（/api/history）：只属于本人、字段严格校验 ----
+   * 这是"我们自己的播放记录"（不接网易云账号、不存第三方 cookie、不发给网易云），
+   * 但它是个人数据，所以**归属**与**校验**都必须由服务端把死。 */
+  const histAnonGet = await api('/api/history');
+  const histAnonPost = await api('/api/history', { method: 'POST', body: { items: [] } });
+  check('未登录读写播放历史都被拒 → 401',
+    histAnonGet.status === 401 && histAnonPost.status === 401,
+    `${histAnonGet.status} / ${histAnonPost.status}`);
+
+  const sampleItems = [
+    { id: '554322674', title: '偷心', artist: 'SASIOVERLXRD', seconds: 42, at: 1_700_000_000_000, plays: 3 },
+    { id: 'ne-211520', title: '你不要那样看着我的眼睛', artist: '蔡琴', seconds: 7, at: 1_700_000_100_000, plays: 1 },
+  ];
+  const histPost = await api('/api/history', { method: 'POST', token: memberToken, body: { items: sampleItems } });
+  const histGet = await api('/api/history', { token: memberToken });
+  check('登录后写入再读回：条数、字段、顺序（按时间倒序）都对',
+    histPost.status === 200 && histGet.status === 200 && histGet.json?.total === 2
+      && histGet.json.items[0].id === 'ne-211520' && histGet.json.items[1].seconds === 42
+      && histGet.json.items[1].plays === 3,
+    JSON.stringify({ post: histPost.status, total: histGet.json?.total, ids: (histGet.json?.items || []).map((x) => x.id) }));
+
+  const histSpoof = await api('/api/history', { token: member2Token });
+  check('⚠️ 别人的播放历史读不到（键与账号绑定，只有本人能读）',
+    histSpoof.status === 200 && (histSpoof.json?.items || []).length === 0,
+    JSON.stringify({ status: histSpoof.status, total: histSpoof.json?.total }));
+
+  const histTooMany = await api('/api/history', {
+    method: 'POST', token: memberToken,
+    body: { items: Array.from({ length: 201 }, (_, i) => ({ id: `x${i}`, title: 't', artist: 'a', seconds: 1, at: 1_700_000_000_000 + i, plays: 1 })) },
+  });
+  const histBadId = await api('/api/history', {
+    method: 'POST', token: memberToken,
+    body: { items: [{ id: 'bad id/../x', title: 't', artist: 'a', seconds: 1, at: 1_700_000_000_000, plays: 1 }] },
+  });
+  const histBadSeconds = await api('/api/history', {
+    method: 'POST', token: memberToken,
+    body: { items: [{ id: 'ok1', title: 't', artist: 'a', seconds: 999_999, at: 1_700_000_000_000, plays: 1 }] },
+  });
+  const histBadShape = await api('/api/history', { method: 'POST', token: memberToken, body: { items: 'nope' } });
+  check('⚠️ 超量 / 非法 id / 超范围 seconds / 非数组一律 400（服务端严格把关）',
+    histTooMany.status === 400 && /200/.test(String(histTooMany.json?.error || ''))
+      && histBadId.status === 400 && histBadSeconds.status === 400 && histBadShape.status === 400,
+    JSON.stringify({ many: histTooMany.status, id: histBadId.status, seconds: histBadSeconds.status, shape: histBadShape.status }));
+
+  // 落盘位置：history/<sha1(sub) 前 32 位>.json（与 users/ 同一套键策略）
+  const histFiles = await fs.readdir(path.join(tmpData, 'history')).catch(() => []);
+  let histDoc = null;
+  if (histFiles.length) {
+    const raw = await fs.readFile(path.join(tmpData, 'history', histFiles[0]), 'utf8').catch(() => '{}');
+    try { histDoc = JSON.parse(raw); } catch { histDoc = null; }
+  }
+  check('历史落在 history/<哈希>.json，文档里带 sub 与 items（键是安全键）',
+    histFiles.length >= 1 && !!histDoc && /^[a-f0-9]{32}\.json$/.test(String(histFiles[0]))
+      && Array.isArray(histDoc.items) && !!histDoc.sub,
+    JSON.stringify({ files: histFiles.length, key: histDoc?.key, items: histDoc?.items?.length }));
 } catch (err) {
   check('自检过程没有抛异常', false, String(err?.message || err));
 } finally {

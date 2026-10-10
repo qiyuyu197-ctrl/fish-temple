@@ -1548,6 +1548,22 @@ const PROFILE = {
   dataMax: 80000,     // 约 60KB 二进制；客户端会先降采样到 192px/JPEG 0.82，通常 8–20KB
 };
 
+/**
+ * 站内播放历史（`/api/history`）的上限。
+ *
+ * 说明：这是**我们自己的**播放记录（`history/<sha1(sub)>`），不是任何第三方账号的数据 ——
+ * 不接网易云账号、不存第三方 cookie、也不把记录发给网易云。客户端 (src/core/history.js)
+ * 用同一套上限先自己收干净，所以正常同步不会撞到这里。
+ */
+const HISTORY = {
+  max: 200,          // 条数上限（超出就 400，而不是悄悄丢数据 —— 客户端不该推超量）
+  idLen: 40,
+  textLen: 120,
+  secondsMax: 86400, // 24 小时：单曲位置不可能超过它
+  playsMax: 100000,
+  idRe: /^[0-9A-Za-z_-]{1,40}$/,
+};
+
 /** 昵称清洗：控制字符与换行一律去掉（它会出现在顶栏/论坛/菜单里，换行会把布局搞乱） */
 function cleanDisplayName(raw) {
   return String(raw ?? '')
@@ -1596,6 +1612,48 @@ function validateProfileInput(body) {
       throw new Error('头像只接受 https:// 图片地址，或 data:image/png|jpeg|webp;base64 内联图片');
     }
   }
+  return out;
+}
+
+/**
+ * 校验 POST /api/history 的 body。**服务端必须严格**（客户端那份只是体验）：
+ * 严格的好处是"能被写进来的东西一定是干净的"，列表页与统计就能放心直接用。
+ * 不合法就 throw，调用方回 400。
+ */
+function validateHistoryInput(body) {
+  const src = body && typeof body === 'object' ? body : {};
+  if (!Array.isArray(src.items)) throw new Error('items 必须是数组');
+  if (src.items.length > HISTORY.max) {
+    throw new Error(`最多保存 ${HISTORY.max} 条播放记录（你发了 ${src.items.length} 条）`);
+  }
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i < src.items.length; i += 1) {
+    const raw = src.items[i];
+    const where = `第 ${i + 1} 条`;
+    if (!raw || typeof raw !== 'object') throw new Error(`${where}不是对象`);
+    const id = String(raw.id ?? '').trim();
+    if (!HISTORY.idRe.test(id)) throw new Error(`${where}的 id 不合法（只允许字母数字与 _-，最长 ${HISTORY.idLen} 字符）`);
+    if (seen.has(id)) continue;                       // 同一首重复出现：只留第一条
+    const text = (v) => {
+      const s = String(v ?? '').replace(/[\u0000-\u001F\u007F-\u009F]/g, '').replace(/\s+/g, ' ').trim();
+      if (s.length > HISTORY.textLen) throw new Error(`${where}的文本字段太长（上限 ${HISTORY.textLen} 字）`);
+      return s;
+    };
+    const seconds = Number(raw.seconds);
+    if (!Number.isFinite(seconds) || seconds < 0 || seconds > HISTORY.secondsMax) {
+      throw new Error(`${where}的 seconds 超范围（0–${HISTORY.secondsMax}）`);
+    }
+    const at = Number(raw.at);
+    if (!Number.isFinite(at) || at <= 0) throw new Error(`${where}的 at 必须是正数时间戳`);
+    const plays = raw.plays === undefined ? 1 : Number(raw.plays);
+    if (!Number.isFinite(plays) || plays < 1 || plays > HISTORY.playsMax) {
+      throw new Error(`${where}的 plays 超范围（1–${HISTORY.playsMax}）`);
+    }
+    seen.add(id);
+    out.push({ id, title: text(raw.title), artist: text(raw.artist), seconds: Math.round(seconds), at: Math.round(at), plays: Math.round(plays) });
+  }
+  out.sort((a, b) => b.at - a.at);                    // 服务端也按时间倒序存，读出来就能直接用
   return out;
 }
 
@@ -2106,6 +2164,39 @@ async function handleApi(req, res, url, opts = {}) {
         role: eff.role, email: eff.email, verified: eff.verified,
       },
     });
+  }
+
+  /* ---------------- 站内播放历史 ----------------
+   * 存 `history/<sha1(sub)>`：键与账号绑定，**只有你自己能读写**（用令牌里的 sub 决定读写谁）。
+   * 线上就是 Netlify Blobs，本地是 data/history/ 下的文件（已 gitignore）。
+   *
+   * ⚠️ 这是"我们自己的播放记录"：不接网易云账号、不存任何第三方 cookie、
+   *    也不会把记录发给网易云（站主的明确决定，README 里也写了）。
+   */
+  if (seg[0] === 'history') {
+    const who = await authenticate(req);
+    if (!who.ok) return fail(res, who.status, who.error);
+    const store = storageFor(opts);
+    const key = userKey(who.user.sub);
+
+    if (req.method === 'GET') {
+      const doc = await store.readItem('history', key).catch(() => null);
+      const items = Array.isArray(doc?.items) ? doc.items : [];
+      return ok(res, { ok: true, items, total: items.length, updatedAt: doc?.updatedAt || null });
+    }
+    if (req.method !== 'POST' && req.method !== 'PUT') return fail(res, 405, `不支持的方法：${req.method}`);
+
+    let items;
+    try { items = validateHistoryInput(await readBody(req)); } catch (err) { return fail(res, 400, err.message); }
+    const now = new Date().toISOString();
+    try {
+      await store.writeItem('history', key, { key, sub: who.user.sub, items, updatedAt: now });
+    } catch (err) {
+      log(`\x1b[31mHISTORY\x1b[0m 保存失败：${err.message}`);
+      return fail(res, 503, '播放记录没同步上（存储服务暂时不可用）：本地记录还在，稍后会自动重试。');
+    }
+    log(`\x1b[35mHISTORY\x1b[0m ${who.user.sub} → ${items.length} 条`);
+    return ok(res, { ok: true, total: items.length, updatedAt: now });
   }
 
   /* ---------------- 论坛 ---------------- */

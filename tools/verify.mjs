@@ -1498,6 +1498,10 @@ async function main() {
       mod.savePlaylist([]);
 
       // 走真实 UI：填输入框（搜索与导入共用一个）→ 点「导入歌单」
+      // 控件是异步渲染出来的：慢机上（或视图刚挂载）直接取值会拿到 null，
+      // 报出来只是一句难懂的 TypeError。先等它就绪，断言本身一个字没改。
+      for (let i = 0; i < 40 && !document.getElementById('neInput'); i++) await wait(150);
+      if (!document.getElementById('neInput')) throw new Error('音乐台没有渲染出搜索控件（#neInput）');
       document.getElementById('neInput').value = 'https://music.163.com/#/playlist?id=19723756';
       document.getElementById('plImport').click();
       for (let i = 0; i < 60; i++) { await wait(400); if (/已导入|导入失败/.test(text('plStatus'))) break; }
@@ -1806,6 +1810,9 @@ async function main() {
   const vipUI = await evaluate(`(async () => {
     const wait = (ms) => new Promise(r => setTimeout(r, ms));
     const out = {};
+    // 等音乐台控件就绪（异步渲染；慢机上直接取值会拿到 null 而报成难懂的 TypeError）
+    for (let i = 0; i < 40 && !document.getElementById('neInput'); i++) await wait(150);
+    if (!document.getElementById('neInput')) throw new Error('音乐台没有渲染出搜索控件（#neInput）');
     const input = document.getElementById('neInput');
     input.value = '逆さまの蝶';
     document.getElementById('neGo').click();
@@ -1903,6 +1910,9 @@ async function main() {
         const out = {};
         localStorage.removeItem('ft.terminal.vipLoggedIn');
         // 先播上那首会员曲目（服务端探测结论已缓存，这一步很快）
+        // 等控件就绪：视图是异步渲染的，慢机上直接取值会炸成 TypeError
+        for (let i = 0; i < 40 && !document.getElementById('neInput'); i++) await wait(150);
+        if (!document.getElementById('neInput')) throw new Error('音乐台没有渲染出搜索控件（#neInput）');
         const input = document.getElementById('neInput');
         input.value = '逆さまの蝶';
         document.getElementById('neGo').click();
@@ -1973,6 +1983,9 @@ async function main() {
     if (!btn) return out;
 
     // 先播一首**确定能放**的（服务端量得出真实秒数），再断言触发点
+    // 等控件就绪（异步渲染；慢机上直接取值会炸成难懂的 TypeError）
+    for (let i = 0; i < 40 && !document.getElementById('neInput'); i++) await wait(150);
+    if (!document.getElementById('neInput')) throw new Error('音乐台没有渲染出搜索控件（#neInput）');
     const input = document.getElementById('neInput');
     input.value = '逆さまの蝶';
     document.getElementById('neGo').click();
@@ -2242,6 +2255,124 @@ async function main() {
       direct.mediaSession === true && direct.metaTitle === direct.title,
       `meta="${direct.metaTitle}" title="${direct.title}"`);
   }
+
+  /**
+   * 站内播放历史（我们自己的那份记录）。
+   *
+   * 判据全部用**本地生成的 WAV**驱动，不依赖网易云 —— 上游抽风时这几条不该跟着红。
+   * 分别守四件事：
+   *   ① 真的出声之后才记一条，带位置与次数；切歌时把位置写回（"继续播放"要用它）；
+   *   ② 播不出来的曲目**不许**进历史（与"不谎报在播"同一条原则）；
+   *   ③ 记录只存在本站：清空后要显示**说明**而不是一片空白，且文案必须写清"不发给网易云"；
+   *   ④ 未登录时同步安全跳过；合并规则（plays 取大 / at 取新 / seconds 取较新那条）确定性可验。
+   */
+  const hist = await evaluate(`(async () => {
+    const H = await import('/src/core/history.js');
+    const { Player } = await import('/src/core/player.js');
+    const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // 3 秒静音 WAV（8kHz 单声道 16bit）：够让 <audio> 真的播起来、也够触发"记一条"
+    const wav = (() => {
+      const sr = 8000, secs = 3, n = sr * secs;
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      ws(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      ws(36, 'data'); v.setUint32(40, n * 2, true);
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return 'data:audio/wav;base64,' + btoa(bin);
+    })();
+    const mk = (id, title) => ({ id, provider: 'local', src: wav, title, artist: '本站自检', duration: 3 });
+
+    H.clear();
+    Player.clear();
+    if (!location.hash.startsWith('#/music')) { location.hash = '#/music'; await nap(700); }
+
+    // ① 真播放 → 记一条
+    Player.add(mk('hist-local-1', '自检测试音'), { play: true });
+    let played = false;
+    for (let i = 0; i < 50; i++) { await nap(300); if (Player.playing && Player.currentTime > 1.2) { played = true; break; } }
+    await nap(700);
+    const rec1 = H.resumeFor('hist-local-1');
+
+    // ② 切歌 → 上一首的位置被写回
+    const posBeforeSwitch = Number((Player.currentTime || 0).toFixed(2));
+    Player.add(mk('hist-local-2', '第二段测试音'), { play: true });
+    await nap(1200);
+    const rec1After = H.resumeFor('hist-local-1');
+
+    // ③ 播不出来的曲目（坏源）不许进历史
+    Player.add({ id: 'hist-broken-1', provider: 'local', src: 'data:audio/wav;base64,AAAA', title: '坏源', artist: '自检', duration: 3 }, { play: true });
+    await nap(2500);
+    const brokenRec = H.resumeFor('hist-broken-1');
+    Player.pause();
+
+    // UI：行 + 继续播放按钮
+    const uiRows = document.querySelectorAll('#neHistory .ne-hist__row').length;
+    const uiResumeBtn = !!document.querySelector('#neHistory [data-act="resume"]');
+    const uiNeteaseLink = !!document.querySelector('#neHistory a[href^="https://music.163.com/"]');
+
+    // ④ 合并规则（纯函数）
+    const merged = H.mergeEntries(
+      [{ id: 'same', title: '本地', artist: 'a', seconds: 111, at: 1000, plays: 2 },
+       { id: 'only-local', title: '只在本地', artist: 'b', seconds: 5, at: 900, plays: 1 }],
+      [{ id: 'same', title: '远端', artist: 'a', seconds: 222, at: 3000, plays: 7 },
+       { id: 'only-remote', title: '只在远端', artist: 'c', seconds: 9, at: 4000, plays: 1 }],
+    );
+    const same = merged.find((x) => x.id === 'same') || null;
+
+    // ⑤ 清空 + 空态 + 未登录同步
+    H.clear();
+    await nap(600);
+    const emptyText = (document.getElementById('neHistory')?.textContent || '').replace(/\\s+/g, ' ').trim();
+    const sync = await H.syncNow();
+
+    return {
+      played,
+      rec1: rec1 ? { id: rec1.id, seconds: rec1.seconds, plays: rec1.plays } : null,
+      posBeforeSwitch,
+      rec1AfterSeconds: rec1After?.seconds ?? null,
+      brokenRec: brokenRec ? { seconds: brokenRec.seconds, plays: brokenRec.plays } : null,
+      uiRows, uiResumeBtn, uiNeteaseLink,
+      clearedCount: H.list().length,
+      emptyRows: document.querySelectorAll('#neHistory .ne-hist__row').length,
+      emptyExplains: /还没有播放记录/.test(emptyText) === true,
+      emptyNoLeak: /不会把它发给网易云/.test(emptyText) === true,
+      syncSkipped: sync && sync.skipped === 'not-logged-in' && sync.ok === false,
+      mergedOrder: merged.map((x) => x.id),
+      mergedPlays: same?.plays ?? null,
+      mergedSeconds: same?.seconds ?? null,
+      mergedAt: same?.at ?? null,
+    };
+  })()`);
+
+  record('播放历史：真的出声之后记一条（带位置与次数）',
+    hist?.played === true && !!hist?.rec1 && hist?.rec1.id === 'hist-local-1' && hist.rec1.plays >= 1,
+    JSON.stringify({ played: hist?.played, rec: hist?.rec1 }));
+  record('播放历史：切歌时把位置写回（"继续播放"靠它）',
+    (hist?.rec1AfterSeconds || 0) >= Math.max(1, Math.floor((hist?.posBeforeSwitch || 0) - 1)),
+    JSON.stringify({ posBeforeSwitch: hist?.posBeforeSwitch, afterSwitch: hist?.rec1AfterSeconds }));
+  record('播放历史：播不出来的曲目不会被记进去（不谎报在播）',
+    hist?.brokenRec === null, JSON.stringify({ broken: hist?.brokenRec }));
+  record('播放历史：区块渲染出可续播的行（继续播放 + 在网易云打开的链接）',
+    (hist?.uiRows || 0) >= 1 && hist?.uiResumeBtn === true && hist?.uiNeteaseLink === true,
+    JSON.stringify({ rows: hist?.uiRows, resume: hist?.uiResumeBtn, netease: hist?.uiNeteaseLink }));
+  record('播放历史：清空后显示空态说明（不是一片空白）',
+    hist?.clearedCount === 0 && hist?.emptyRows === 0 && hist?.emptyExplains === true,
+    JSON.stringify({ cleared: hist?.clearedCount, rows: hist?.emptyRows, explains: hist?.emptyExplains }));
+  record('播放历史：文案写明"不会把它发给网易云"（这条边界不能被后人改掉）',
+    hist?.emptyNoLeak === true, `emptyNoLeak=${hist?.emptyNoLeak}`);
+  record('播放历史：未登录时同步安全跳过（不报错、不假装成功）',
+    hist?.syncSkipped === true, JSON.stringify({ skipped: hist?.syncSkipped }));
+  record('播放历史：合并规则 = plays 取大 / at 取新 / seconds 取较新的那条',
+    hist?.mergedPlays === 7 && hist?.mergedSeconds === 222 && hist?.mergedAt === 3000
+      && (hist?.mergedOrder || []).length === 3
+      && hist.mergedOrder[0] === 'only-remote' && hist.mergedOrder[1] === 'same',
+    JSON.stringify({ plays: hist?.mergedPlays, seconds: hist?.mergedSeconds, at: hist?.mergedAt, order: hist?.mergedOrder }));
 
   // 官方原皮播放器的「融入站内」改造：
   //   · 默认只留一条控制带（裁掉封面与标题 —— 站内自己的卡片已经有这些）

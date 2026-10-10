@@ -25,11 +25,17 @@ import { viewhead, emptyState } from '../ui/bits.js';
 import { setLyricNote } from '../ui/lyrics.js';
 import {
   pageUrl, parseSongId, probeApi, search, fetchSongs,
-  toTrack, savePlaylist, history, pushHistory, clearHistory,
+  toTrack, savePlaylist,
   importPlaylist, PLAYLIST_IMPORT_LIMIT,
   isVipOnly, checkPlayable, findPlayableAlternatives, audioInfo, looksLikeFragment,
   importFromLink, classifyLink,
 } from '../plugins/netease.js';
+// 站内播放历史：**我们自己的**一份记录（不接网易云账号、不存任何第三方 cookie、不发给网易云）。
+// 记录与同步都在 core/history.js 里自己挂 bus 完成，这里只负责把它画出来、让用户能继续播放。
+import {
+  list as historyList, resumeFor as historyResume,
+  frequent as historyFrequent, clear as historyClear, HISTORY_MAX,
+} from '../core/history.js';
 
 let state = {
   q: '',
@@ -248,10 +254,15 @@ export default {
           <button class="btn btn--sm btn--danger" id="plClear">清空列表</button>
         </div>
         <div id="playlistWrap">${playlistHTML()}</div>
-        <div class="tracks__hist" id="histWrap" ${history().length ? '' : 'hidden'}>
-          <span class="k-label">最近播放</span>
-          <div class="ne-hist" id="neHistory">${renderHistory()}</div>
-          <button class="btn btn--sm" id="histClear" title="清空最近播放">清空</button>
+        <!-- 站内播放历史：只记在我们自己这边（浏览器 + 你账号下的一份记录），不发给网易云 -->
+        <div class="tracks__hist" id="histWrap">
+          <div class="tracks__histhead">
+            <span class="k-label k-label--signal">最近播放</span>
+            <span class="mono faint" style="font-size:var(--fs-2xs)" id="histCount"></span>
+            <span class="grow"></span>
+            <button class="btn btn--sm" id="histClear" title="只清我们站内的记录，不影响你在网易云的任何数据">清空记录</button>
+          </div>
+          <div id="neHistory">${renderHistory()}</div>
         </div>
       </section>
     </section>`;
@@ -524,7 +535,8 @@ export default {
         Player.add(track, { play: true });
         savePlaylist(Player.tracks);
       }
-      pushHistory(song);
+      // 播放历史不在这里记：core/history.js 挂在 player 事件上，等**真的出声**（time > 1s）才记，
+      // 这样"点了播放但被浏览器拦下 / 探测失败"的曲目不会污染历史。
       paintPlaylist();
       paintHistory();
       paintNow();
@@ -632,7 +644,6 @@ export default {
       e.currentTarget.setAttribute('aria-pressed', String(Player.shuffle));
       Toast.show(Player.shuffle ? '随机播放：开' : '随机播放：关');
     });
-    $('#histClear')?.addEventListener('click', () => { clearHistory(); paintHistory(); Toast.show('已清空最近播放'); });
     $('#neteaseHome')?.addEventListener('click', () => window.open('https://music.163.com/', '_blank', 'noopener'));
     // 官方播放器槽位上的两个按钮（事件委托，paintEmbed 重渲染后依然有效）
     $('#embedWrap')?.addEventListener('click', (e) => {
@@ -651,6 +662,8 @@ export default {
       bus.on('player:state', () => paintNow()),
       bus.on('player:embed', ({ autoplay }) => paintEmbed(autoplay)),
       bus.on('playlist:change', () => paintPlaylist()),
+      // 播放历史变化（真的开播、位置写回、清空、登录后与账号合并完）都要重画那一条
+      bus.on('history:change', () => paintHistory()),
       // 用户动过官方控制条：位置无从推断，这一首不再自动切（说一句，别让人等）
       bus.on('player:advance-suspended', ({ track } = {}) => {
         if (!Player.embedAutoNext) return;
@@ -756,6 +769,8 @@ function soundNoticeHTML() {
     </div>` : (info.checking ? '' : '<p class="ne-silent__text faint">没找到同名的免费版本，试试换一首，或去网易云听原版。</p>')}
     <div class="ne-silent__acts">
       <a class="btn btn--sm" href="${pageUrl(info.id)}" target="_blank" rel="noopener noreferrer">${ICON.ext}去网易云听</a>
+      <a class="btn btn--sm" href="orpheus://song/${esc(String(info.id))}"
+         title="用你手机上的网易云 App 打开（如果你的浏览器支持唤起 App）">App 打开</a>
       <button class="btn btn--sm" id="neSilentNext">换下一首能播的</button>
       ${frag ? '' : '<button class="btn btn--sm" id="neVipSet" title="官方播放器在 music.163.com 上，会带上你自己的登录状态">我登录了会员，能听到声音</button>'}
     </div>
@@ -791,17 +806,64 @@ function renderNow() {
   ${soundNoticeHTML()}`;
 }
 
-function renderHistory() {
-  const list = history();
-  if (!list.length) return `<p class="faint mono" style="font-size:var(--fs-2xs);margin:0">暂无记录</p>`;
-  return `<div class="ne-hist">${list.slice(0, 12).map((s) => `
-    <button class="ne-hist__item" data-hist='${esc(JSON.stringify({ id: s.id, name: s.name, artists: s.artists, album: s.album, cover: s.cover, duration: s.duration }))}'>
-      <span class="ne-hist__cover">${s.cover ? `<img src="${esc(s.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ''}</span>
-      <span class="ne-hist__main">
-        <span class="clamp-1">${esc(s.name)}</span>
-        <span class="mono faint" style="font-size:var(--fs-2xs)">${esc((s.artists || []).join(' / '))}</span>
+/**
+ * 「最近播放」区块。
+ *
+ * 三条明确的产品/道德边界（站主的决定，写在 README 里）：
+ *   1. 这份记录**只属于你自己**：存在你浏览器里；登录后另外在你账号下存一份
+ *      （键与账号绑定、只有你能读），换设备能接着听；
+ *   2. **不接网易云账号、不存任何第三方 cookie**；
+ *   3. **不会把记录发给网易云** —— "在网易云打开"只是跳转链接，点不点由你。
+ */
+function timeAgo(ts) {
+  const d = Date.now() - Number(ts || 0);
+  if (!Number.isFinite(d) || d < 0) return '';
+  const m = Math.floor(d / 60000);
+  if (m < 1) return '刚刚';
+  if (m < 60) return `${m} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  const day = Math.floor(h / 24);
+  if (day < 30) return `${day} 天前`;
+  return new Date(Number(ts)).toISOString().slice(0, 10);
+}
+
+/** 单行：标题 / 艺术家 / 上次听到的位置 / 继续播放 / 在网易云打开 */
+function historyRow(e) {
+  const pos = Number(e.seconds) || 0;
+  const at = pageUrl(e.id);
+  return `
+  <div class="ne-hist__row" data-hist-id="${esc(e.id)}">
+    <span class="ne-hist__main">
+      <span class="clamp-1"><b>${esc(e.title || '未命名曲目')}</b></span>
+      <span class="mono faint" style="font-size:var(--fs-2xs)">
+        ${esc(e.artist || '未知歌手')}${pos >= 1 ? ` · 上次听到 ${fmtClock(pos)}` : ''}${e.plays > 1 ? ` · 播放 ${e.plays} 次` : ''}${timeAgo(e.at) ? ` · ${timeAgo(e.at)}` : ''}
       </span>
-    </button>`).join('')}</div>`;
+    </span>
+    <span class="ne-hist__acts">
+      <button class="btn btn--sm btn--signal" data-act="resume" title="${pos >= 1 ? `从 ${fmtClock(pos)} 继续播放` : '从头播放'}">▶ ${pos >= 1 ? '继续播放' : '播放'}</button>
+      <a class="btn btn--sm" href="${esc(at)}" target="_blank" rel="noopener noreferrer" title="在网易云打开这首歌（只是跳转，不携带我们这边的任何数据）">${ICON.ext}</a>
+    </span>
+  </div>`;
+}
+
+function renderHistory() {
+  const all = historyList();
+  if (!all.length) {
+    return `<p class="ne-hist__empty faint">
+      还没有播放记录。在站内播放任意一首（真的出声）之后会出现在这里：
+      记录只存在你的浏览器里，登录后另外存一份在你自己的账号下；我们不会把它发给网易云。
+    </p>`;
+  }
+  const freq = historyFrequent(5);
+  return `
+    <div class="ne-hist__list">${all.slice(0, 12).map(historyRow).join('')}</div>
+    ${all.length > 12 ? `<p class="mono faint" style="font-size:var(--fs-2xs);margin:var(--sp-2) 0 0">
+      只显示最近 12 条 · 共 ${all.length} 条（上限 ${HISTORY_MAX} 条，超出丢最旧的）</p>` : ''}
+    ${freq.length > 1 ? `<div class="ne-hist__freq">
+      <span class="k-label">常听</span>
+      ${freq.map((e) => `<button class="chip" data-hist-id="${esc(e.id)}" data-act="resume" title="播放 ${e.plays} 次 · 点一下继续听">${esc(e.title || e.id)}</button>`).join('')}
+    </div>` : ''}`;
 }
 
 /* ---------------- 重绘实现（挂在视图上的小工具） ---------------- */
@@ -850,28 +912,81 @@ function paintEmbed() {
 function paintHistory() {
   const host = $('#neHistory');
   if (host) host.innerHTML = renderHistory();
-  // 没有记录时整条「最近播放」细条收起来，不占版面
-  const wrap = $('#histWrap');
-  if (wrap) wrap.hidden = history().length === 0;
+  const count = $('#histCount');
+  if (count) {
+    const n = historyList().length;
+    count.textContent = n ? `${n} TRACKS` : 'EMPTY';
+  }
   bindHistory();
+}
+
+/**
+ * 从历史里续播。
+ * 已在播放列表里就直接 prepare + seek；不在列表里就先取元数据再播放
+ * （取不到就如实说一句，不要假装在放）。
+ */
+async function resumeFromHistory(id) {
+  const info = historyResume(id);
+  if (!info) { Toast.err('这条记录已经不在历史里了'); return; }
+  const idx = Player.tracks.findIndex((t) => String(t.neteaseId || t.id) === String(id));
+  const target = Math.max(0, Number(info.seconds) || 0);
+  if (idx >= 0) {
+    Player.prepare(idx, { autoplay: true });
+    seekWhenReady(target);
+    Toast.show(target >= 1 ? `从 ${fmtClock(target)} 继续播放` : '从头播放');
+    return;
+  }
+  try {
+    const [song] = await fetchSongs([id]);
+    if (!song) { Toast.err('取不到这首歌的信息（可能已下架）'); return; }
+    const track = toTrack(song);
+    Player.add(track, { play: true });
+    savePlaylist(Player.tracks);
+    seekWhenReady(target);
+  } catch (err) {
+    Toast.err(`取不到这首歌的信息：${String(err?.message || err)}`);
+  }
+}
+
+/**
+ * 等到真的能定位了再 seek。
+ * 为什么不能直接 seek：`Player.seek()` 需要先知道时长（duration 为空时它直接返回），
+ * 而换歌后音频是异步加载的 —— 直接调用会**静默丢掉**这次定位，用户会以为"续播没生效"。
+ */
+function seekWhenReady(target) {
+  if (!(target >= 1)) return;
+  let tries = 0;
+  const tick = () => {
+    if (Player.isEmbed) return;                  // 官方播放器不归我们控制，不装作能定位
+    if (Player.duration > 0) { Player.seek(target); return; }
+    if (++tries > 40) return;                    // 约 10 秒仍拿不到时长就放弃，不打扰用户
+    setTimeout(tick, 250);
+  };
+  tick();
+}
+
+function bindHistory() {
+  const root = $('#neHistory');
+  if (!root) return;
+  // 「继续播放」（行内按钮与常听 chip 共用一套 data-*）
+  $$('[data-act="resume"]', root).forEach((el) => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.histId || el.closest('[data-hist-id]')?.dataset.histId;
+      if (id) void resumeFromHistory(id);
+    });
+  });
+  $('#histClear')?.addEventListener('click', () => {
+    if (!historyList().length) { Toast.show('还没有播放记录'); return; }
+    if (!confirm('清空站内播放记录？\n\n只清我们这边的记录（你浏览器里 + 你账号下的那一份），'
+      + '不会影响你在网易云的任何数据，也不会取消任何收藏。')) return;
+    historyClear();
+    Toast.ok('已清空站内播放记录');
+    paintHistory();
+  });
 }
 
 function bindNowControls() {
   $('#npPlay')?.addEventListener('click', () => Player.toggle());
   $('#npPrev')?.addEventListener('click', () => Player.prev());
   $('#npNext')?.addEventListener('click', () => Player.next());
-}
-
-function bindHistory() {
-  $$('#neHistory [data-hist]').forEach((el) => {
-    el.addEventListener('click', async () => {
-      let song;
-      try { song = JSON.parse(el.dataset.hist); } catch { return; }
-      const track = toTrack(song);
-      const idx = Player.tracks.findIndex((t) => t.neteaseId === track.neteaseId);
-      if (idx >= 0) Player.prepare(idx, { autoplay: true });
-      else { Player.add(track, { play: true }); savePlaylist(Player.tracks); }
-      paintPlaylist(); paintNow(); paintEmbed();
-    });
-  });
 }
