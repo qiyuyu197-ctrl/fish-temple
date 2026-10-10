@@ -25,6 +25,8 @@ import {
 } from '../plugins/minesweeper.js';
 // 联机扫雷：它是同一板块（MINES）下的另一个页签，自己是一份独立视图，这里只负责转交
 import mineRoom from './mine-room.js';
+// 高级难度通关后自动播《关羽之歌》（用站点自己的音乐系统，见 plugins/victory-song.js）
+import { playVictorySong, isExpertLevel } from '../plugins/victory-song.js';
 
 const CELL_MAX = 34;   // 格子最大边长（px）
 const CELL_MIN = 22;   // 最小边长；再小就靠横向滚动
@@ -337,6 +339,13 @@ export default {
       if (els.metaBest) els.metaBest.textContent = st.best ? `${st.best}s` : '--';
 
       if (won) {
+        // 高级通关 → 自动播《关羽之歌》（站主要求；只对高级难度，且一分钟内只播一次）
+        if (isExpertLevel(levelId)) {
+          void playVictorySong().then((r) => {
+            if (r.ok) Toast.ok(`通关！正在播放《${r.title}》`);
+            else Toast.show(`通关！但没能自动播放：${r.reason || '未知原因'}`, '', { ttl: 5000 });
+          });
+        }
         // 通关：从左上到右下扫一道信号色
         cellEls.forEach((el, i) => {
           const r = Math.floor(i / s.cols);
