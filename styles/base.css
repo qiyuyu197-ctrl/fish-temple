@@ -148,10 +148,19 @@ code, pre { font-family: var(--font-mono); }
   position: sticky; top: 0; z-index: var(--z-topbar);
   display: flex; align-items: center; gap: var(--sp-5);
   height: var(--topbar-h);
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  /* 毛玻璃底色：88% → 96%。
+     为什么必须够实：顶栏是 sticky、一直压在内容之上，页面往上滚时表单标签之类的东西
+     会跑到它背后。88% 时那层内容会透出来，看起来就是"字叠在 logo 上"（站主截图实测）；
+     毛玻璃的观感由 blur 提供，底色只是用来托住可读性。 */
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
   backdrop-filter: blur(14px) saturate(1.2);
   -webkit-backdrop-filter: blur(14px) saturate(1.2);
   border-bottom: 1px solid var(--border-hard);
+}
+/* 拿不到 backdrop-filter 的环境（软件渲染 / 省电模式 / 老浏览器）没有模糊可用，
+   半透明就只剩"透字"这一种效果 —— 这类环境直接给不透明底色，宁可少一层质感。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .topbar { background: var(--bg); }
 }
 
 .brand { display: flex; align-items: center; gap: var(--sp-3); flex: 0 0 auto; }
