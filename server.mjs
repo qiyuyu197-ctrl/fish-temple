@@ -1757,7 +1757,14 @@ async function handleForum(req, res, url, opts, seg) {
       createdAt: now,
       updatedAt: now,
     };
-    await store.writeItem('forum', post.id, post);
+    try {
+      await store.writeItem('forum', post.id, post);
+    } catch (err) {
+      // 存储侧偶发问题（令牌过期、Blobs 抖动）不要让它变成一句原始报错甩给用户：
+      // 记日志，回 503 + 人话，用户重试一次通常就好。
+      log(`\x1b[31mFORUM\x1b[0m 发帖写入失败：${err.message}`);
+      return fail(res, 503, '发帖没写进去（存储服务暂时不可用）：请稍后重试一次，内容还在编辑框里。');
+    }
     // 维护索引（派生数据：写失败只记日志，列表下次会按需重建，不影响发帖本身）
     try {
       await writeForumIndex(store, upsertForumIndex(await readForumIndex(store), forumIndexEntry(post)));
