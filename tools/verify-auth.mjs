@@ -246,6 +246,69 @@ try {
     userDoc?.role === 'member' || userDoc?.email === OWNER,
     `role=${userDoc?.role} email=${userDoc?.email}`);
 
+  /* ---- 6.6 联机扫雷房间（服务端权威 + 成员鉴权）----
+   * 房间是"合作模式"：一块共享棋盘，谁出招都同步给全房间。
+   * 这里能验的正是最要紧的部分：谁能进、谁能出招、两端看到的是不是同一盘、
+   * 以及未揭开的格子不会把雷位通过网络响应泄露出去。
+   */
+  const noAuthRoom = await api('/api/mine/rooms', { method: 'POST', body: { level: 'beginner' } });
+  check('联机扫雷：未登录不能建房 → 401', noAuthRoom.status === 401, `${noAuthRoom.status}`);
+
+  const roomCreated = await api('/api/mine/rooms', { method: 'POST', token: memberToken, body: { level: 'beginner' } });
+  const roomId = roomCreated.json?.room?.id;
+  const roomCode = roomCreated.json?.room?.code;
+  check('联机扫雷：登录用户可建房（拿到房间号与 beginner 棋盘）',
+    roomCreated.status === 200 && !!roomId && /^[A-Z0-9]{6}$/.test(String(roomCode || ''))
+      && roomCreated.json.room.game?.cols === 9 && roomCreated.json.room.game?.rows === 9
+      && roomCreated.json.room.members?.length === 1,
+    JSON.stringify({ status: roomCreated.status, code: roomCode, level: roomCreated.json?.room?.level }));
+
+  const roomOutsider = await api(`/api/mine/rooms/${roomId}`, { token: member2Token });
+  check('联机扫雷：非成员看不到房间内容 → 403', roomOutsider.status === 403, `${roomOutsider.status}`);
+
+  const roomOutsiderMove = await api(`/api/mine/rooms/${roomId}/move`, {
+    method: 'POST', token: member2Token, body: { action: 'reveal', r: 0, c: 0 },
+  });
+  check('联机扫雷：非成员不能出招 → 403', roomOutsiderMove.status === 403, `${roomOutsiderMove.status}`);
+
+  const roomJoined = await api('/api/mine/rooms/join', { method: 'POST', token: member2Token, body: { code: roomCode } });
+  check('联机扫雷：用房间号加入成功（成员 2 人、版本增长）',
+    roomJoined.status === 200 && roomJoined.json?.room?.members?.length === 2
+      && roomJoined.json.room.version > roomCreated.json.room.version,
+    JSON.stringify({ members: roomJoined.json?.room?.members?.length, v: roomJoined.json?.room?.version }));
+
+  const roomMove = await api(`/api/mine/rooms/${roomId}/move`, {
+    method: 'POST', token: member2Token, body: { action: 'reveal', r: 4, c: 4 },
+  });
+  const roomViewA = await api(`/api/mine/rooms/${roomId}`, { token: memberToken });
+  const sameBoard = JSON.stringify(roomViewA.json?.room?.game?.cells) === JSON.stringify(roomMove.json?.room?.game?.cells);
+  check('联机扫雷：一人出招后另一人拉到同一块棋盘（服务端权威、两端一致）',
+    roomMove.status === 200 && roomViewA.status === 200 && sameBoard
+      && roomViewA.json.room.version === roomMove.json.room.version,
+    JSON.stringify({ moveV: roomMove.json?.room?.version, viewV: roomViewA.json?.room?.version, same: sameBoard }));
+
+  const hiddenCells = (roomViewA.json?.room?.game?.cells || []).filter((c) => !c.open);
+  check('联机扫雷：未揭开的格子不下发雷位/周围雷数（不能靠看响应作弊）',
+    hiddenCells.length > 0 && hiddenCells.every((c) => c.mine === undefined && c.adj === undefined && c.boom === undefined),
+    JSON.stringify({ hidden: hiddenCells.length, sample: hiddenCells[0] || {} }));
+  check('联机扫雷：出招会记下"谁开的这一格"（合作局里前端按人着色）',
+    Object.keys(roomMove.json?.room?.revealers || {}).length > 0,
+    JSON.stringify(Object.entries(roomMove.json?.room?.revealers || {}).slice(0, 3)));
+
+  const roomSteal = await api(`/api/mine/rooms/${roomId}/restart`, { method: 'POST', token: member2Token });
+  const roomRestart = await api(`/api/mine/rooms/${roomId}/restart`, { method: 'POST', token: memberToken });
+  const openedAfterRestart = (roomRestart.json?.room?.game?.cells || []).filter((c) => c.open).length;
+  check('联机扫雷：只有房主能开新局（成员 403 / 房主成功且棋盘重置）',
+    roomSteal.status === 403 && roomRestart.status === 200 && openedAfterRestart === 0,
+    JSON.stringify({ member: roomSteal.status, host: roomRestart.status, openedAfterRestart }));
+
+  const roomLeave = await api(`/api/mine/rooms/${roomId}`, { method: 'DELETE', token: member2Token });
+  const roomDissolve = await api(`/api/mine/rooms/${roomId}`, { method: 'DELETE', token: memberToken });
+  const roomGone = await api(`/api/mine/rooms/${roomId}`, { token: memberToken });
+  check('联机扫雷：成员可退出、房主可解散（解散后房间不存在 → 404）',
+    roomLeave.status === 200 && roomDissolve.status === 200 && roomGone.status === 404,
+    JSON.stringify({ leave: roomLeave.status, dissolve: roomDissolve.status, gone: roomGone.status }));
+
   /* ---- 6.5 仓库卫生：账号与论坛的运行时数据绝不能被提交 ----
    * 这个仓库是公开的，而 data/users/ 里存的是邮箱。任何人都可能顺手 `git add -A`，
    * 所以用 .gitignore 挡住，并在这里钉住这条规则别被删掉。 */
@@ -256,6 +319,8 @@ try {
     /^\s*data\/forum\/\s*$/m.test(ignore), ignore.includes('data/forum/') ? '已忽略' : '缺失！');
   check('⚠️ .gitignore 挡住了论坛索引（data/forum-index.json）',
     /^\s*data\/forum-index\.json\s*$/m.test(ignore), ignore.includes('data/forum-index.json') ? '已忽略' : '缺失！');
+  check('⚠️ .gitignore 挡住了联机扫雷房间（data/mine-rooms/）',
+    /^\s*data\/mine-rooms\/\s*$/m.test(ignore), ignore.includes('data/mine-rooms/') ? '已忽略' : '缺失！');
   // 播放历史是**个人收听记录**，同样不该进公开仓库
   check('⚠️ .gitignore 挡住了站内播放历史（data/history/ 是个人收听记录）',
     /^\s*data\/history\/\s*$/m.test(ignore), ignore.includes('data/history/') ? '已忽略' : '缺失！');

@@ -1,0 +1,62 @@
+# fish-temple —— systemd 单元
+# ------------------------------------------------------------------
+# 安装：
+#   sudo cp /srv/fish-temple/deploy/fish-temple.service /etc/systemd/system/fish-temple.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now fish-temple
+#   systemctl status fish-temple --no-pager
+#
+# 装之前请确认这三处与你的机器一致：
+#   ① ExecStart 里的 node 路径（用 `which node` 查；nvm 装的要写绝对路径）
+#   ② User / Group（本文档建议建一个名叫 fish 的系统用户）
+#   ③ WorkingDirectory（仓库实际路径）
+
+[Unit]
+Description=FISH 鱼の灵庙 · fish-temple 站点（node server.mjs）
+Documentation=file:///srv/fish-temple/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fish
+Group=fish
+WorkingDirectory=/srv/fish-temple
+
+# 环境变量集中放这个文件（chmod 600）。里面含 AUTH0_DOMAIN / AUTH0_CLIENT_ID / OWNER_EMAILS。
+EnvironmentFile=/etc/fish-temple.env
+Environment=NODE_ENV=production
+Environment=PORT=5173
+# 只监听本机：公网必须经 Caddy 走 HTTPS（推荐）。
+# 想让局域网直连就删掉这一行 —— server.mjs 默认绑所有网卡，它认 HOST/PORT。
+Environment=HOST=127.0.0.1
+
+# 静态站没有构建步骤，直接跑源码
+ExecStart=/usr/bin/node server.mjs
+
+# 崩了自动拉起；退出后 2 秒重试，避免疯狂重启打爆日志
+Restart=always
+RestartSec=2
+
+# 日志走 journald：journalctl -u fish-temple -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fish-temple
+
+# ── 加固 ───────────────────────────────────────────────────────────
+# 注意：下面这些**不会**掐掉 data/ 的写权限。
+# ProtectSystem=full 只把 /usr、/boot、/etc 变成只读，/srv 不受影响；
+# ReadWritePaths 再把数据目录显式声明一遍（该目录必须已存在，否则 systemd 会拒绝启动）。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/srv/fish-temple/data
+
+[Install]
+WantedBy=multi-user.target

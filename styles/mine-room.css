@@ -1,0 +1,119 @@
+/**
+ * styles/mine-room.css — 联机扫雷房间界面
+ * ------------------------------------------------------------------
+ * 与站点一套语言：纸色/墨色 + 2px 方角描边 + 硬阴影 + 等宽小标签。
+ * 共享棋盘用 CSS 变量控制列数（--mr-cols），每格的队友淡色用 --mr-tint。
+ */
+
+.mr-tabs {
+  display: flex;
+  border: 2px solid var(--ink-100);
+  border-bottom: 0;
+  margin-bottom: var(--sp-5);
+  width: fit-content;
+  background: var(--bg-sunk);
+}
+.mr-tab {
+  padding: 6px 16px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--fg-faint);
+  border-right: 2px solid var(--ink-100);
+}
+.mr-tab:last-child { border-right: 0; }
+.mr-tab:hover { color: var(--fg); background: color-mix(in srgb, var(--ink-100) 6%, transparent); }
+.mr-tab.is-on { background: var(--signal); color: var(--signal-ink); }
+
+.mr-card {
+  border: 2px solid var(--ink-100);
+  background: var(--bg-sunk);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  display: grid;
+  gap: var(--sp-2);
+}
+.mr-head { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: baseline; justify-content: space-between; }
+.mr-meta { font-size: var(--fs-2xs); color: var(--fg-soft); }
+.mr-code { color: var(--uno-red, #e5484d); letter-spacing: 0.12em; }
+.mr-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
+.mr-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  border: 2px solid var(--ink-100);
+  background: var(--paper);
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  padding: 6px 10px;
+}
+.mr-input:focus { outline: 2px solid var(--signal); outline-offset: 1px; }
+.mr-note { font-size: var(--fs-2xs); color: var(--fg-faint); line-height: 1.8; }
+.mr-err {
+  border-left: 3px solid var(--uno-red, #e5484d);
+  padding: var(--sp-2) var(--sp-3);
+  background: color-mix(in srgb, var(--uno-red, #e5484d) 10%, transparent);
+  font-size: var(--fs-2xs);
+  color: var(--fg);
+}
+.mr-over {
+  border: 2px solid var(--ink-100);
+  background: var(--signal);
+  color: var(--signal-ink);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+/* 队友列表 */
+.mr-members { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: var(--fs-xs); }
+.mr-members li { display: flex; align-items: center; gap: var(--sp-2); }
+.mr-dot { width: 8px; height: 8px; background: var(--border); border: 1px solid var(--ink-100); }
+.mr-members li.is-on .mr-dot { background: var(--uno-green, #46a758); }
+.mr-tag { font-style: normal; font-size: var(--fs-2xs); background: var(--signal); color: var(--signal-ink); padding: 0 5px; }
+.mr-state { margin-left: auto; font-size: var(--fs-2xs); color: var(--fg-soft); }
+
+/* 共享棋盘 */
+.mr-board {
+  display: grid;
+  grid-template-columns: repeat(var(--mr-cols, 9), minmax(0, 1fr));
+  gap: 2px;
+  border: 2px solid var(--ink-100);
+  background: var(--ink-100);
+  padding: 2px;
+  max-width: 520px;
+  width: 100%;
+}
+.mr-cell {
+  position: relative;
+  aspect-ratio: 1;
+  border: 0;
+  background: color-mix(in srgb, var(--paper) 88%, var(--ink-100) 12%);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.mr-cell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--mr-tint, transparent);
+  opacity: 0.22;
+  pointer-events: none;
+}
+.mr-cell:hover:not(:disabled) { box-shadow: inset 0 0 0 2px var(--signal); }
+.mr-cell.is-open { background: var(--bg-sunk); cursor: default; }
+.mr-cell.is-flag { color: var(--uno-red, #e5484d); font-size: var(--fs-sm); }
+.mr-cell.is-mine { background: var(--uno-red, #e5484d); color: #fff; }
+.mr-cell:disabled { cursor: default; }
+
+@media (max-width: 560px) {
+  .mr-card { padding: var(--sp-3); }
+  .mr-board { max-width: 100%; }
+  .mr-cell { font-size: var(--fs-2xs); }
+}

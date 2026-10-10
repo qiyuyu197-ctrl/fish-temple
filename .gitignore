@@ -26,6 +26,8 @@ data/.backup/
 #    线上它们存在 Netlify Blobs 里，本来也不进仓库。
 data/users/
 data/forum/
+# 联机扫雷的房间（运行期数据：房间状态、成员、谁开了哪格；线上存在 Blobs 里）
+data/mine-rooms/
 # 论坛列表用的轻量索引（派生数据，可从帖子重建；本地跑论坛时会生成）
 data/forum-index.json
 

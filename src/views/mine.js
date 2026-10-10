@@ -23,6 +23,8 @@ import {
   loadStats, recordResult, resetStats, neighbors,
   serializeGame, deserializeGame, saveGame, loadGame,
 } from '../plugins/minesweeper.js';
+// 联机扫雷：它是同一板块（MINES）下的另一个页签，自己是一份独立视图，这里只负责转交
+import mineRoom from './mine-room.js';
 
 const CELL_MAX = 34;   // 格子最大边长（px）
 const CELL_MIN = 22;   // 最小边长；再小就靠横向滚动
@@ -55,8 +57,14 @@ export default {
   render() {
     const stats = loadStats();
     const lv = LEVELS[0];
+    // MINES 板块有两个页签：单人 / 联机（导航仍指向 #/mine，高亮不会丢）
+    if (/[?&]room=/.test(String(location.hash || ''))) return mineRoom.render();
     return `
     <section class="ms">
+      <div class="mr-tabs" role="tablist" aria-label="扫雷模式">
+        <a class="mr-tab is-on" href="#/mine" role="tab" aria-selected="true">单人</a>
+        <a class="mr-tab" href="#/mine?room=1" role="tab">联机</a>
+      </div>
       ${viewhead({
         title: 'MINESWEEPER',
         sub: '一块干净的布雷场。左键挖开、右键插旗，数字表示相邻八格里的雷数；点到已挖开的数字可以和弦，一次开完周围。第一下永远安全，计时从第一下开始。',
@@ -157,6 +165,9 @@ export default {
   },
 
   mount(root) {
+    // 联机页签：挂载整个交给联机视图（它自己管轮询与监听），单人这边的状态一概不碰
+    if (/[?&]room=/.test(String(location.hash || ''))) return mineRoom.mount(root);
+    Motion.reveal(root);
     Motion.reveal(root);
 
     const $ = (sel) => root.querySelector(sel);

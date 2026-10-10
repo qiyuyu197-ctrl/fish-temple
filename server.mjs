@@ -45,6 +45,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStorage } from './storage.mjs';
 import { authConfig, authenticate } from './auth.mjs';
+// 联机扫雷复用同一份纯逻辑引擎（它不碰 DOM，所以服务端也能 import）
+import * as Mines from './src/plugins/minesweeper.js';
 
 /**
  * ⚠️ 这里**不能**用 `__filename` / `__dirname` 这两个名字。
@@ -1724,6 +1726,258 @@ async function requireOwner(req, res, opts = {}) {
   return null;
 }
 
+/* ---------------- 联机扫雷（合作模式） ----------------
+ * 设计取舍（VPS 与 Netlify 都能跑，不需要 WebSocket）：
+ *   · **服务端权威**：棋盘只有服务端在改，客户端只发"我要揭/插旗/和弦哪一格"，
+ *     改完 version +1；客户端按 version 轮询（短请求，任何平台都支持）。
+ *   · **引擎复用**：直接用 src/plugins/minesweeper.js —— 同一份纯逻辑，两边不会分叉。
+ *   · **合作而非对抗**：一块共享棋盘，谁揭开的都同步给全房间；每格记下"谁开的"（revealers）。
+ *   · **只允许注册用户**：建房/加入/操作都要有效令牌（站主要求：邀请已注册用户）。
+ *   · **不泄露雷位**：未揭开且未结束的格子剥掉 mine/adjacent 再下发。
+ */
+const MINE_ROOMS = 'mine-rooms';
+
+const mineRoomId = () => `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+const mineRoomCode = () => {
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // 去掉易混的 I/O/0/1
+  let out = '';
+  for (let i = 0; i < 6; i++) out += A[Math.floor(Math.random() * A.length)];
+  return out;
+};
+
+/** 成员表里找一个人（令牌里的 sub 就是身份） */
+const mineMember = (room, sub) => (room.members || []).find((m) => m.sub === sub) || null;
+
+/** 剥离未揭开格子的雷位信息（合作局也不该通过网络响应泄露答案）
+ *  ⚠️ 字段名要和引擎一致：格子是 `{ open, flag, adj, mine?, boom? }` ——
+ *  一开始我按 revealed/adjacent 写，结果 adj（周围雷数）根本没被剥掉，
+ *  而自检又用了同样的错误字段名，于是"不泄露"那条是空过的。两边都改了。
+ */
+function minePublicGame(game) {
+  if (!game) return null;
+  const done = game.state === 'won' || game.state === 'lost' || game.finished;
+  const cells = (game.cells || []).map((c) => {
+    if (c.open || done) return c;
+    const { mine, adj, boom, ...rest } = c;
+    return rest;
+  });
+  return {
+    cols: game.cols, rows: game.rows, mines: game.mines, level: game.level,
+    state: game.state, flags: game.flags, revealed: game.revealed,
+    startedAt: game.startedAt || null, endedAt: game.endedAt || null,
+    cells, boom: done ? (game.boom ?? null) : null,
+  };
+}
+
+/** 房间视图：公开棋盘 + 成员 + 我的身份 + 版本号 */
+function mineRoomView(room, sub) {
+  return {
+    id: room.id,
+    code: room.code,
+    level: room.level,
+    host: room.hostSub,
+    isHost: room.hostSub === sub,
+    version: room.version,
+    createdAt: room.createdAt,
+    updatedAt: room.updatedAt,
+    finished: !!room.finished,
+    minesLeft: Mines.minesLeft(room.game),
+    progress: Mines.progress(room.game),
+    elapsedMs: Mines.elapsedMs(room.game),
+    members: (room.members || []).map((m) => ({
+      sub: m.sub, name: m.name, host: m.sub === room.hostSub, joinedAt: m.joinedAt, lastAt: m.lastAt,
+    })),
+    revealers: room.revealers || {},
+    game: minePublicGame(room.game),
+  };
+}
+
+/** 取房间并确认"是成员" */
+async function mineRoomFor(store, id, who, res) {
+  const room = await store.readItem(MINE_ROOMS, id).catch(() => null);
+  if (!room) { fail(res, 404, '房间不存在（可能已过期或被解散）'); return null; }
+  if (!mineMember(room, who.user.sub)) { fail(res, 403, '你不在这个房间里：请用房主给的邀请链接或房间号加入'); return null; }
+  room.members = room.members.map((m) => (m.sub === who.user.sub ? { ...m, lastAt: new Date().toISOString() } : m));
+  return room;
+}
+
+/** 这一手开了哪些格（兼容不同字段名） */
+function mineOpenedCells(out, game) {
+  const raw = (out && (out.revealed || out.opened || out.cells)) || [];
+  const keys = [];
+  for (const cell of (Array.isArray(raw) ? raw : [])) {
+    if (cell && typeof cell === 'object') {
+      const r = cell.r ?? cell.row;
+      const c = cell.c ?? cell.col;
+      if (Number.isInteger(r) && Number.isInteger(c)) keys.push(`${r},${c}`);
+      else if (Number.isInteger(cell.index)) keys.push(`${Math.floor(cell.index / game.cols)},${cell.index % game.cols}`);
+    } else if (typeof cell === 'number') {
+      keys.push(`${Math.floor(cell / game.cols)},${cell % game.cols}`);
+    }
+  }
+  return keys;
+}
+
+async function handleMine(req, res, url, opts, seg) {
+  const store = storageFor(opts);
+  const who = await authenticate(req);
+  if (!who.ok) return fail(res, who.status, who.error);
+  const sub = who.user.sub;
+  const name = who.user.name || '匿名';
+
+  // POST /api/mine/rooms —— 建房
+  if (seg[0] === 'rooms' && !seg[1] && req.method === 'POST') {
+    let body = {};
+    try { body = (await readBody(req)) || {}; } catch { body = {}; }
+    const level = Mines.getLevel(String(body.level || 'beginner')).id;
+    const now = new Date().toISOString();
+    const room = {
+      id: mineRoomId(),
+      code: mineRoomCode(),
+      level,
+      hostSub: sub,
+      members: [{ sub, name, joinedAt: now, lastAt: now }],
+      game: Mines.createGame(level),
+      revealers: {},
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      finished: false,
+    };
+    try {
+      await store.writeItem(MINE_ROOMS, room.id, room);
+    } catch (err) {
+      log(`\x1b[31mMINE\x1b[0m 建房写入失败：${err.message}`);
+      return fail(res, 503, '房间没建起来（存储服务暂时不可用）：请稍后重试。');
+    }
+    log(`\x1b[35mMINE\x1b[0m 建房 ${room.id} code=${room.code} level=${level} by ${name}`);
+    return ok(res, { ok: true, room: mineRoomView(room, sub) });
+  }
+
+  // POST /api/mine/rooms/join —— 用房间号加入
+  if (seg[0] === 'rooms' && seg[1] === 'join' && req.method === 'POST') {
+    let body = {};
+    try { body = (await readBody(req)) || {}; } catch { body = {}; }
+    const code = String(body.code || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{4,8}$/.test(code)) return fail(res, 400, '房间号格式不对（6 位字母数字）');
+    const ids = await store.listItems(MINE_ROOMS).catch(() => []);
+    for (const id of ids.slice(-200)) {
+      const room = await store.readItem(MINE_ROOMS, id).catch(() => null);
+      if (room && room.code === code) {
+        if (!mineMember(room, sub)) {
+          room.members.push({ sub, name, joinedAt: new Date().toISOString(), lastAt: new Date().toISOString() });
+          room.version += 1;
+        }
+        room.updatedAt = new Date().toISOString();
+        await store.writeItem(MINE_ROOMS, room.id, room);
+        log(`\x1b[35mMINE\x1b[0m ${name} 用房间号加入 ${room.id}`);
+        return ok(res, { ok: true, room: mineRoomView(room, sub) });
+      }
+    }
+    return fail(res, 404, '没找到这个房间号（房间可能已过期）');
+  }
+
+  if (seg[0] !== 'rooms' || !seg[1]) return fail(res, 404, '未知的联机扫雷接口');
+
+  const id = decodeURIComponent(seg[1]);
+  const action = seg[2] || '';
+
+  // POST /api/mine/rooms/:id —— 通过邀请链接加入
+  if (!action && req.method === 'POST') {
+    const room = await store.readItem(MINE_ROOMS, id).catch(() => null);
+    if (!room) return fail(res, 404, '房间不存在（可能已过期或被解散）');
+    if (!mineMember(room, sub)) {
+      room.members.push({ sub, name, joinedAt: new Date().toISOString(), lastAt: new Date().toISOString() });
+      room.version += 1;
+      room.updatedAt = new Date().toISOString();
+      await store.writeItem(MINE_ROOMS, room.id, room);
+      log(`\x1b[35mMINE\x1b[0m ${name} 加入 ${room.id}`);
+    }
+    return ok(res, { ok: true, room: mineRoomView(room, sub) });
+  }
+
+  // GET /api/mine/rooms/:id —— 拉状态（客户端按 version 轮询）
+  if (!action && req.method === 'GET') {
+    const room = await mineRoomFor(store, id, who, res);
+    if (!room) return undefined;
+    return ok(res, { ok: true, room: mineRoomView(room, sub) });
+  }
+
+  // POST /api/mine/rooms/:id/move —— 揭格 / 插旗 / 和弦（服务端权威）
+  if (action === 'move' && req.method === 'POST') {
+    const room = await mineRoomFor(store, id, who, res);
+    if (!room) return undefined;
+    if (room.finished) return fail(res, 409, '这一局已经结束了：让房主开新局');
+    let body = {};
+    try { body = (await readBody(req)) || {}; } catch { body = {}; }
+    const kind = String(body.action || 'reveal');
+    const r = Number(body.r);
+    const c = Number(body.c);
+    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0 || r >= room.game.rows || c >= room.game.cols) {
+      return fail(res, 400, '格子坐标不对');
+    }
+    const idx = r * room.game.cols + c;
+    let out = null;
+    try {
+      if (kind === 'flag') out = Mines.toggleFlag(room.game, r, c);
+      else if (kind === 'chord') {
+        if (!Mines.canChord(room.game, r, c)) return fail(res, 409, '周围旗数不够，不能和弦');
+        out = Mines.chord(room.game, r, c);
+      } else out = Mines.reveal(room.game, r, c);
+    } catch (err) {
+      return fail(res, 400, `这一手不合法：${err.message}`);
+    }
+    for (const key of mineOpenedCells(out, room.game)) room.revealers[key] = sub;
+    const after = room.game.cells[idx];
+    if (kind !== 'flag' && after && after.revealed) room.revealers[`${r},${c}`] = sub;
+    if (kind === 'flag' && after && !after.revealed) delete room.revealers[`${r},${c}`];
+    if (room.game.state === 'won' || room.game.state === 'lost') room.finished = true;
+    room.version += 1;
+    room.updatedAt = new Date().toISOString();
+    room.members = room.members.map((m) => (m.sub === sub ? { ...m, lastAt: room.updatedAt } : m));
+    try {
+      await store.writeItem(MINE_ROOMS, room.id, room);
+    } catch (err) {
+      log(`\x1b[31mMINE\x1b[0m 落步失败：${err.message}`);
+      return fail(res, 503, '这一手没写进去（存储服务暂时不可用）：请重试。');
+    }
+    return ok(res, { ok: true, room: mineRoomView(room, sub), events: out || null });
+  }
+
+  // POST /api/mine/rooms/:id/restart —— 房主开新局
+  if (action === 'restart' && req.method === 'POST') {
+    const room = await mineRoomFor(store, id, who, res);
+    if (!room) return undefined;
+    if (room.hostSub !== sub) return fail(res, 403, '只有房主能开新局');
+    room.game = Mines.createGame(room.level);
+    room.revealers = {};
+    room.finished = false;
+    room.version += 1;
+    room.updatedAt = new Date().toISOString();
+    await store.writeItem(MINE_ROOMS, room.id, room);
+    log(`\x1b[35mMINE\x1b[0m 新局 ${room.id}`);
+    return ok(res, { ok: true, room: mineRoomView(room, sub) });
+  }
+
+  // DELETE /api/mine/rooms/:id —— 房主解散 / 成员退出
+  if (!action && req.method === 'DELETE') {
+    const room = await store.readItem(MINE_ROOMS, id).catch(() => null);
+    if (!room) return fail(res, 404, '房间不存在');
+    if (room.hostSub === sub) {
+      await store.removeItem(MINE_ROOMS, id);
+      log(`\x1b[31mMINE\x1b[0m 解散 ${room.id}`);
+      return ok(res, { ok: true, deleted: id });
+    }
+    room.members = room.members.filter((m) => m.sub !== sub);
+    room.version += 1;
+    room.updatedAt = new Date().toISOString();
+    await store.writeItem(MINE_ROOMS, room.id, room);
+    return ok(res, { ok: true, left: sub });
+  }
+
+  return fail(res, 404, '未知的联机扫雷接口');
+}
+
 /* ---------------- 论坛 ---------------- */
 
 const FORUM = {
@@ -2202,6 +2456,9 @@ async function handleApi(req, res, url, opts = {}) {
   /* ---------------- 论坛 ---------------- */
   if (seg[0] === 'forum') return handleForum(req, res, url, opts, seg.slice(1));
 
+  /* ---------------- 联机扫雷 ---------------- */
+  if (seg[0] === 'mine') return handleMine(req, res, url, opts, seg.slice(1));
+
   // /api/content/:collection[/:id]
   if (seg[0] === 'content') {
     const name = seg[1];
@@ -2379,11 +2636,37 @@ const onListen = () => {
 /* ---------------- 启动（只有直接运行时才监听端口） ---------------- */
 
 if (IS_MAIN) {
-  server.listen(PORT, onListen);
-  process.on('SIGINT', () => {
-    console.log('\n服务已停止。');
-    process.exit(0);
-  });
+  /**
+   * 监听地址：默认绑**所有网卡**（局域网/VPS 直连都能访问）。
+   * 想更保守（例如 VPS 上前面挂了 Caddy/Nginx 反代）可以设 `HOST=127.0.0.1`，
+   * 这样只有本机的反代能连进来，外网必须走 HTTPS 域名 —— 推荐做法，见 deploy/README.md。
+   */
+  const HOST = process.env.HOST || '';
+  if (HOST) server.listen(PORT, HOST, onListen);
+  else server.listen(PORT, onListen);
+
+  /**
+   * 优雅退出：systemd 重启/停机时发的是 **SIGTERM**（不是 SIGINT），
+   * 默认行为会让进程立刻死掉 —— 正在写的 data/*.json 就可能留下半截文件。
+   * 这里先停止接收新连接、等在途请求收尾，最多等 8 秒再强制退出（避免“关不掉”）。
+   */
+  let closing = false;
+  const shutdown = (signal) => {
+    if (closing) return;
+    closing = true;
+    console.log(`\n收到 ${signal}：停止接收新连接，等在途请求收尾…`);
+    const force = setTimeout(() => {
+      console.log('等待超时（8s）：强制退出。');
+      process.exit(0);
+    }, 8000);
+    force.unref?.();
+    server.close(() => {
+      console.log('服务已停止。');
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 /* ---------------- Serverless 入口：Web 标准 Request → Response ----------------
