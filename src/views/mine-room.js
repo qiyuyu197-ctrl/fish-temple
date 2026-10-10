@@ -151,7 +151,7 @@ function panelHTML() {
 
     <div class="mr-card">
       <b class="mono">队友（${room.members.length}）</b>
-      ${membersHTML(room)}
+      <div id="mrMembers">${membersHTML(room)}</div>
     </div>
 
     <section class="ms">
@@ -302,11 +302,20 @@ export default {
       }
     };
 
-    // 轮询更新：已经在棋盘界面上时只同步棋盘与 HUD（避免整块重画打断动画）
+    // 轮询更新：只同步棋盘与 HUD + 队友列表（不整块重画，免得打断动画）
     MineRoom.onUpdate = (room) => {
       if (!room) { repaint(); return; }
-      if (document.getElementById('mrBoard')) syncBoard(room);
-      else repaint(true);
+      const board = document.getElementById('mrBoard');
+      if (!board) { repaint(true); return; }
+      syncBoard(room);
+      // 队友列表也要刷新 —— 否则房主看不到有人进来（站主实测反馈）
+      const mem = document.getElementById('mrMembers');
+      if (mem) mem.innerHTML = membersHTML(room);
+      const cnt = mem?.closest('.mr-card')?.querySelector('b.mono');
+      if (cnt) cnt.textContent = `队友（${room.members.length}）`;
+      // 结算：按单人局的方式给结算条（只在刚分出胜负那一下整块重画一次）
+      const done = room.game.state === 'won' || room.game.state === 'lost';
+      if (done && !document.querySelector('.ms-banner')) repaint(true);
     };
 
     const m = /[?&]room=([A-Za-z0-9_-]{4,40})/.exec(String(location.hash || ''));
