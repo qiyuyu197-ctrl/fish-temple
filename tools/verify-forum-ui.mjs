@@ -257,10 +257,16 @@ const blobExistedBefore = existsSync(BLOB_DIR);
 /** 仓库 data/ 的快照：跑完必须一模一样（证明自检没碰真实内容） */
 async function snapshotData() {
   const out = [];
+  // ⚠️ 必须排除运行期缓存目录（.cache/、.backup/）：
+  // 这个套件自己跑插画抽卡时会在 data/.cache/pixiv-img/ 写磁盘缓存，
+  // 那是**运行期产物**、不是"内容"，把它算进快照会让这条断言因为自己的缓存变化而红
+  //（已 gitignore）。真正要守住的是：公告/文章/相册/账号/论坛/历史这些**内容与数据**没被动过。
+  const SKIP_DIRS = new Set(['.cache', '.backup']);
   const walk = async (dir, rel = '') => {
     let entries = [];
     try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (e.isDirectory() && SKIP_DIRS.has(e.name)) continue;
       const full = path.join(dir, e.name);
       const r = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) await walk(full, r);
