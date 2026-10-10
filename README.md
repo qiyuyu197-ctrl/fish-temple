@@ -77,9 +77,9 @@ python -m http.server 5173
 │   ├── views/              页面：home / logs / music / gallery / mine / tools /
 │   │                       admin / notfound（+ post、newsItem 作为详情渲染器）
 │   │                       redirect.js 负责老路由跳转（#/posts → #/logs）
-│   │                       forum.js 论坛板块（#/forum）—— **界面正在实现中**
+│   │                       forum.js 论坛板块（#/forum：列表 / 详情 / 发帖 / 编辑，作者或站长才能改）
 │   └── plugins/            扩展示例
-│       ├── auth.js         Auth0 PKCE 登录（零依赖实现 code_verifier/challenge）—— **界面正在实现中**
+│       ├── auth.js         Auth0 PKCE 登录（零依赖实现 code_verifier/challenge）＋顶栏账号控件与令牌刷新
 │       ├── stage.js        随机插画引擎
 │       ├── netease.js      网易云集成（搜索 / 直放 provider `netease-audio` / 官方播放器回退 / 列表持久化）
 │       ├── almanac.js      黄历判定（干支 / 建除十二神 / 二十八宿 / 黄道黑道 / 宜忌 → 吉凶 + 依据）
@@ -112,9 +112,18 @@ python -m http.server 5173
     ├── responsive.mjs      多断点布局溢出检查 + 截图（1920→360）
     ├── verify-playback.mjs 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏黄历按钮不被裁切（43 项）
     ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs + 注入 Blobs 替身（默认 5199）
-    ├── verify-deploy.mjs   线上形态自检：打包安全 lint + `/api/*` 语义 + 账号与论坛（health/config、论坛真读线上 Blobs、配好 Auth0 后校验令牌）+ 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）+ 手机形态两条（iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（34 项，配好 Auth0 后 35 项）
+    ├── verify-deploy.mjs   线上形态自检：打包安全 lint（含"页面代码送给浏览器前先做语法检查"）+ `/api/*` 语义
+    │                       + 账号与论坛（health/config、论坛真读线上 Blobs、未配 Auth0 时不许出现点不动的登录控件）
+    │                       + 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）+ 手机形态两条
+    │                       （iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（34 项，配好 Auth0 后 36 项）
     ├── verify-auth.mjs     账号 / 权限 / 论坛自检：本地模拟 IdP（真 RSA 密钥 + JWKS + 真签名）跑权限矩阵，
-    │                       再用仿真器验「部署形态下站长在线发布 → 写 Blobs → 读覆盖层」（47 项）
+    │                       再用仿真器验「部署形态下站长在线发布 → 写 Blobs → 读覆盖层 → 删除留墓碑」（47 项）
+    ├── verify-forum-ui.mjs 界面级自检（真浏览器 + 模拟 IdP）：登录入口与三态顶栏、论坛发帖、
+    │                       作者专属的编辑删除、越权 403、用户内容不被当 HTML 执行、真登出、
+    │                       发布控制台的站长门禁（24 项）
+    ├── verify-all.mjs      **一条命令按顺序跑齐上面几套**（自己探测空闲端口、起本地服务与部署仿真、
+    │                       每套之间冷却、汇总"通过 x / y"、失败原样带出明细、结束清理）——
+    │                       浏览器套件并行跑会互相抢资源造成假失败，所以用这个串行入口
     ├── test-markdown.mjs   Markdown 渲染器单元测试（34 项）
     ├── content-build.mjs   批量写作：tools/content/*.md → data/posts.json & news.json（整份覆盖）
     ├── content/            批量写作的正文源文件（Markdown）
@@ -1405,7 +1414,7 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 | 网易云搜索 / 导入歌单 / 站内试听 | ✅ | ✅（音频是 302 到 CDN） |
 | 黄历吉日之歌 | ✅ | ✅ |
 | 发布控制台写入 | ✅ 免登录（本机） | ⚠️ 代码已支持（**仅站长**、写 Netlify Blobs），需先配 `AUTH0_DOMAIN` / `AUTH0_CLIENT_ID` / `OWNER_EMAILS`；没配时明确回 `501` |
-| 邮箱注册 / 登录 / 论坛发帖 | ⚠️ 需本机配同样的三个环境变量才能登 | ⚠️ 同上；界面正在实现中 |
+| 邮箱注册 / 登录 / 论坛发帖 | ✅ 已实现（本机同样要配那三个环境变量） | ✅ 已实现（顶栏登录入口 + `#/forum`；先配好那三个环境变量，否则整层优雅降级为"未启用账号"） |
 | `nekos.best` / `waifu.pics` | 浏览器直连，取决于你的网络能不能到 | 同上（**不走代理**，所以"能不能用"因人而异） |
 
 > 线上发布走的是 **Netlify Blobs**（见 `storage.mjs` 的双驱动），权限由 Auth0 令牌 + 站长白名单决定：
@@ -1415,9 +1424,12 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 
 ## 账号 / 权限 / 论坛
 
-> **进度**：服务端已经完成并且在线上跑着（`auth.mjs` / `storage.mjs` / `/api/auth/*` / `/api/forum/*`，
-> 由 `tools/verify-auth.mjs` 以 **47/47** 覆盖）；**客户端界面（顶栏登录入口、`#/forum` 论坛板块、
-> 控制台仅站长可写）正在实现中**。这一节写的是已经定下来并被验证过的接口与权限契约。
+> **进度**：服务端与客户端界面**都已完成**（`auth.mjs` / `storage.mjs` / `/api/auth/*` / `/api/forum/*`，
+> 以及顶栏登录入口、`#/forum` 论坛板块、控制台仅站长可写）。
+> 自检：`tools/verify-auth.mjs` **47/47**（接口与权限契约）、`tools/verify-forum-ui.mjs` **24/24**
+> （真浏览器里的登录三态、发帖、作者专属编辑删除、越权 403、用户内容不当 HTML 执行、真登出、站长门禁）。
+> **唯一还没做的是"真实 Auth0 登录"的线上验证** —— 那需要在 Netlify 配好下面那三个环境变量，
+> 并用真实邮箱走一遍注册 / 验证邮件；在此之前本层的接口契约已按模拟 IdP 全覆盖。
 
 ### 谁能做什么
 
@@ -1470,9 +1482,15 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 
 - `@netlify/blobs` 是**唯一**的 npm 依赖，而且**只在线上动态引入**（本地开发不需要装）；
   站点本身仍然是零依赖的静态站。
-- 线上读取走**覆盖层**：`GET /api/content/:collection` 回 `{ items, storage:'blobs', overlayOnly:true }`，
-  由前端按 `id` 合并到静态 `data/*.json` **之上**（覆盖层胜出）。函数里读不到仓库那份
-  `data/*.json`（被打包产物排除在外），所以合并放在前端 —— 这样「网站现有文案」不会因为上线而消失。
+- 线上读取走**覆盖层**：`GET /api/content/:collection` 回 `{ items, storage:'blobs', overlayOnly:true, deleted:[…] }`，
+  由前端按 `id` 合并到静态 `data/*.json` **之上**（覆盖层胜出），**再按 `deleted` 里的 id 剔除**。
+  函数里读不到仓库那份 `data/*.json`（被打包产物排除在外），所以合并放在前端 ——
+  这样「网站现有文案」不会因为上线而消失。
+- **墓碑（`deleted`）**：线上删除一条内容时，只把它从覆盖层里拿掉是不够的 —— 那等于"从没发布过"，
+  前端一合并，仓库 seed 里那条又冒出来（表现为**线上删掉的公告刷新后又出现**）。
+  所以线上删除会留下 `{ id, __deleted: true, deletedAt }` 这条墓碑，`GET` 通过 `deleted` 告诉前端剔除它；
+  重新发布同一 id 会撤销墓碑；**只在仓库 seed 里、覆盖层没写过的 id 也允许删**（函数读不到 seed，
+  没法验证它是否存在，而前端只会删它显示过的东西）。本地（文件即真相）不写墓碑，`deleted` 恒为空。
 - 本地仿真：`tools/netlify-dev.mjs` 注入一个 **Blobs 替身**（目录即 store，写在 `.blobs-dev/`，已 gitignore），
   于是「线上发布 → 写覆盖层 → 读到覆盖层」这条链路在没有 Netlify 凭据时也能被真实验证。
 - 账号资料也落库：`users/<sha1(sub) 前 32 位>.json`，记 `sub / email / name / role / verified /
