@@ -171,16 +171,26 @@ export const EmbedHost = {
     // 之后按正常的停靠规则走
     bus.on('embed:touched', () => this.pinExpanded(false));
 
-    // 视口变化 / 页面滚动时把内嵌位置重新对齐到槽位
-    const realign = () => { if (dockMode === 'inline') this._align(); };
+    // 视口变化 / 页面滚动时把内嵌位置重新对齐到槽位。
+    //
+    // ⚠️ 对齐之后**再确认一次**（不能只对齐一次）：浏览器做滚动锚定（scroll anchoring）时，
+    // 可能在同一次布局里又改了 scrollY —— 我们在那一瞬间读到的槽位坐标就作废了；
+    // 而布局稳定之后不会再有 resize/scroll 事件，错位就被固定下来。
+    // 线上表现：搜完结果，官方播放器与槽位错开几十像素（自检里 gapAfter≈-81 偶发）。
+    // 二次确认很便宜（几次 rect 读取 + 写 CSS 变量），却能吃掉这个竞态。
+    let confirmTimer = null;
+    const realign = () => {
+      if (dockMode !== 'inline') return;
+      this._align();
+      clearTimeout(confirmTimer);
+      confirmTimer = setTimeout(() => { if (dockMode === 'inline') this._align(); }, 180);
+    };
     window.addEventListener('resize', realign, { passive: true });
     window.addEventListener('scroll', realign, { passive: true });
 
     // 布局变化（字体载入、图片撑开、窗口缩放）也要重新对齐
     if (typeof ResizeObserver !== 'undefined') {
-      const ro = new ResizeObserver(() => {
-        if (dockMode === 'inline') this._align();
-      });
+      const ro = new ResizeObserver(() => realign());
       const attach = () => {
         const slot = document.querySelector('[data-embed-slot]');
         const view = document.getElementById('view');
