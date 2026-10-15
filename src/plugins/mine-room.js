@@ -34,6 +34,7 @@ export const MineRoom = {
     if (!room) return;
     this.room = room;
     this.version = Number(room.version) || 0;
+    this._lastChange = Date.now();     // 有变化 → 自适应轮询回到"快档"
     this.id = room.id;
     this.code = room.code;
     this.error = '';
@@ -153,10 +154,32 @@ export const MineRoom = {
 
   startPolling() {
     this.stopPolling();
-    this._timer = setInterval(() => { void this.pull(); }, POLL_MS);
+    this._closed = false;
+    this._lastChange = Date.now();
+    this._schedule();
+  },
+
+  /**
+   * 自适应轮询：**有人动就快、没人动就慢**。
+   * 为什么：Netlify 免费额度里"函数调用次数"是硬限制，而固定 150ms 轮询在
+   * "房间开着但没人动"时纯属白烧（每秒 6-7 次调用）。改成链式单次定时器：
+   *   最近一次变化 < 3 秒 → 150ms（正在对局，手感即时）
+   *   安静 3–15 秒        → 500ms
+   *   安静 > 15 秒        → 1500ms（没人动，省调用）
+   * 代价：一段安静之后"对方的第一步"最多晚 1.5 秒出现；其后立刻回到 150ms。
+   */
+  _schedule() {
+    if (this._closed) return;
+    const idle = Date.now() - (this._lastChange || 0);
+    const delay = idle < 3000 ? 150 : idle < 15000 ? 500 : 1500;
+    this._timer = setTimeout(async () => {
+      await this.pull().catch(() => null);
+      this._schedule();
+    }, delay);
   },
 
   stopPolling() {
-    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    this._closed = true;
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
   },
 };

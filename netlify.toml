@@ -53,3 +53,18 @@
   for = "/data/*"
   [headers.values]
     Cache-Control = "public, max-age=60"
+
+[[headers]]
+  # 站内图片：站点体积 99.5% 是图，反复回源最吃带宽额度。
+  # 图片文件名不带哈希，所以不能设"一年"这种不可撤回的长缓存 ✗
+  # —— 折中 30 天 + stale-while-revalidate：回访几乎不再回源，
+  #    万一以后换了同名图，最多 30 天陈旧（照片归档可以接受）。
+  for = "/assets/img/*"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000, stale-while-revalidate=604800"
+
+[[headers]]
+  # 其它静态资源（src/ styles/ 等）：短缓存，改一次就生效
+  for = "/src/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
