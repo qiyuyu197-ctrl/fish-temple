@@ -19,6 +19,14 @@
 [build]
   publish = "."
   # 静态站没有构建步骤：不写 command，Netlify 直接用仓库内容发布
+  #
+  # 省额度用的一条规则：**只有站点内容真的变了才构建**。
+  # Netlify 的约定是 —— ignore 命令退出 0 就跳过这次构建。
+  # 于是这里判断"排除掉纯工具/文档之后，两次提交之间有没有差异"：
+  #   · 只改了 tools/ deploy/ README.md .shots/ .gitignore → 退出 0 → 跳过构建（省一次部署与积分）
+  #   · 改了 index.html src/ styles/ data/ assets/ 等 → 退出 1 → 正常构建
+  # 用 $CACHED_COMMIT_REF..$COMMIT_REF（合并提交上 HEAD^ 不可靠），这是官方推荐写法。
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tools' ':(exclude)deploy' ':(exclude)README.md' ':(exclude).shots' ':(exclude).gitignore'"
 
 [functions]
   directory = "netlify/functions"
