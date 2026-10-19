@@ -69,7 +69,7 @@ const boardHTML = () => `
   <div class="tl-tools">
     <input class="tl-in mono" id="tlLabel" maxlength="40" placeholder="卡片名字（可空，只放图也行）" />
     <input class="tl-in mono" id="tlImage" placeholder="图片地址（https://…）可空" />
-    <label class="btn btn--sm tl-file">选本地图<input type="file" id="tlFile" accept="image/*" hidden /></label>
+    <label class="btn btn--sm tl-file">选本地图<input type="file" id="tlFile" accept="image/*" multiple hidden /></label>
     <button class="btn btn--sm btn--signal" id="tlAdd">加入素材区</button>
   </div>
   ${trayHTML()}
@@ -184,14 +184,31 @@ export default {
       save();
     });
 
-    // 选本地图
+    // 选本地图：**选完直接进素材区**（不再要你多点一次"加入素材区" ✗）
+    //   · 支持一次选多张（multiple ✓）
+    //   · 卡片名自动取文件名（去掉扩展名），省得每张都手打 ✓
+    //   · 文件名太长的截断到 40 字（引擎也有一道上限 ✓）
     root.addEventListener('change', async (e) => {
-      const file = e.target.closest('#tlFile')?.files?.[0];
-      if (!file) return;
-      try {
-        pendingFile = await readFileAsDataURL(file);
-        Toast.ok('图片已选好，点「加入素材区」');
-      } catch { Toast.show('这张图读不出来', 'err'); }
+      const input = e.target.closest('#tlFile');
+      const files = input?.files;
+      if (!files || !files.length) return;
+      let added = 0;
+      let failed = 0;
+      for (const file of Array.from(files)) {
+        try {
+          const data = await readFileAsDataURL(file);
+          const label = String(file.name || '').replace(/\.[^.]+$/, '').slice(0, 40);
+          const r = addItem(board, { label, image: data });
+          if (r.error) { failed += 1; continue; }
+          board = r.board;
+          added += 1;
+        } catch { failed += 1; }
+      }
+      save();
+      paint();
+      if (added) Toast.ok(`已加入素材区 ${added} 张`);
+      if (failed) Toast.show(`有 ${failed} 张没能加入（格式不支持或读取失败）`, 'err');
+      try { input.value = ''; } catch { /* 允许重复选同一张 */ }
     });
 
     // 拖拽：卡片 → 某个档 / 素材区
