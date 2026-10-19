@@ -159,14 +159,19 @@ function makeGame(canvas) {
     return false;
   };
 
+  /* 下一个障碍还有多少帧 —— 每次都是随机的 ✓
+   * 之前用 `st.t % 间隔 === 0` 触发，等于每局节奏完全一样 ✗（站主指出了这点） */
+  let nextSpawn = 40;
+
+  /* 生成一个障碍：**高度、宽度都随机** ✓
+   *   · 矮的（≤30）是石头，可以直接跳过去，也不一定非跳不可
+   *   · 高的（>30）是水母，必须跳 ✓
+   *   宽度跟着高度走，保证"更高的更窄、更矮的更宽"，不会出现又高又宽的怪物 ✗ */
   const spawn = () => {
-    const tall = Math.random() < 0.6;
-    st.obstacles.push({
-      x: W + 20,
-      w: tall ? 22 : 14,
-      h: tall ? 40 : 18,
-      kind: tall ? 'jelly' : 'rock',
-    });
+    const h = Math.round(14 + Math.random() * 32);          // 14–46 px 随机
+    const kind = h > 30 ? 'jelly' : 'rock';
+    const w = Math.max(12, Math.round(h * (kind === 'jelly' ? 0.5 : 0.85)));
+    st.obstacles.push({ x: W + 20, w, h, kind });
   };
 
   const step = () => {
@@ -180,7 +185,13 @@ function makeGame(canvas) {
     st.y += st.vy;
     if (st.y > floorY()) { st.y = floorY(); st.vy = 0; }
 
-    if (st.t % Math.max(28, L.spawn - Math.floor(st.speed * 6)) === 0) spawn();   // 难度越高障碍越密
+    // 障碍间隔随机：以难度的基准间隔为中心，在 0.55×–1.45× 之间浮动 ✓
+    // （难度越高基准越小 → 整体更密，但**同一局里也能忽松忽紧**，不会是一个固定节拍）
+    nextSpawn -= 1;
+    if (nextSpawn <= 0) {
+      spawn();
+      nextSpawn = Math.round(L.spawn * (0.55 + Math.random() * 0.9));
+    }
     for (const o of st.obstacles) o.x -= st.speed;
     st.obstacles = st.obstacles.filter((o) => o.x + o.w > -30);
 
