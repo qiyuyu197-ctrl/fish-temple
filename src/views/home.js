@@ -118,7 +118,7 @@ export default {
       <div class="grid grid--split">
         <div>
           ${latestNews.length
-            ? `<div class="list">${latestNews.map((n) => newsItem(n, { compact: true })).join('')}</div>
+            ? `<div class="list">${latestNews.map((n, i) => newsItem(n, { compact: true, index: i })).join('')}</div>
                <div style="margin-top:var(--sp-4)"><a class="btn btn--sm" href="#/logs" data-nav>全部公告 →</a></div>`
             : emptyState({ title: '暂无公告', desc: '发布一条公告会立刻显示在这里。', icon: '◆' })}
         </div>
