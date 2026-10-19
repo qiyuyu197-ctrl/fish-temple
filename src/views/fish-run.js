@@ -21,7 +21,7 @@ const BEST_KEY = 'ft.terminal.fishRunBest';
  * 再给紧邻实心的空格自动描黑边（就是那张画里的黑轮廓 ✓），
  * 最后点上眼睛（深色）和嘴（红色 ✓）。—— 比手抄一张点阵图不容易错。
  */
-const GW = 22, GH = 11, PX = 6;
+const GW = 22, GH = 11, PX = 5;
 const FILL = 1, OUT = 2, EYE = 3, MOUTH = 4, WHITE = 5;
 const COLORS = { [FILL]: '#2b7fe0', [OUT]: '#121316', [EYE]: '#121316', [MOUTH]: '#e5484d', [WHITE]: '#f4f1e8' };
 
@@ -44,12 +44,13 @@ function buildFish() {
   span(4, 5, 14);
 
   // 尾巴（左边，**分叉** ✓）：上下两叉 + 中间细腰
-  span(3, 0, 2);
-  span(4, 0, 3);
-  span(5, 2, 3);
-  span(6, 1, 2);
-  span(7, 0, 3);
-  span(8, 0, 2);
+  // 注意所有坐标都从 x=1 起 —— 之前贴到 x=0，黑边画不上去，尾巴看着是断的 ✗
+  span(3, 1, 3);
+  span(4, 1, 4);
+  span(5, 3, 4);
+  span(6, 2, 3);
+  span(7, 1, 4);
+  span(8, 1, 3);
 
   // 腹鳍（肚子下面那个小三角 ✓）
   span(10, 9, 12);
@@ -71,8 +72,11 @@ function buildFish() {
     }
   }
 
-  // 鳃裂（两条竖线 ✓，参考图里没有眼睛，只有这两条）与红嘴（**在右下** ✓）
-  put(9, 6, EYE); put(9, 7, EYE);
+  // 眼睛（可爱版 ✓）：2×2 深色瞳孔 + 1px 白高光，放在头这一侧
+  put(14, 6, EYE); put(15, 6, EYE);
+  put(14, 7, EYE); put(15, 7, EYE);
+  put(14, 6, WHITE);
+  // 鳃裂（一条即可，别和眼睛抢 ✓）与红嘴（**在右下** ✓）
   put(11, 6, EYE); put(11, 7, EYE);
   span(9, 17, 18, MOUTH);
   return g;
