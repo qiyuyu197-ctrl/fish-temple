@@ -100,8 +100,13 @@ const FISH_W = GH * PX;   // 转完之后宽高互换 ✓
 const FISH_H = GW * PX;
 
 function paintFish(ctx, x, y) {
-  for (let gy = 0; gy < GH; gy++) {
-    for (let gx = 0; gx < GW; gx++) {
+  // ⚠️ 必须按**转完之后**的实际行列来画：
+  // 网格转了 90° 之后是 22 行 × 11 列，但这里原来写死 GH/GW（11 行 × 22 列）✗
+  // → 只画到第 11 行就停了，鱼的**下半身（身体+尾巴）整块没画**（站主说"下半身呢"就是它 ✓）
+  const rows = FISH_GRID.length;
+  const cols = FISH_GRID[0].length;
+  for (let gy = 0; gy < rows; gy++) {
+    for (let gx = 0; gx < cols; gx++) {
       const v = FISH_GRID[gy][gx];
       if (!v) continue;
       ctx.fillStyle = COLORS[v] || '#2b7fe0';
