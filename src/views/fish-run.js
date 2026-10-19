@@ -21,7 +21,7 @@ const BEST_KEY = 'ft.terminal.fishRunBest';
  * 再给紧邻实心的空格自动描黑边（就是那张画里的黑轮廓 ✓），
  * 最后点上眼睛（深色）和嘴（红色 ✓）。—— 比手抄一张点阵图不容易错。
  */
-const GW = 22, GH = 11, PX = 5;
+const GW = 22, GH = 11, PX = 4;
 const FILL = 1, OUT = 2, EYE = 3, MOUTH = 4, WHITE = 5;
 const COLORS = { [FILL]: '#2b7fe0', [OUT]: '#121316', [EYE]: '#121316', [MOUTH]: '#e5484d', [WHITE]: '#f4f1e8' };
 
@@ -102,6 +102,18 @@ const GROUND = H - 34;       // 水底基准线
 const GRAVITY = 0.65;
 const JUMP_V = -11.5;
 
+/* 三档难度（站主要求：现在的速度算"中等"）
+ * 每档只调四个量：起步速度 base、加速上限 cap、障碍间隔 spawn、重力 gravity
+ * —— 障碍大小保持不变，免得"难度"变成"画面都不一样" ✗ */
+const LEVELS = {
+  easy: { name: '简单', base: 3.2, cap: 2.5, spawn: 96, gravity: 0.60 },
+  mid: { name: '中等', base: 4.2, cap: 4.5, spawn: 78, gravity: 0.65 },
+  hard: { name: '困难', base: 6.0, cap: 6.0, spawn: 60, gravity: 0.72 },
+};
+const LEVEL_KEY = 'ft.terminal.fishLevel';
+let LEVEL = 'mid';
+try { LEVEL = localStorage.getItem(LEVEL_KEY) || 'mid'; } catch { LEVEL = 'mid'; }
+
 let raf = 0;
 let running = false;
 
@@ -154,12 +166,13 @@ function makeGame(canvas) {
     if (st.over) return false;
     st.t += 1;
     st.score = Math.floor(st.t / 6);
-    st.speed = 4.2 + Math.min(4.5, st.t / 900);
-    st.vy += GRAVITY;
+    const L = LEVELS[LEVEL] || LEVELS.mid;
+    st.speed = L.base + Math.min(L.cap, st.t / 900);   // 按难度决定起步速度与加速上限
+    st.vy += L.gravity;
     st.y += st.vy;
     if (st.y > floorY()) { st.y = floorY(); st.vy = 0; }
 
-    if (st.t % Math.max(38, 78 - Math.floor(st.speed * 6)) === 0) spawn();
+    if (st.t % Math.max(28, L.spawn - Math.floor(st.speed * 6)) === 0) spawn();   // 难度越高障碍越密
     for (const o of st.obstacles) o.x -= st.speed;
     st.obstacles = st.obstacles.filter((o) => o.x + o.w > -30);
 
@@ -262,6 +275,12 @@ export default {
   title: '像素小鱼',
 
   render() {
+    // 难度从地址读（?lv=easy|mid|hard）—— 页签就是普通链接，切换不需要额外事件 ✓
+    const m = /[?&]lv=(easy|mid|hard)/.exec(String(location.hash || ''));
+    if (m) {
+      LEVEL = m[1];
+      try { localStorage.setItem(LEVEL_KEY, LEVEL); } catch { /* 隐私模式忽略 */ }
+    }
     return `${viewhead({
       title: 'PIXEL FISH',
       sub: '一条像素小鱼，躲水母和石头。进去先待机，按空格 / 点屏幕开始；撞到就结束，越跑越快，纪录存在本机。',
@@ -270,6 +289,9 @@ export default {
     <div class="mr-tabs" role="tablist" aria-label="小游戏">
       <a class="mr-tab" href="#/mine?room=1">扫雷</a>
       <a class="mr-tab is-on" href="#/fishrun" role="tab" aria-selected="true">像素小鱼</a>
+    </div>
+    <div class="mr-tabs" role="tablist" aria-label="难度" style="margin-top:calc(var(--sp-2) * -1)">
+      ${Object.entries(LEVELS).map(([k, v]) => `<a class="mr-tab ${k === LEVEL ? 'is-on' : ''}" href="#/fishrun?lv=${k}" role="tab" aria-selected="${k === LEVEL}">${v.name}</a>`).join('')}
     </div>
     <canvas id="fishCanvas" width="${W}" height="${H}"
       style="width:100%;max-width:${W}px;display:block;border:2px solid var(--ink-100);image-rendering:pixelated;background:#eaf3ff"></canvas>
