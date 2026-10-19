@@ -143,6 +143,19 @@ table tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* ⑧ 空壳元素不显示
+ *  MINES 页顶栏右侧那块"白矩形"：截图里它贴在 ticker 那一条的右端下方 ✓
+ *  —— 是某个空槽（没有内容的 li / div）被渲染成了白块 ✗。
+ *  统一让"没有任何内容的槽"不占位、不画背景：
+ *   · :empty 只匹配"完全没有任何子节点"的元素，所以有文字的不会被误伤 ✓
+ *   · 只作用于 ticker 与页签容器，范围收窄，不动站点其它地方 ✓
+ */
+.ticker > *:empty,
+.ticker li:empty,
+.mr-tabs > *:empty {
+  display: none !important;
+}
+
 /* ⑤ 系统开了"减少动态效果"：全部直接跳到结束态，只保留颜色变化 */
 @media (prefers-reduced-motion: reduce) {
   *,
