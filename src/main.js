@@ -38,6 +38,7 @@ import music from './views/music.js';
 import gallery from './views/gallery.js';
 import mine from './views/mine.js';
 import tierlist from './views/tierlist.js';   // Tier List（TOOLS 板块）
+import fishrun from './views/fish-run.js';     // 像素小鱼（小游戏，跟扫雷挨着）
 import tools from './views/tools.js';
 import admin from './views/admin.js';
 import notfound from './views/notfound.js';
@@ -174,7 +175,7 @@ async function boot() {
   //    注册成兼容跳转，老链接不会 404（见 views/redirect.js）
   //    Tier List（TOOLS 板块）放在 tools 后面：注册顺序就是导航顺序 ✓
   [
-    home, logs, forum, music, gallery, mine, tools, admin, notfound,
+    home, logs, forum, music, gallery, mine, fishrun, tools, admin, notfound,
     redirectView('posts', 'logs'),
     redirectView('post', 'logs'),
     redirectView('news', 'logs'),
