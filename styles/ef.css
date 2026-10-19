@@ -117,6 +117,32 @@ table tbody tr:hover {
   transition-timing-function: var(--ef-soft);
 }
 
+/* ⑥ 宽体小字：等宽标签统一加一点字距 —— 这是"工业风标题"的骨架，
+ *    站里 viewhead 的 idx（MODULE / 06 那类）本来就在，只是字距不统一。
+ *    只加 0.04em，克制；加多了整站会显得松散 ✗ */
+.mono {
+  letter-spacing: 0.04em;
+}
+
+/* ⑦ 列表行编号：只给"成员/队友"这类真正的行列加序号（01 02 03…），
+ *    不动导航（导航是链接、加编号会很奇怪 ✗）。
+ *    用 CSS 计数器实现，不改任何标记 ✓ */
+.mr-members {
+  counter-reset: ef-row;
+}
+.mr-members li {
+  counter-increment: ef-row;
+}
+.mr-members li::after {
+  content: counter(ef-row, decimal-leading-zero);
+  order: -1;
+  margin-right: var(--sp-2, 8px);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ⑤ 系统开了"减少动态效果"：全部直接跳到结束态，只保留颜色变化 */
 @media (prefers-reduced-motion: reduce) {
   *,
