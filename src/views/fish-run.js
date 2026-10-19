@@ -21,38 +21,44 @@ const BEST_KEY = 'ft.terminal.fishRunBest';
  * 再给紧邻实心的空格自动描黑边（就是那张画里的黑轮廓 ✓），
  * 最后点上眼睛（深色）和嘴（红色 ✓）。—— 比手抄一张点阵图不容易错。
  */
-const GW = 22, GH = 11, PX = 8;
-const FILL = 1, OUT = 2, EYE = 3, MOUTH = 4;
-const COLORS = { [FILL]: '#2b7fe0', [OUT]: '#121316', [EYE]: '#121316', [MOUTH]: '#e5484d' };
+const GW = 22, GH = 11, PX = 6;
+const FILL = 1, OUT = 2, EYE = 3, MOUTH = 4, WHITE = 5;
+const COLORS = { [FILL]: '#2b7fe0', [OUT]: '#121316', [EYE]: '#121316', [MOUTH]: '#e5484d', [WHITE]: '#f4f1e8' };
 
 function buildFish() {
   const g = Array.from({ length: GH }, () => new Array(GW).fill(0));
   const put = (x, y, v = FILL) => { if (x >= 0 && x < GW && y >= 0 && y < GH) g[y][x] = v; };
   const span = (y, x0, x1, v = FILL) => { for (let x = x0; x <= x1; x++) put(x, y, v); };
 
-  // 身体：中间两行最宽，上下收窄；头在左 ✓
-  span(5, 4, 17);
+  // 身体：朝右（头在右 ✓），中间最宽，上下收窄
+  span(5, 3, 17);
   span(6, 2, 18);
-  span(7, 1, 18);
-  span(8, 2, 17);
-  span(9, 6, 14);
+  span(7, 2, 18);
+  span(8, 3, 17);
+  span(9, 6, 15);
 
-  // 背鳍（上面那个尖角 ✓）
-  span(1, 11, 12);
-  span(2, 10, 13);
-  span(3, 9, 14);
-  span(4, 6, 15);
+  // 背鳍（上方的尖角，靠中左 ✓）
+  span(1, 8, 9);
+  span(2, 7, 10);
+  span(3, 6, 12);
+  span(4, 5, 14);
 
-  // 尾鳍（右边分叉 ✓）
-  span(5, 18, 20);
-  span(6, 19, 21);
-  span(8, 19, 21);
-  span(9, 18, 20);
+  // 尾巴（左边，**分叉** ✓）：上下两叉 + 中间细腰
+  span(3, 0, 2);
+  span(4, 0, 3);
+  span(5, 2, 3);
+  span(6, 1, 2);
+  span(7, 0, 3);
+  span(8, 0, 2);
 
   // 腹鳍（肚子下面那个小三角 ✓）
-  span(10, 9, 11);
+  span(10, 9, 12);
 
-  // 自动描黑边：紧邻实心的空格 ✓
+  // 白肚（**嘴旁边那块白的** ✓）：在右下，盖在蓝色身体上
+  span(8, 15, 17, WHITE);
+  span(9, 12, 16, WHITE);
+
+  // 自动描黑边：紧邻实心的空格 ✓（白肚在身体内部，不会被描边 ✓）
   const solid = (x, y) => x >= 0 && x < GW && y >= 0 && y < GH && g[y][x] === FILL;
   for (let y = 0; y < GH; y++) {
     for (let x = 0; x < GW; x++) {
@@ -65,9 +71,10 @@ function buildFish() {
     }
   }
 
-  // 眼睛与红嘴（描边之后再点，免得被盖住 ✓）
-  put(6, 6, EYE); put(6, 7, EYE);
-  span(8, 2, 5, MOUTH);
+  // 鳃裂（两条竖线 ✓，参考图里没有眼睛，只有这两条）与红嘴（**在右下** ✓）
+  put(9, 6, EYE); put(9, 7, EYE);
+  put(11, 6, EYE); put(11, 7, EYE);
+  span(9, 17, 18, MOUTH);
   return g;
 }
 
