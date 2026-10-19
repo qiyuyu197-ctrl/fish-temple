@@ -1,15 +1,16 @@
 /**
- * styles/ef.css — 工业风微调层（endfield 采纳版）
+ * styles/ef.css — 工业风微调层（endfield 采纳版，v2）
  * ------------------------------------------------------------------
- * 规范见 design/endfield-adoption.md。这个文件**只做加法**：
+ * 规范见 design/endfield-adoption.md。**只做加法**，不碰任何尺寸/间距：
  *   ① 全站统一的动效曲线与时长（三曲线 + 一张时长表）
- *   ② 主按钮（.btn--signal）左下角切一刀 + 悬停时亮色从左侧擦入 + 按下位移
- *   ③ 尊重系统的"减少动态效果"
+ *   ② 切角：所有按钮统一左下角一刀（主按钮刀口更大）—— 这是全站的"签名形状"
+ *   ③ 行悬停：左缘色条落下 + 整行右移 2px
+ *   ④ 主按钮悬停时亮色自左擦入；按下位移 1px
+ *   ⑤ 尊重系统"减少动态效果"
  *
- * 为什么单独一个文件而不是改 base.css：
- *   · 改错了可以直接删掉这行 link 回滚，不用在几千行 CSS 里找 ✗
- *   · 加载顺序放在最后，能覆盖前面的过渡定义 ✓
- *   · 不碰任何尺寸/间距，所以对 19 个宽度的响应式没有影响 ✓
+ * 为什么单独一个文件：改错了删掉 index.html 里一行 link 就回滚 ✓，不用在几千行 CSS 里找 ✗。
+ * 为什么用 clip-path 而不是图片：切角是纯 CSS 形状，不改 DOM、不影响布局 ✓。
+ * ⚠️ 刻意**不给 .panel 切角**：面板里可能装下拉/弹层，clip-path 会把它们裁掉 ✗。
  */
 
 :root {
@@ -21,14 +22,27 @@
   --ef-t-press: 100ms;
   --ef-t-hover: 280ms;
   --ef-t-panel: 360ms;
-  /* 切角大小：只给主按钮，克制使用 */
+  /* 切角：普通按钮 8px，主按钮 12px */
   --ef-cut: 12px;
+  --ef-cut-sm: 8px;
 }
 
-/* ① 主按钮：左下角切一刀 + 亮色自左擦入 + 按下位移 */
+/* ① + ② 所有按钮：统一的左下切角；主按钮刀口更大 */
+.btn {
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% 100%,
+    var(--ef-cut-sm) 100%,
+    0 calc(100% - var(--ef-cut-sm))
+  );
+  transition:
+    transform var(--ef-t-press) var(--ef-snap),
+    border-color var(--ef-t-hover) var(--ef-soft),
+    background-color var(--ef-t-hover) var(--ef-soft),
+    color var(--ef-t-hover) var(--ef-soft);
+}
 .btn--signal {
-  position: relative;
-  overflow: hidden;
   clip-path: polygon(
     0 0,
     100% 0,
@@ -36,6 +50,15 @@
     var(--ef-cut) 100%,
     0 calc(100% - var(--ef-cut))
   );
+}
+.btn:active {
+  transform: translateY(1px);
+}
+
+/* ④ 主按钮：悬停时亮色自左擦入（不是整块变色） */
+.btn--signal {
+  position: relative;
+  overflow: hidden;
 }
 .btn--signal::before {
   content: '';
@@ -52,19 +75,41 @@
   transform: scaleX(1);
 }
 
-/* 所有按钮：按下位移统一 100ms snap（现在各处各写各的） */
-.btn {
-  transition:
-    transform var(--ef-t-press) var(--ef-snap),
-    border-color var(--ef-t-hover) var(--ef-soft),
-    background-color var(--ef-t-hover) var(--ef-soft),
-    color var(--ef-t-hover) var(--ef-soft);
+/* ③ 行悬停：左缘色条落下 + 整行右移 2px（列表 / 表格 / 统计格） */
+.ms-stats > *,
+.mr-members li,
+table tbody tr,
+.log-line {
+  position: relative;
+  transition: transform var(--ef-t-hover) var(--ef-snap);
 }
-.btn:active {
-  transform: translateY(1px);
+.ms-stats > *::before,
+.mr-members li::before,
+table tbody tr::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--signal);
+  transform: scaleY(0);
+  transform-origin: top center;
+  transition: transform var(--ef-t-hover) var(--ef-mech);
+  pointer-events: none;
+}
+.ms-stats > *:hover::before,
+.mr-members li:hover::before,
+table tbody tr:hover::before {
+  transform: scaleY(1);
+}
+.ms-stats > *:hover,
+.mr-members li:hover,
+table tbody tr:hover {
+  transform: translateX(2px);
 }
 
-/* ② 状态灯 / 小标签的过渡也收进同一套曲线，避免每处手感不同 */
+/* 状态灯 / 小标签的过渡也收进同一套曲线，避免每处手感不同 */
 .status-dot,
 .mono,
 .panel {
@@ -72,7 +117,7 @@
   transition-timing-function: var(--ef-soft);
 }
 
-/* ③ 系统开了"减少动态效果"：全部直接跳到结束态，只保留颜色变化 */
+/* ⑤ 系统开了"减少动态效果"：全部直接跳到结束态，只保留颜色变化 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
