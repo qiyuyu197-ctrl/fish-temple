@@ -16,35 +16,83 @@ import { viewhead } from '../ui/bits.js';
 
 const BEST_KEY = 'ft.terminal.fishRunBest';
 
-/* 像素小鱼（9×3，细长）：o=身体 · =高光 e=眼睛 · 空格=空
- * 之前是 8×5 的圆胖版（站主说太胖 ✗），改成 3 行、身体只占两行 ✓ */
-const FISH = [
-  '  o   oo ',
-  ' oeooooo ',
-  '  o   oo ',
-];
-const PX = 7;                 // 一个像素点画多大
-const FISH_W = 9 * PX;        // 鱼宽
-const FISH_H = 3 * PX;        // 鱼高
+/* 像素小鲨鱼（22×11 网格，朝左）—— 照站主给的那张方格画重画
+ * 做法：先用"每行起止列"拼出 身体/背鳍/尾鳍/腹鳍 的**实心**形状，
+ * 再给紧邻实心的空格自动描黑边（就是那张画里的黑轮廓 ✓），
+ * 最后点上眼睛（深色）和嘴（红色 ✓）。—— 比手抄一张点阵图不容易错。
+ */
+const GW = 22, GH = 11, PX = 8;
+const FILL = 1, OUT = 2, EYE = 3, MOUTH = 4;
+const COLORS = { [FILL]: '#2b7fe0', [OUT]: '#121316', [EYE]: '#121316', [MOUTH]: '#e5484d' };
 
-const W = 640, H = 240;      // 画布逻辑尺寸（CSS 会按容器缩放）
+function buildFish() {
+  const g = Array.from({ length: GH }, () => new Array(GW).fill(0));
+  const put = (x, y, v = FILL) => { if (x >= 0 && x < GW && y >= 0 && y < GH) g[y][x] = v; };
+  const span = (y, x0, x1, v = FILL) => { for (let x = x0; x <= x1; x++) put(x, y, v); };
+
+  // 身体：中间两行最宽，上下收窄；头在左 ✓
+  span(5, 4, 17);
+  span(6, 2, 18);
+  span(7, 1, 18);
+  span(8, 2, 17);
+  span(9, 6, 14);
+
+  // 背鳍（上面那个尖角 ✓）
+  span(1, 11, 12);
+  span(2, 10, 13);
+  span(3, 9, 14);
+  span(4, 6, 15);
+
+  // 尾鳍（右边分叉 ✓）
+  span(5, 18, 20);
+  span(6, 19, 21);
+  span(8, 19, 21);
+  span(9, 18, 20);
+
+  // 腹鳍（肚子下面那个小三角 ✓）
+  span(10, 9, 11);
+
+  // 自动描黑边：紧邻实心的空格 ✓
+  const solid = (x, y) => x >= 0 && x < GW && y >= 0 && y < GH && g[y][x] === FILL;
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW; x++) {
+      if (g[y][x] !== 0) continue;
+      let near = false;
+      for (let dy = -1; dy <= 1 && !near; dy++) {
+        for (let dx = -1; dx <= 1; dx++) if (solid(x + dx, y + dy)) { near = true; break; }
+      }
+      if (near) g[y][x] = OUT;
+    }
+  }
+
+  // 眼睛与红嘴（描边之后再点，免得被盖住 ✓）
+  put(6, 6, EYE); put(6, 7, EYE);
+  span(8, 2, 5, MOUTH);
+  return g;
+}
+
+const FISH_GRID = buildFish();
+const FISH_W = GW * PX;
+const FISH_H = GH * PX;
+
+function paintFish(ctx, x, y) {
+  for (let gy = 0; gy < GH; gy++) {
+    for (let gx = 0; gx < GW; gx++) {
+      const v = FISH_GRID[gy][gx];
+      if (!v) continue;
+      ctx.fillStyle = COLORS[v] || '#2b7fe0';
+      ctx.fillRect(x + gx * PX, y + gy * PX, PX, PX);
+    }
+  }
+}
+
+const W = 960, H = 380;      // 画布逻辑尺寸（PC 上放大；CSS 仍按容器缩放 ✓）
 const GROUND = H - 34;       // 水底基准线
 const GRAVITY = 0.65;
 const JUMP_V = -11.5;
 
 let raf = 0;
 let running = false;
-
-function paintFish(ctx, x, y) {
-  FISH.forEach((row, ry) => {
-    for (let rx = 0; rx < row.length; rx++) {
-      const ch = row[rx];
-      if (ch === ' ') continue;
-      ctx.fillStyle = ch === 'e' ? '#121316' : ch === '=' ? '#FFD400' : '#3b82f6';
-      ctx.fillRect(x + rx * PX, y + ry * PX, PX, PX);
-    }
-  });
-}
 
 function makeGame(canvas) {
   const ctx = canvas.getContext('2d');
