@@ -156,6 +156,18 @@ table tbody tr:hover {
   display: none !important;
 }
 
+/* ⑨ 空白的"歌词框"不占位、不画底
+ *  DOM 取证结果：viewhead 右侧那块白矩形是 **.lyricbox**（styles/base.css 的注释里写着
+ *  "viewhead 右侧本来是一块空白，现在放这块；没有曲目时 [hidden] 直接不占位"）。
+ *  但 [hidden] 只是浏览器默认样式，一旦有别的规则把 display 设成 flex/block 就会失效 ✗
+ *  → 没在听歌的人也会看到一个空白盒子（截图里就是它）。
+ *  补两条：:empty 与 [hidden] 一律不显示，并加 !important 压过可能的 display 覆盖。
+ */
+.lyricbox:empty,
+.lyricbox[hidden] {
+  display: none !important;
+}
+
 /* ⑤ 系统开了"减少动态效果"：全部直接跳到结束态，只保留颜色变化 */
 @media (prefers-reduced-motion: reduce) {
   *,
