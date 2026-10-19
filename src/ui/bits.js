@@ -103,11 +103,11 @@ export function postRow(item, { href = null, side = '' } = {}) {
 }
 
 /** 公告条目 */
-export function newsItem(item, { compact = false } = {}) {
+export function newsItem(item, { compact = false, index = null } = {}) {
   const levelCls = item.level >= 2 ? 'tag--alert' : item.level === 1 ? 'tag--signal' : 'tag--muted';
   const levelText = item.level >= 2 ? '紧急' : item.level === 1 ? '重要' : item.category;
   return `
-    <a class="row${compact ? ' row--compact' : ''}" href="#/logs/${item.id}" data-nav>
+    <a class="row${compact ? ' row--compact' : ''}" href="#/logs/${item.id}" data-nav>${index === null ? '' : `<span class="card__idx mono" style="position:static;margin-right:var(--sp-2)">${String(index + 1).padStart(2, '0')}</span>`}
       <div class="row__date">
         <span>${fmtDate(item.date)}</span>
         <span class="faint">${esc(item.category)}</span>
