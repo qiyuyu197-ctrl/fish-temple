@@ -1,0 +1,85 @@
+/**
+ * styles/ef.css — 工业风微调层（endfield 采纳版）
+ * ------------------------------------------------------------------
+ * 规范见 design/endfield-adoption.md。这个文件**只做加法**：
+ *   ① 全站统一的动效曲线与时长（三曲线 + 一张时长表）
+ *   ② 主按钮（.btn--signal）左下角切一刀 + 悬停时亮色从左侧擦入 + 按下位移
+ *   ③ 尊重系统的"减少动态效果"
+ *
+ * 为什么单独一个文件而不是改 base.css：
+ *   · 改错了可以直接删掉这行 link 回滚，不用在几千行 CSS 里找 ✗
+ *   · 加载顺序放在最后，能覆盖前面的过渡定义 ✓
+ *   · 不碰任何尺寸/间距，所以对 19 个宽度的响应式没有影响 ✓
+ */
+
+:root {
+  /* 三条曲线：snap 迅速到位后稳住 / mech 慢起硬停 / soft 只给颜色变化 */
+  --ef-snap: cubic-bezier(0.2, 0.9, 0.1, 1);
+  --ef-mech: cubic-bezier(0.55, 0.06, 0.22, 1);
+  --ef-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  /* 时长表：按下 100 / 悬停 280 / 面板 360（超过 620ms 的一律不要） */
+  --ef-t-press: 100ms;
+  --ef-t-hover: 280ms;
+  --ef-t-panel: 360ms;
+  /* 切角大小：只给主按钮，克制使用 */
+  --ef-cut: 12px;
+}
+
+/* ① 主按钮：左下角切一刀 + 亮色自左擦入 + 按下位移 */
+.btn--signal {
+  position: relative;
+  overflow: hidden;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% 100%,
+    var(--ef-cut) 100%,
+    0 calc(100% - var(--ef-cut))
+  );
+}
+.btn--signal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--signal-ink, #121316) 16%, transparent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--ef-t-hover) var(--ef-mech);
+  pointer-events: none;
+}
+.btn--signal:hover::before,
+.btn--signal:focus-visible::before {
+  transform: scaleX(1);
+}
+
+/* 所有按钮：按下位移统一 100ms snap（现在各处各写各的） */
+.btn {
+  transition:
+    transform var(--ef-t-press) var(--ef-snap),
+    border-color var(--ef-t-hover) var(--ef-soft),
+    background-color var(--ef-t-hover) var(--ef-soft),
+    color var(--ef-t-hover) var(--ef-soft);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+
+/* ② 状态灯 / 小标签的过渡也收进同一套曲线，避免每处手感不同 */
+.status-dot,
+.mono,
+.panel {
+  transition-duration: var(--ef-t-hover);
+  transition-timing-function: var(--ef-soft);
+}
+
+/* ③ 系统开了"减少动态效果"：全部直接跳到结束态，只保留颜色变化 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
