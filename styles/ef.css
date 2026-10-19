@@ -168,6 +168,20 @@ table tbody tr:hover {
   display: none !important;
 }
 
+/* ⑩ 等高线底纹（极淡）
+ *  挂在 body 的 **background-image** 上，不动颜色：
+ *  base.css 里 body 用的是 `background: var(--bg)`（shorthand，只把 image 重置成 none），
+ *  这里单独补 image，颜色照旧 ✓；background-attachment: fixed 让它不随滚动移动 ✓。
+ *  浓度只有 3–4% 的墨色 —— 目的是一层"纸上的等高线"，不是装饰图案，所以不抢内容 ✓。
+ */
+body {
+  background-image:
+    repeating-radial-gradient(circle at 14% -6%, transparent 0 28px, color-mix(in srgb, var(--ink-100) 3.5%, transparent) 28px 29px),
+    repeating-radial-gradient(circle at 86% 4%, transparent 0 34px, color-mix(in srgb, var(--ink-100) 3%, transparent) 34px 35px);
+  background-attachment: fixed;
+  background-repeat: repeat;
+}
+
 /* ⑤ 系统开了"减少动态效果"：全部直接跳到结束态，只保留颜色变化 */
 @media (prefers-reduced-motion: reduce) {
   *,
