@@ -13,6 +13,8 @@
  */
 
 import { $, $$, esc, ICON } from '../util/dom.js';
+// TOOLS 板块的第二个页签：Tier List（?tab=tier）
+import tierlist from './tierlist.js';
 import { Toast } from '../ui/toast.js';
 import { Motion } from '../core/motion.js';
 import { viewhead, emptyState } from '../ui/bits.js';
@@ -270,8 +272,17 @@ export default {
   title: '工具台',
 
   render() {
+    // TOOLS 板块有两个页签：工具台 / Tier List（用 ?tab=tier 切，导航仍指向 #/tools ✓）
+    const onTier = /[?&]tab=tier/.test(String(location.hash || ''));
+    const tabs = `
+      <div class="mr-tabs" role="tablist" aria-label="工具">
+        <a class="mr-tab ${onTier ? '' : 'is-on'}" href="#/tools" role="tab" aria-selected="${!onTier}">工具台</a>
+        <a class="mr-tab ${onTier ? 'is-on' : ''}" href="#/tools?tab=tier" role="tab" aria-selected="${onTier}">Tier List</a>
+      </div>`;
+    if (onTier) return tabs + tierlist.render();
     return `
     <section class="tools">
+      ${tabs}
       ${viewhead({
         title: 'TOOLBOX',
         sub: '三个在浏览器里跑的小工具：格式转换、图片压缩、文本处理。文件不上传、不落盘，关掉页面就没了 —— 因为没有后端，所以也不需要把文件交给谁。',
@@ -298,6 +309,8 @@ export default {
   },
 
   mount(root) {
+    // Tier List 页签：挂载整个交给它自己的 mount（它自己管拖拽与存档），工具台这边的状态不碰
+    if (/[?&]tab=tier/.test(String(location.hash || ''))) return tierlist.mount(root);
     const body = () => $('#toolBody');
 
     const repaint = ({ focusInput = false } = {}) => {

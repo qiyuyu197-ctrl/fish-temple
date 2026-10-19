@@ -174,7 +174,7 @@ async function boot() {
   //    注册成兼容跳转，老链接不会 404（见 views/redirect.js）
   //    Tier List（TOOLS 板块）放在 tools 后面：注册顺序就是导航顺序 ✓
   [
-    home, logs, forum, music, gallery, mine, tools, tierlist, admin, notfound,
+    home, logs, forum, music, gallery, mine, tools, admin, notfound,
     redirectView('posts', 'logs'),
     redirectView('post', 'logs'),
     redirectView('news', 'logs'),
