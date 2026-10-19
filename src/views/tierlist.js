@@ -77,6 +77,7 @@ const boardHTML = () => `
   <div class="tl-tools" style="margin-top:var(--sp-4)">
     <button class="btn btn--sm" id="tlAddTier">+ 加一档</button>
     <button class="btn btn--sm" id="tlReset">清空重来</button>
+    <button class="btn btn--sm btn--signal" id="tlExport">导出 PNG</button>
     <button class="btn btn--sm" id="tlCopy">复制存档 JSON</button>
   </div>`;
 
@@ -94,6 +95,129 @@ function readFileAsDataURL(file) {
     fr.onerror = reject;
     fr.readAsDataURL(file);
   });
+}
+
+/* ---------------- 导出 PNG（canvas 手绘，零依赖） ----------------
+ * 为什么要小心：
+ *   · **远程图片**（http(s)）如果服务器没给 CORS 头，画进 canvas 会"污染"它，
+ *     之后 toBlob 直接抛 SecurityError ✗ → 所以这里逐张加载并 catch，失败的卡只画名字 ✓
+ *   · 本地选的图是 data URL ✓，永远不会污染 ✓
+ * 布局：每档一行（左侧色块 + 档名），右侧横排卡片；未分级的素材区画在最下面。
+ */
+async function exportPNG() {
+  const ROW_H = 92, LABEL_W = 88, PAD = 10, CARD_W = 64, CARD_H = 64, GAP = 8, TOP = 8;
+  const inTier = (id) => itemsIn(board, id);
+  const tray = unassigned(board);
+  const maxN = Math.max(1, ...board.tiers.map((t) => inTier(t.id).length), tray.length);
+  const W = LABEL_W + PAD * 2 + maxN * (CARD_W + GAP);
+  const H = TOP * 2 + board.tiers.length * (ROW_H + 4) + (tray.length ? ROW_H + 8 : 0);
+
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(320, W);
+  cv.height = Math.max(120, H);
+  const ctx = cv.getContext('2d');
+  if (!ctx) return { ok: false, error: '浏览器不支持 canvas' };
+
+  // 预加载图片（失败的留空，后面只画名字）
+  const imgs = new Map();
+  await Promise.all(board.items.filter((i) => i.image).map((i) => new Promise((resolve) => {
+    const im = new Image();
+    im.crossOrigin = 'anonymous';
+    im.onload = () => { imgs.set(i.id, im); resolve(); };
+    im.onerror = () => resolve();
+    im.src = i.image;
+  })));
+
+  const drawCard = (item, x, y) => {
+    ctx.save();
+    ctx.fillStyle = '#EFEDE6';
+    ctx.fillRect(x, y, CARD_W, CARD_H);
+    ctx.strokeStyle = '#121316';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, CARD_W, CARD_H);
+    const im = imgs.get(item.id);
+    if (im) {
+      // object-fit: cover 的等价画法
+      const s = Math.max(CARD_W / im.width, CARD_H / im.height);
+      const w = im.width * s, h = im.height * s;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x + 2, y + 2, CARD_W - 4, CARD_H - 4);
+      ctx.clip();
+      ctx.drawImage(im, x + (CARD_W - w) / 2, y + (CARD_H - h) / 2, w, h);
+      ctx.restore();
+    }
+    // 名字画在卡片下方（有就画）
+    if (item.label) {
+      ctx.fillStyle = '#121316';
+      ctx.font = '11px ui-monospace, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(item.label.slice(0, 12), x + CARD_W / 2, y + CARD_H + 13, CARD_W + GAP);
+    }
+    ctx.restore();
+  };
+
+  // 背景
+  ctx.fillStyle = '#EFEDE6';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  let y = TOP;
+  for (const t of board.tiers) {
+    // 档位块
+    ctx.fillStyle = t.color || '#8b8b8b';
+    ctx.fillRect(PAD, y, LABEL_W, ROW_H);
+    ctx.strokeStyle = '#121316';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(PAD, y, LABEL_W, ROW_H);
+    ctx.fillStyle = '#121316';
+    ctx.font = '700 26px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(t.label || '?').slice(0, 4), PAD + LABEL_W / 2, y + ROW_H / 2);
+
+    // 这一档的卡片
+    let x = PAD + LABEL_W + GAP;
+    for (const item of inTier(t.id)) {
+      drawCard(item, x, y + (ROW_H - CARD_H) / 2 - 6);
+      x += CARD_W + GAP;
+    }
+    y += ROW_H + 4;
+  }
+
+  // 素材区
+  if (tray.length) {
+    y += 8;
+    ctx.fillStyle = '#c9c6bd';
+    ctx.fillRect(PAD, y, LABEL_W, ROW_H);
+    ctx.strokeStyle = '#121316';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(PAD, y, LABEL_W, ROW_H);
+    ctx.fillStyle = '#121316';
+    ctx.font = '700 14px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('素材', PAD + LABEL_W / 2, y + ROW_H / 2);
+    let x = PAD + LABEL_W + GAP;
+    for (const item of tray) {
+      drawCard(item, x, y + (ROW_H - CARD_H) / 2 - 6);
+      x += CARD_W + GAP;
+    }
+  }
+
+  const blob = await new Promise((resolve) => {
+    try { cv.toBlob((b) => resolve(b), 'image/png'); }
+    catch { resolve(null); }        // 跨域污染时这里会抛 ✗
+  });
+  if (!blob) return { ok: false, error: '有远程图片没给跨域头，画布被污染了 —— 用本地选的图，或换支持 CORS 的图床' };
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `tier-list-${new Date().toISOString().slice(0, 10)}.png`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  return { ok: true, size: blob.size };
 }
 
 /* ---------------- 视图 ---------------- */
@@ -160,6 +284,15 @@ export default {
       if (e.target.closest('#tlReset')) {
         if (!confirm('清空所有卡片和自定义档位？')) return;
         board = createBoard(); save(); paint(); return;
+      }
+      if (e.target.closest('#tlExport')) {
+        const btn = e.target.closest('#tlExport');
+        if (btn) { btn.disabled = true; btn.textContent = '导出中…'; }
+        const r = await exportPNG();
+        if (btn) { btn.disabled = false; btn.textContent = '导出 PNG'; }
+        if (r.ok) Toast.ok(`PNG 已导出（${Math.round(r.size / 1024)} KB）`);
+        else Toast.show(r.error || '导出失败', 'err');
+        return;
       }
       if (e.target.closest('#tlCopy')) {
         try { await navigator.clipboard.writeText(serialize(board)); Toast.ok('存档 JSON 已复制'); }
