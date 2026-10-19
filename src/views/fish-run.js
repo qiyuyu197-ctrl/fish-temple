@@ -21,7 +21,7 @@ const BEST_KEY = 'ft.terminal.fishRunBest';
  * 再给紧邻实心的空格自动描黑边（就是那张画里的黑轮廓 ✓），
  * 最后点上眼睛（深色）和嘴（红色 ✓）。—— 比手抄一张点阵图不容易错。
  */
-const GW = 22, GH = 11, PX = 4;
+const GW = 22, GH = 11, PX = 3;
 const FILL = 1, OUT = 2, EYE = 3, MOUTH = 4, WHITE = 5;
 const COLORS = { [FILL]: '#2b7fe0', [OUT]: '#121316', [EYE]: '#121316', [MOUTH]: '#e5484d', [WHITE]: '#f4f1e8' };
 
@@ -82,9 +82,22 @@ function buildFish() {
   return g;
 }
 
-const FISH_GRID = buildFish();
-const FISH_W = GW * PX;
-const FISH_H = GH * PX;
+/* 把网格**逆时针转 90°**：原来的"朝右"变成"朝上"，尾巴从左端转到下边 ✓
+ * 站主指出：横着的鱼太宽（88px），在障碍之间几乎躲不开 ✗ → 立起来竖着游 ✓
+ *   逆时针：新行 = 旧列（从右往左），头（x 最大）转到最上面 ✓，尾（x 最小）转到最下面 ✓ */
+function rotateCCW(grid) {
+  const gh = grid.length;
+  const gw = grid[0].length;
+  const out = Array.from({ length: gw }, () => new Array(gh).fill(0));
+  for (let y = 0; y < gh; y++) {
+    for (let x = 0; x < gw; x++) out[gw - 1 - x][y] = grid[y][x];
+  }
+  return out;
+}
+
+const FISH_GRID = rotateCCW(buildFish());
+const FISH_W = GH * PX;   // 转完之后宽高互换 ✓
+const FISH_H = GW * PX;
 
 function paintFish(ctx, x, y) {
   for (let gy = 0; gy < GH; gy++) {
