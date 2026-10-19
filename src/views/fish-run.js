@@ -144,11 +144,19 @@ function makeGame(canvas) {
     st.started = true;    // 按下去就算开始 ✓
   };
 
-  /** 空格 / 点击统一入口：待机 → 开始；结束 → 重来；跑着 → 跳 */
+  /** 空格 / 点击统一入口：待机 → 开始；结束 → 重来；跑着 → 跳
+   *  返回值 = "这一次操作把游戏重开/开始了" ✓
+   *  为什么要返回值：重开时 reset() 已经把 running 置回 true，
+   *  调用方再拿 game.running 判断就永远为真 ✗ → 循环不会被重新排帧（之前就是因此"空格不能重开" ✗） */
   const jump = () => {
-    if (!st.started) { if (!running) reset(); else st.started = true; return; }
-    if (st.over) { reset(); return; }
+    if (st.over) { reset(); return true; }
+    if (!st.started) {
+      if (!running) { reset(); return true; }
+      st.started = true;
+      return false;
+    }
     if (st.y >= floorY() - 0.5) st.vy = JUMP_V;
+    return false;
   };
 
   const spawn = () => {
@@ -308,8 +316,13 @@ export default {
     raf = requestAnimationFrame(game.loop);
 
     const act = () => {
-      game.jump();
-      if (!game.running) raf = requestAnimationFrame(game.loop);
+      const restarted = game.jump();
+      // 只有"刚刚重开/开始"时才重新排帧；狂按空格不会排出第二条循环链 ✓
+      if (restarted) {
+        running = true;
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(game.loop);
+      }
     };
     const onKey = (e) => {
       if (e.code === 'Space' || e.key === ' ' || e.code === 'ArrowUp') {
