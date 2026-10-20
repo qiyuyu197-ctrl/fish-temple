@@ -124,6 +124,8 @@ const JUMP_V = -11.5;
  * 每档只调四个量：起步速度 base、加速上限 cap、障碍间隔 spawn、重力 gravity
  * —— 障碍大小保持不变，免得"难度"变成"画面都不一样" ✗ */
 const LEVELS = {
+  // 杂鱼：比简单还松 —— 速度最慢、**不加速**（cap=0 ✓）、障碍间隔最大 ✓
+  trash: { name: '杂鱼', base: 2.4, cap: 0, spawn: 150, gravity: 0.55 },
   easy: { name: '简单', base: 3.2, cap: 2.5, spawn: 96, gravity: 0.60 },
   mid: { name: '中等', base: 4.2, cap: 4.5, spawn: 78, gravity: 0.65 },
   hard: { name: '困难', base: 6.0, cap: 6.0, spawn: 60, gravity: 0.72 },
@@ -314,7 +316,7 @@ export default {
 
   render() {
     // 难度从地址读（?lv=easy|mid|hard）—— 页签就是普通链接，切换不需要额外事件 ✓
-    const m = /[?&]lv=(easy|mid|hard)/.exec(String(location.hash || ''));
+    const m = /[?&]lv=(trash|easy|mid|hard)/.exec(String(location.hash || ''));
     if (m) {
       LEVEL = m[1];
       try { localStorage.setItem(LEVEL_KEY, LEVEL); } catch { /* 隐私模式忽略 */ }
