@@ -10,6 +10,8 @@ import { copyText } from '../ui/toast.js';
 import { Motion } from '../core/motion.js';
 import { emptyState, postRow, tagRow } from '../ui/bits.js';
 
+import { commentsHTML, mountComments } from '../ui/comments.js';
+
 export default {
   id: 'post',
   title: '文章',
@@ -70,6 +72,8 @@ export default {
 
           ${tagRow(item.tags, 'style="margin-top:32px"')}
 
+          ${commentsHTML(item.id)}
+
           <div class="hero__cta" style="margin-top:var(--sp-6)">
             <button class="btn btn--sm" id="postShare">${ICON.ext}复制链接</button>
             <button class="btn btn--sm" id="postPrint">打印 / 存为 PDF</button>
@@ -112,6 +116,12 @@ export default {
   },
 
   mount(root, ctx) {
+    // 评论区：从壳上的 data-post 拿帖子 id（和 render 里用的是同一个 ✓）
+    const cmHost = root.querySelector('#cmRoot');
+    if (cmHost) {
+      const pid = cmHost.dataset.post;
+      if (pid) void mountComments(root, pid);
+    }
     const item = Posts.get(ctx.params[0]);
     ReadState.mark(ctx.params[0]);
 

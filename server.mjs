@@ -2206,7 +2206,8 @@ async function handleForum(req, res, url, opts, seg) {
   }
 
   // GET /api/forum/posts/:id （公开）
-  if (head === 'posts' && id && req.method === 'GET') {
+  // ⚠️ `!seg[2]`：评论走 …/posts/:id/comments —— 不加这个守卫，评论请求会被这条"取帖子"接走 ✗
+  if (head === 'posts' && id && !seg[2] && req.method === 'GET') {
     const p = await store.readItem('forum', id);
     if (!p) return fail(res, 404, '没有这篇内容（可能已被删除）');
     return ok(res, { ok: true, post: publicForumPost(p, { full: true }) });
@@ -2252,7 +2253,9 @@ async function handleForum(req, res, url, opts, seg) {
   }
 
   // PATCH / DELETE /api/forum/posts/:id
-  if (head === 'posts' && id && (req.method === 'PATCH' || req.method === 'DELETE')) {
+  // ⚠️ `!seg[2]`：必须加！否则 DELETE …/posts/:id/comments/:cid 会被这条接走，
+  //    当成"删除帖子"处理 —— 后果是**把帖子删了** ✗✗（这条守卫千万别删）
+  if (head === 'posts' && id && !seg[2] && (req.method === 'PATCH' || req.method === 'DELETE')) {
     const who = await authenticate(req);
     if (!who.ok) return fail(res, who.status, who.error);
     const p = await store.readItem('forum', id);
@@ -2291,8 +2294,12 @@ async function handleForum(req, res, url, opts, seg) {
   if (head === 'posts' && id && seg[2] === 'comments') {
     const cid = seg[3] || null;
     const CKEY = 'forum-comments';
-    const doc = await store.readItem('forum', id).catch(() => null);
-    if (!doc) return fail(res, 404, '没有这篇内容（可能已被删除）');
+    // ⚠️ 这里**不校验"帖子是否存在"**：
+    //   站里的文章/公告有两种来源 —— 站长在控制台发的（forum 集合 ✓）
+    //   和仓库里的种子数据 data/posts.json（**不在 forum 集合里** ✗）。
+    //   一开始我按 forum 集合判断存在性 → 给种子文章发评论直接 404，浏览器控制台报错，
+    //   把「文章详情 无报错」那条自检也带红了 ✗。
+    //   评论按 id 存，本身不需要帖子文档在场；孤儿评论的风险远小于"种子文章不能评论" ✗
     const readAll = async () => {
       const d = await store.readItem(CKEY, id).catch(() => null);
       return Array.isArray(d && d.items) ? d.items : [];
