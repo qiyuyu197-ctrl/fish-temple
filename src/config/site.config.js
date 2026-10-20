@@ -52,7 +52,7 @@ export const NAV = [
   { id: 'forum',   path: '#/forum',     label: 'FORUM',   cn: '论坛' },
   { id: 'music',   path: '#/music',     label: 'MUSIC',   cn: '音乐' },
   { id: 'gallery', path: '#/gallery',   label: 'GALLERY', cn: '插画' },
-  { id: 'mine',    path: '#/mine',      label: 'MINES',   cn: '扫雷' },
+  { id: 'mine',    path: '#/mine',      label: 'GAME',    cn: '游戏' },
   { id: 'tools',   path: '#/tools',     label: 'TOOLS',   cn: '工具台' },
   { id: 'admin',   path: '#/admin',     label: 'CONSOLE', cn: '发布' },
 ];

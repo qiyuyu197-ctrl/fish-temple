@@ -1064,9 +1064,10 @@ async function main() {
   if (ms?.skipped) {
     record('扫雷：板块可用（跳过）', true, '没有拿到运行时句柄');
   } else {
-    record('扫雷：板块在导航里，路由与棋盘骨架正常',
+    record('GAME 板块：在导航里、路由与棋盘骨架正常',
       ms?.shell?.hash === '#/mine' && ms?.shell?.navExists === true && ms?.shell?.navActive === true
-        && /MINES/.test(ms?.shell?.navLabel || '') && /扫雷/.test(ms?.shell?.title || '')
+        // 板块从 MINES 改名为 GAME（站主要求）—— 这里跟着改成 GAME ✓
+        && /GAME/.test(ms?.shell?.navLabel || '') && /扫雷/.test(ms?.shell?.title || '')
         && ms?.shell?.cells === 81 && ms?.shell?.levelTabs === 3,
       JSON.stringify(ms?.shell));
     record('扫雷：第一下必定安全（40 局不炸；首点八邻域无雷，连边角至少开出一圈）',

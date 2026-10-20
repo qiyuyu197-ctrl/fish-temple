@@ -66,6 +66,7 @@ export default {
       <div class="mr-tabs" role="tablist" aria-label="扫雷模式">
         <a class="mr-tab is-on" href="#/mine" role="tab" aria-selected="true">单人</a>
         <a class="mr-tab" href="#/mine?room=1" role="tab">联机</a>
+        <a class="mr-tab" href="#/fishrun" role="tab">像素小鱼</a>
       </div>
       ${viewhead({
         title: 'MINESWEEPER',
