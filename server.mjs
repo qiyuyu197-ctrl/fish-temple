@@ -47,6 +47,8 @@ import { createStorage } from './storage.mjs';
 import { authConfig, authenticate } from './auth.mjs';
 // 联机扫雷复用同一份纯逻辑引擎（它不碰 DOM，所以服务端也能 import）
 import * as Mines from './src/plugins/minesweeper.js';
+// 评论的校验与权限规则：服务端与前端**共用同一份**（src/plugins/comment-model.js）✓
+import { validateComment, makeComment, canDelete } from './src/plugins/comment-model.js';
 
 /**
  * ⚠️ 这里**不能**用 `__filename` / `__dirname` 这两个名字。
@@ -2279,6 +2281,83 @@ async function handleForum(req, res, url, opts, seg) {
     } catch (err) { log(`\x1b[33mFORUM\x1b[0m 索引更新失败（列表下次会重建）：${err.message}`); }
     log(`\x1b[33mFORUM\x1b[0m ~ ${id}`);
     return ok(res, { ok: true, post: publicForumPost(next, { full: true }) });
+  }
+
+  /* ---- 评论：/api/forum/posts/:id/comments[/:cid] ----
+   * GET 公开 / POST 必须登录（同账号 30 秒限频）/ DELETE 作者本人或站长 ✓
+   * 校验规则与前端共用 src/plugins/comment-model.js ✓（不各写一套 ✗）
+   * 存储：forum-comments/<postId>.json（双驱动 ✓，已 gitignore ✓）
+   */
+  if (head === 'posts' && id && seg[2] === 'comments') {
+    const cid = seg[3] || null;
+    const CKEY = 'forum-comments';
+    const doc = await store.readItem('forum', id).catch(() => null);
+    if (!doc) return fail(res, 404, '没有这篇内容（可能已被删除）');
+    const readAll = async () => {
+      const d = await store.readItem(CKEY, id).catch(() => null);
+      return Array.isArray(d && d.items) ? d.items : [];
+    };
+
+    if (!cid && req.method === 'GET') {
+      const items = await readAll();
+      return ok(res, { ok: true, items, count: items.length });
+    }
+
+    const who = await authenticate(req);
+    if (!who.ok) return fail(res, who.status, who.error);
+
+    if (!cid && req.method === 'POST') {
+      let body = {};
+      try { body = (await readBody(req)) || {}; } catch { body = {}; }
+      const v = validateComment({ body: body.body, image: body.image });
+      if (!v.ok) return fail(res, 400, v.error);
+      const items = await readAll();
+      const parentId = body.parentId ? String(body.parentId).slice(0, 60) : null;
+      if (parentId && !items.some((c) => c.id === parentId)) {
+        return fail(res, 400, '要回复的那条评论已经不在了');
+      }
+      const mine = items.filter((c) => c.sub === who.user.sub).pop();
+      if (mine && Date.now() - Date.parse(mine.at) < 30 * 1000) {
+        return fail(res, 429, '发得太快了，等半分钟再发');
+      }
+      const c = makeComment({
+        id: `c_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+        sub: who.user.sub,
+        name: who.user.name || '匿名',
+        picture: who.user.picture || '',
+        body: v.value.body,
+        image: v.value.image,
+        parentId,
+      });
+      const next = [...items, c];
+      try {
+        await store.writeItem(CKEY, id, { postId: id, items: next, updatedAt: new Date().toISOString() });
+      } catch (err) {
+        log(`\x1b[31mFORUM\x1b[0m 评论写入失败：${err.message}`);
+        return fail(res, 503, '评论没写进去（存储服务暂时不可用）：请重试');
+      }
+      log(`\x1b[35mFORUM\x1b[0m 评论 + ${id}`);
+      return ok(res, { ok: true, comment: c, count: next.length });
+    }
+
+    if (cid && req.method === 'DELETE') {
+      const items = await readAll();
+      const target = items.find((c) => c.id === cid);
+      if (!target) return fail(res, 404, '这条评论已经不在了');
+      if (!canDelete(target, { sub: who.user.sub, role: who.user.role })) {
+        return fail(res, 403, '只能删自己的评论（站长除外）');
+      }
+      // 删顶层评论时，它下面的回复一起删（不留孤儿 ✓）
+      const next = items.filter((c) => c.id !== cid && c.parentId !== cid);
+      try {
+        await store.writeItem(CKEY, id, { postId: id, items: next, updatedAt: new Date().toISOString() });
+      } catch {
+        return fail(res, 503, '删除没写进去（存储服务暂时不可用）：请重试');
+      }
+      return ok(res, { ok: true, deleted: cid, count: next.length });
+    }
+
+    return fail(res, 405, `不支持的方法：${req.method}`);
   }
 
   return fail(res, 404, '未知论坛接口（可用：GET posts / GET posts/:id / GET mine / POST posts / PATCH posts/:id / DELETE posts/:id）');
