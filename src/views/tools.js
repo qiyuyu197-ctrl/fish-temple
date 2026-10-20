@@ -15,6 +15,8 @@
 import { $, $$, esc, ICON } from '../util/dom.js';
 // TOOLS 板块的第二个页签：Tier List（?tab=tier）
 import tierlist from './tierlist.js';
+// 第三个页签：视频提取音频（?tab=audio）
+import audioExtract from './audio-extract.js';
 import { Toast } from '../ui/toast.js';
 import { Motion } from '../core/motion.js';
 import { viewhead, emptyState } from '../ui/bits.js';
@@ -274,12 +276,15 @@ export default {
   render() {
     // TOOLS 板块有两个页签：工具台 / Tier List（用 ?tab=tier 切，导航仍指向 #/tools ✓）
     const onTier = /[?&]tab=tier/.test(String(location.hash || ''));
+    const onAudio = /[?&]tab=audio/.test(String(location.hash || ''));
     const tabs = `
       <div class="mr-tabs" role="tablist" aria-label="工具">
-        <a class="mr-tab ${onTier ? '' : 'is-on'}" href="#/tools" role="tab" aria-selected="${!onTier}">工具台</a>
+        <a class="mr-tab ${onTier || onAudio ? '' : 'is-on'}" href="#/tools" role="tab" aria-selected="${!onTier && !onAudio}">工具台</a>
         <a class="mr-tab ${onTier ? 'is-on' : ''}" href="#/tools?tab=tier" role="tab" aria-selected="${onTier}">Tier List</a>
+        <a class="mr-tab ${onAudio ? 'is-on' : ''}" href="#/tools?tab=audio" role="tab" aria-selected="${onAudio}">提取音频</a>
       </div>`;
     if (onTier) return tabs + tierlist.render();
+    if (onAudio) return tabs + audioExtract.render();
     return `
     <section class="tools">
       ${tabs}
@@ -311,6 +316,7 @@ export default {
   mount(root) {
     // Tier List 页签：挂载整个交给它自己的 mount（它自己管拖拽与存档），工具台这边的状态不碰
     if (/[?&]tab=tier/.test(String(location.hash || ''))) return tierlist.mount(root);
+    if (/[?&]tab=audio/.test(String(location.hash || ''))) return audioExtract.mount(root);
     const body = () => $('#toolBody');
 
     const repaint = ({ focusInput = false } = {}) => {
