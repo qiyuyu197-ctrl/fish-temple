@@ -30,6 +30,8 @@ data/forum/
 data/mine-rooms/
 # 论坛列表用的轻量索引（派生数据，可从帖子重建；本地跑论坛时会生成）
 data/forum-index.json
+# 论坛评论（运行期数据：含用户正文与图片；帖子删了评论也该一起清理）
+data/forum-comments/
 
 # 站内播放历史（每个账号一份，只有本人能读；属于个人收听记录，绝不该入库）
 data/history/
@@ -43,3 +45,7 @@ data/.cache/
 # 本地私有素材：如果你想保留不入库的音乐 / 插画，可放到这两个目录
 assets/audio/private/
 assets/img/private/
+
+# 宣传 PV 的成片与逐帧审画面静帧（纯生成产物，体积大，随时可用 pv/run.mjs 重录）
+pv/out/
+pv/stills/
