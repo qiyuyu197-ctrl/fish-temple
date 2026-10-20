@@ -135,7 +135,7 @@ try { LEVEL = localStorage.getItem(LEVEL_KEY) || 'mid'; } catch { LEVEL = 'mid';
 let raf = 0;
 let running = false;
 
-function makeGame(canvas) {
+function makeGame(canvas, { onOver = null } = {}) {
   const ctx = canvas.getContext('2d');
   const floorY = () => GROUND - FISH_H;   // 落地时鱼的 y
 
@@ -223,6 +223,7 @@ function makeGame(canvas) {
           st.best = st.score;
           try { localStorage.setItem(BEST_KEY, String(st.best)); } catch { /* 隐私模式忽略 */ }
         }
+        if (typeof onOver === 'function') onOver(st);
         return false;
       }
     }
@@ -340,13 +341,29 @@ export default {
   mount(root) {
     const canvas = root.querySelector('#fishCanvas');
     if (!canvas) return undefined;
-    game = makeGame(canvas);
+
+    /* 背景音乐：assets/audio/fish-run.mp3
+     *   · 游戏**开始**时播（开始是用户按空格/点屏触发的 → 有手势，浏览器不会拦 ✓）
+     *   · 游戏**结束**时停（挂在 makeGame 的 onOver 回调上 ✓）
+     *   · `loop` 属性负责"放完了接着循环"（一局可能比歌长 ✓）
+     *   · 音量压到 0.55，别盖过人对节奏的判断 ✓ */
+    const bgm = new Audio('assets/audio/fish-run.mp3');
+    bgm.loop = true;
+    bgm.preload = 'auto';
+    bgm.volume = 0.55;
+    const playBgm = () => { bgm.play().catch(() => { /* 被策略拦就静默，不影响游戏 ✓ */ }); };
+    const stopBgm = () => { try { bgm.pause(); bgm.currentTime = 0; } catch { /* 忽略 */ } };
+
+    game = makeGame(canvas, { onOver: stopBgm });
     game.ready();                                    // 待机，不自动开始 ✓
     raf = requestAnimationFrame(game.loop);
 
     const act = () => {
       const restarted = game.jump();
-      // 只有"刚刚重开/开始"时才重新排帧；狂按空格不会排出第二条循环链 ✓
+      // 只要这次操作让游戏进入"跑着"的状态，就把音乐从头上放一遍 ✓
+      if (game.st.started && !game.st.over) {
+        if (bgm.paused) { try { bgm.currentTime = 0; } catch { /* 忽略 */ } playBgm(); }
+      }
       if (restarted) {
         running = true;
         cancelAnimationFrame(raf);
@@ -383,6 +400,7 @@ export default {
       document.removeEventListener('visibilitychange', onVis);
       cancelAnimationFrame(raf);
       running = false;
+      stopBgm();           // 切走时音乐必须停，不然会一直在后台放 ✗
     };
   },
 };
