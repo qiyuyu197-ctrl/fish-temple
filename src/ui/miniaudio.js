@@ -128,7 +128,7 @@ function paintTrack({ track, index } = {}) {
   }
   const isNe = track.provider === 'netease';
   $('#mpTitle').textContent = track.title || '—';
-  $('#mpArtist').textContent = `${track.artist || 'UNKNOWN'} · ${String(index + 1).padStart(2, '0')}${isNe ? ' · 网易云' : ''}`;
+  $('#mpArtist').textContent = `${track.artist || 'UNKNOWN'} / ${String(index + 1).padStart(2, '0')}${isNe ? ' / NETEASE' : ''}`;
   const disc = $('#mpDisc');
   if (track.cover) {
     disc.style.background = '';
@@ -204,8 +204,18 @@ export const MiniPlayer = {
     });
     // 曲目信息 = 进音乐台（搜索 / 播放列表 / 粘贴链接都在那一页）
     $('#mpMeta')?.addEventListener('click', () => { location.hash = '#/music'; });
+    // 沉浸舞台：动态 import，避开 miniaudio ↔ listening-stage 的静态循环依赖
+    $('#mpStage')?.addEventListener('click', async () => {
+      const { ListeningStage } = await import('./listening-stage.js');
+      ListeningStage.open();
+    });
 
     bus.on('player:track', (p) => {
+      if (!p?.track) {
+        root.hidden = true;
+        document.body.classList.remove('has-miniplayer');
+        return;
+      }
       root.hidden = false;
       document.body.classList.add('has-miniplayer');
       paintTrack(p);
@@ -230,8 +240,9 @@ export const MiniPlayer = {
     stopWave?.();
     stopWave = pumpVisualizer(bars, () => Player.playing);
   },
-  /** 让播放条重新出现（音乐页调用；底栏平时不会被收起，这里只做兜底） */
+  /** 让播放条重新出现（音乐页调用；没有当前曲目时不要露出空条） */
   show() {
+    if (!Player.current) return;
     const root = $('#miniplayer');
     if (!root) return;
     root.hidden = false;

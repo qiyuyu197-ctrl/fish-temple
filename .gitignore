@@ -46,6 +46,6 @@ data/.cache/
 assets/audio/private/
 assets/img/private/
 
-# 宣传 PV 的成片与逐帧审画面静帧（纯生成产物，体积大，随时可用 pv/run.mjs 重录）
-pv/out/
-pv/stills/
+# 宣传 PV 工程：整目录不入库（成片 / 静帧 / 截图 / 联系表都是可重生成的生成物，
+# 需要时用 pv/capture.mjs 重抓截图、pv/run.mjs 重录成片；想恢复入库就删掉这一条）
+pv/

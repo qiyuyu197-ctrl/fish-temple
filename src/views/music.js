@@ -6,12 +6,14 @@
  *   · 搜索   站内搜索网易云曲目（经 server.mjs 代理元数据接口）
  *   · 歌单   粘贴公开歌单链接 / ID，一次性把整个歌单的曲目导入播放列表
  *            （仅元数据；「我喜欢的音乐」等需要登录的歌单读不到，本站不做登录）
- *   · 播放   网易云官方外链播放器 iframe —— 版权与登录由网易云自行处理，
- *            本站不接触任何音频流
+ *   · 播放   默认走站内直放（同源 <audio>，真实进度 / 可拖动 / 后台接播）；
+ *            会员或版权受限的曲目才回退网易云官方 iframe（进度为估算）
  *   · 列表   加入 / 移除 / 清空，保存在浏览器本地；该列表就是网站的播放列表
+ *   · 舞台   全屏大字歌词 / 译文 / 队列 / 循环，见 ui/listening-stage.js
  *   · 降级   没有服务器时不能搜索，但可以粘贴任意网易云链接生成播放器
  *
- * 播放条内部的进度与音量由网易云自持，因此这里的进度条对网易云曲目只做展示估算。
+ * 进度事件只更新进度条 / 播放键 / 音量，不重建 DOM —— 否则每秒四次 innerHTML
+ * 会让封面闪烁、按钮失焦。换歌与「能不能放」结论变化时才整体重绘。
  */
 
 import { $, $$, esc, ICON, debounce } from '../util/dom.js';
@@ -23,6 +25,9 @@ import { MiniPlayer } from '../ui/miniaudio.js';
 import { EmbedHost } from '../ui/embed-host.js';
 import { viewhead, emptyState } from '../ui/bits.js';
 import { setLyricNote } from '../ui/lyrics.js';
+import { Lyrics } from '../plugins/lyrics.js';
+import { ListeningStage } from '../ui/listening-stage.js';
+import { bindRange } from '../ui/range.js';
 import {
   pageUrl, parseSongId, probeApi, search, fetchSongs,
   toTrack, savePlaylist,
@@ -52,13 +57,18 @@ let state = {
    * { id, playable: false, checking: bool, alternatives: [...] }
    */
   sound: null,
+  /** 正在播放面板的歌词缓存键：只有换句 / 换歌才重绘，不跟 4Hz 的进度事件一起抖 */
+  lyricKey: '',
 };
 
 const fmtDur = (s) => (s ? fmtClock(s) : '--:--');
 
+/** 沉浸舞台图标：用 SVG 而不是 ⛶，避免不同系统字体把它画成豆腐块 */
+const STAGE_ICON = '<svg class="stage-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" stroke="currentColor" stroke-width="1.7"/></svg>';
+
 /** 会员 / 付费曲目的小标（官方外链播放器匿名态不出声） */
 const vipTag = (song) => (isVipOnly(song)
-  ? '<span class="tag tag--alert" title="网易云会员曲目：未登录会员时官方外链播放器不会出声">VIP</span>'
+  ? '<span class="tag tag--vip tag--alert" title="网易云会员曲目：未登录会员时官方外链播放器不会出声">VIP</span>'
   : '');
 
 /* ---------------- 片段 ---------------- */
@@ -67,11 +77,11 @@ function searchResultRow(song, i) {
   const inList = Player.tracks.some((t) => t.neteaseId === String(song.id));
   return `
   <div class="ne-row" data-song='${esc(JSON.stringify(song))}' data-i="${i}">
-    <span class="ne-row__no mono">${String(i + 1).padStart(2, '0')}</span>
+    <span class="ne-row__no mono">No.${String(i + 1).padStart(2, '0')}</span>
     <span class="ne-row__cover">${song.cover ? `<img src="${esc(song.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ''}</span>
     <span class="ne-row__main">
       <span class="ne-row__name clamp-1">${esc(song.name)} ${vipTag(song)}</span>
-      <span class="ne-row__meta clamp-1">${esc((song.artists || []).join(' / ') || '未知歌手')}${song.album ? ` · ${esc(song.album)}` : ''}</span>
+      <span class="ne-row__meta clamp-1">${esc((song.artists || []).join(' / ') || '未知歌手')}${song.album ? ` / ${esc(song.album)}` : ''}</span>
     </span>
     <span class="ne-row__dur mono">${fmtDur(song.duration)}</span>
     <span class="ne-row__acts">
@@ -87,19 +97,24 @@ function trackRow(t, i) {
   const embed = t.provider === 'netease';
   return `
   <div class="track${active}" data-track="${i}">
-    <span class="track__no">${String(i + 1).padStart(2, '0')}</span>
-    <span class="track__eq"><i></i><i></i><i></i></span>
+    <span class="track__idx">
+      <span class="track__no">${String(i + 1).padStart(2, '0')}</span>
+      <span class="track__eq"><i></i><i></i><i></i></span>
+    </span>
+    <span class="track__cover" aria-hidden="true">
+      ${t.cover ? `<img src="${esc(t.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : `<span class="track__coverph">${ICON.disc}</span>`}
+    </span>
     <span class="track__main">
       <span class="track__name clamp-1">${esc(t.title)}</span>
-      <span class="track__artist">${esc(t.artist || '未知歌手')}${embed ? ' · 网易云' : ''}</span>
+      <span class="track__artist">${esc(t.artist || '未知歌手')}${embed ? ' / NETEASE' : ''}${t.album && t.album !== t.title ? ` / <span class="track__album">${esc(t.album)}</span>` : ''}</span>
     </span>
     <span class="track__tags">
       ${(t.tags || []).map((x) => `<span class="tag tag--muted">${esc(x)}</span>`).join('')}
       ${vipTag(t)}
-      <span class="tag ${embed ? 'tag--alert' : 'tag--signal'}">${embed ? 'NETEASE' : '本地'}</span>
+      <span class="tag ${embed ? 'tag--source' : 'tag--muted'}">${embed ? 'NETEASE' : 'LOCAL'}</span>
     </span>
     <span class="track__dur">${fmtDur(t.duration)}</span>
-    <button class="track__del" data-del="${i}" title="从列表移除">✕</button>
+    <button class="track__del" data-del="${i}" title="从列表移除" aria-label="从列表移除 ${esc(t.title)}">✕</button>
   </div>`;
 }
 
@@ -136,7 +151,7 @@ function embedHTML() {
     <div class="ne-embed-slot__head">
       <span class="ne-embed-slot__title">
         <span class="status-dot ${active ? 'status-dot--on' : ''}"></span>
-        <b>${active ? '网易云官方播放器' : (direct ? '站内直放 · 未使用官方播放器' : '网易云官方播放器 · 待机')}</b>
+        <b>${active ? '网易云官方播放器' : (direct ? '站内直放 / 未使用官方播放器' : '网易云官方播放器 / 待机')}</b>
         ${active ? `<span class="mono" style="font-size:var(--fs-2xs);color:var(--fg-faint)">ID ${esc(t.neteaseId)}</span>` : ''}
       </span>
       <span class="ne-embed-slot__acts">
@@ -174,14 +189,15 @@ export default {
     <section class="music">
       ${viewhead({
         title: 'AUDIO DECK',
-        sub: '搜索网易云曲目、粘贴歌曲或歌单链接，直接在站内试听。默认经本站同源转发音频流播放：有真实进度、可拖动、切后台也能完整播完并自动接下一首；会员或版权受限的曲目自动退回网易云官方外链播放器。',
+        sub: '搜索网易云曲目、粘贴歌曲或歌单链接，直接在站内试听。默认经本站同源转发音频流播放：有真实进度、可拖动、切后台也能完整播完并自动接下一首；会员或版权受限的曲目自动退回网易云官方外链播放器。播放后可以进入沉浸舞台，看大字歌词、译文，用键盘控制整张唱片。',
         idx: 'MODULE / 04',
         // 页头只留两个真正会变的数字：曲目数、代理状态（NOW 在下面「正在播放」里已经有了）
         meta: [
           { label: 'PLAYLIST', value: `${String(Player.tracks.length).padStart(2, '0')} TRACKS`, id: 'metaTracks' },
           { label: 'API', value: hasApi === null ? '检测中' : (hasApi ? 'PROXY ONLINE' : 'PROXY OFFLINE'), id: 'metaApi' },
         ],
-        actions: `<button class="btn btn--sm" id="neteaseHome">${ICON.ext}网易云首页</button>`,
+        actions: `<button class="btn btn--sm btn--solid" id="stageTop" ${cur ? '' : 'disabled'}>${STAGE_ICON}沉浸舞台</button>
+          <button class="btn btn--sm" id="neteaseHome">${ICON.ext}网易云首页</button>`,
       })}
 
       ${hasApi === false ? `<div class="notice" style="margin-top:var(--sp-5)">
@@ -198,15 +214,21 @@ export default {
       <!-- ① 一个输入框搞定三件事：搜关键词 / 粘贴歌曲链接或 ID / 导入歌单与专辑 -->
       <div class="ne-search" id="neSearch" style="margin-top:var(--sp-5)">
         <div class="ne-search__head">
-          <span class="k-label k-label--ink">搜索 / 导入</span>
-          <span class="mono faint" style="font-size:var(--fs-2xs)" id="plStatus">
-            粘贴歌单 / 专辑链接或 ID · 单次最多 ${PLAYLIST_IMPORT_LIMIT} 首
+          <span class="ne-section-title">
+            <span class="ne-eyebrow">// SEARCH / IMPORT</span>
+            <b>搜索与导入</b>
+          </span>
+          <span class="ne-headmeta mono" id="plStatus">
+            粘贴歌单 / 专辑链接或 ID / 单次最多 ${PLAYLIST_IMPORT_LIMIT} 首
           </span>
         </div>
         <div class="ne-search__bar">
-          <input type="search" id="neInput" autocomplete="off" spellcheck="false"
-                 placeholder="搜歌名 / 歌手；或粘贴网易云歌曲、歌单、专辑链接（含 163cn.tv 短链）"
-                 value="${esc(state.q)}" ${hasApi === false ? 'disabled' : ''} />
+          <label class="ne-search__field">
+            <span class="ne-search__prefix" aria-hidden="true">//</span>
+            <input type="search" id="neInput" autocomplete="off" spellcheck="false"
+                   placeholder="搜歌名 / 歌手；或粘贴网易云歌曲、歌单、专辑链接（含 163cn.tv 短链）"
+                   value="${esc(state.q)}" ${hasApi === false ? 'disabled' : ''} />
+          </label>
           <button class="btn btn--signal" id="neGo" ${hasApi === false ? 'disabled' : ''}>${ICON.search}搜索 / 播放</button>
           <button class="btn" id="plImport" ${hasApi === false ? 'disabled' : ''}>${ICON.ext}导入歌单 / 专辑</button>
           <button class="btn" id="plReplace" title="清空现有列表后用这个歌单 / 专辑替换" ${hasApi === false ? 'disabled' : ''}>替换</button>
@@ -225,25 +247,35 @@ export default {
         </p>
       </div>
 
-      <!-- 搜索结果：紧贴搜索条下方，搜完不用往下翻就能看到 -->
-      <div class="ne-results" id="neResults" style="margin-top:var(--sp-4)">${renderResults()}</div>
+      <!-- 搜索结果：紧贴搜索条下方，搜完不用往下翻就能看到。
+           没有搜索时不占版面（否则空占位会把「正在播放」顶到首屏外）。 -->
+      <div class="ne-results" id="neResults" style="margin-top:var(--sp-4)"></div>
 
       <!-- 正在播放：站内传输键 + 官方控制带合成一块，避免同一份信息重复三遍 -->
       <section class="np" style="margin-top:var(--sp-5)">
         <div class="np__head">
-          <span class="panel__title">正在播放</span>
-          <span class="np__src mono" id="npSource">${cur ? (cur.provider === 'netease' ? 'NETEASE' : '本地音频') : '待机'}</span>
+          <span class="np__titlewrap">
+            <span class="ne-eyebrow">// NOW PLAYING</span>
+            <b class="np__title">正在播放</b>
+          </span>
+          <span class="np__headmeta">
+            <span class="np__src mono" id="npSource">${cur ? (cur.provider === 'netease' ? 'NETEASE' : 'LOCAL') : 'STANDBY'}</span>
+            <span class="mono np__headfield">${String(Player.tracks.length).padStart(2, '0')} TRACKS</span>
+          </span>
         </div>
         <div class="np__body">
           <div id="neNow" class="np__now">${renderNow()}</div>
-          <div id="embedWrap" class="np__embed">${embedHTML()}</div>
+          <div id="embedWrap" class="np__embed" ${EmbedHost.active ? '' : 'hidden'}>${embedHTML()}</div>
         </div>
       </section>
 
       <!-- 播放列表（最近播放收进底部细条，不再单独占一个面板） -->
       <section class="tracks" style="margin-top:var(--sp-5)">
         <div class="tracks__head">
-          <span class="panel__title">网站播放列表</span>
+          <span class="ne-section-title">
+            <span class="ne-eyebrow">// QUEUE</span>
+            <b>网站播放列表</b>
+          </span>
           <span class="mono faint" style="font-size:var(--fs-2xs)" id="trackCount">${String(Player.tracks.length).padStart(2, '0')} TRACKS</span>
           <span class="grow"></span>
           <button class="btn btn--sm" id="plShuffle" aria-pressed="${Player.shuffle}">${ICON.shuffle}随机</button>
@@ -257,7 +289,10 @@ export default {
         <!-- 站内播放历史：只记在我们自己这边（浏览器 + 你账号下的一份记录），不发给网易云 -->
         <div class="tracks__hist" id="histWrap">
           <div class="tracks__histhead">
-            <span class="k-label k-label--signal">最近播放</span>
+            <span class="ne-section-title ne-section-title--sm">
+              <span class="ne-eyebrow">// RECENT</span>
+              <b>最近播放</b>
+            </span>
             <span class="mono faint" style="font-size:var(--fs-2xs)" id="histCount"></span>
             <span class="grow"></span>
             <button class="btn btn--sm" id="histClear" title="只清我们站内的记录，不影响你在网易云的任何数据">清空记录</button>
@@ -270,6 +305,9 @@ export default {
 
   async mount(root) {
     MiniPlayer.show();
+
+    // 页头的沉浸入口：没有曲目时 disabled，选中后由 paintNow 解开
+    $('#stageTop')?.addEventListener('click', () => ListeningStage.open());
 
     /* ---- 探测后端 ---- */
     state.apiReady = await probeApi();
@@ -327,7 +365,7 @@ export default {
         if (!replace && res.skipped) bits.push(`已在列表中 ${res.skipped} 首`);
         if (res.unavailable) bits.push(`拿不到详情 ${res.unavailable} 首`);
         if (res.truncated) bits.push(`共 ${src.kind === 'album' ? res.album?.size : res.playlist?.trackCount} 首，按上限导入前 ${res.total} 首`);
-        const summary = bits.join(' · ');
+        const summary = bits.join(' / ');
         Toast.show(summary, '', { ttl: 6000 });
         setPlStatus(summary);
       } catch (err) {
@@ -659,8 +697,11 @@ export default {
     /* ---- 订阅引擎事件 ---- */
     const offs = [
       bus.on('player:track', () => { paintNow(); paintPlaylist(); paintEmbed(); }),
-      bus.on('player:state', () => paintNow()),
-      bus.on('player:embed', ({ autoplay }) => paintEmbed(autoplay)),
+      bus.on('player:state', () => { syncNow(); syncNowLyrics(); }),
+      bus.on('lyrics:line', syncNowLyrics),
+      bus.on('lyrics:ready', syncNowLyrics),
+      bus.on('lyrics:idle', syncNowLyrics),
+      bus.on('player:embed', ({ autoplay }) => { paintEmbed(autoplay); syncNow(); }),
       bus.on('playlist:change', () => paintPlaylist()),
       // 播放历史变化（真的开播、位置写回、清空、登录后与账号合并完）都要重画那一条
       bus.on('history:change', () => paintHistory()),
@@ -712,9 +753,12 @@ function renderResults() {
   // 结果自带标题行：条数和「点整行即可播放」这两个提示跟着结果走，比挂在搜索框上更好找
   return `
     <div class="ne-results__head">
-      <span class="k-label k-label--ink">搜索结果</span>
-      <span class="mono faint" style="font-size:var(--fs-2xs)">
-        共 ${state.total || state.results.length} 条 · 显示 ${list.length}${hidden ? `（隐藏 ${hidden} 首会员曲目）` : ''}
+      <span class="ne-section-title ne-section-title--sm">
+        <span class="ne-eyebrow">// RESULTS</span>
+        <b>搜索结果</b>
+      </span>
+      <span class="ne-headmeta mono">
+        共 ${state.total || state.results.length} 条 / 显示 ${list.length}${hidden ? `（隐藏 ${hidden} 首会员曲目）` : ''}
       </span>
       <span class="grow"></span>
       <button class="chip${state.playableOnly ? ' is-on' : ''}" id="nePlayableOnly"
@@ -737,7 +781,7 @@ function soundNoticeHTML() {
     return `
     <div class="ne-silent ne-silent--slim" id="neSilent">
       <span class="mono faint" style="font-size:var(--fs-2xs)">
-        会员曲目 · 已按「浏览器已登录网易云会员」处理，不再提示
+        会员曲目 / 已按「浏览器已登录网易云会员」处理，不再提示
       </span>
       <button class="btn btn--sm" id="neVipUnset">恢复提示</button>
     </div>`;
@@ -780,29 +824,120 @@ function soundNoticeHTML() {
   </details>`;
 }
 
+/** 当前曲目在「正在播放」里的歌词预览（页面版，完整动效在沉浸舞台里） */
+function nowLyricHTML() {
+  const track = Player.current;
+  if (!track) return '';
+  if (Lyrics.status === 'loading') {
+    return `<span class="np-lyric__cur is-placeholder">正在取歌词 …</span>`;
+  }
+  if (Lyrics.status === 'ready') {
+    const line = Lyrics.current();
+    const prev = Lyrics.prev();
+    const next = Lyrics.next();
+    return `
+      <span class="np-lyric__prev">${esc(prev?.text || '')}</span>
+      <span class="np-lyric__cur${line ? '' : ' is-placeholder'}">${esc(line?.text || '· · ·')}</span>
+      <span class="np-lyric__trans" id="npLyricTrans" ${line?.translation ? '' : 'hidden'}>${esc(line?.translation || '')}</span>
+      <span class="np-lyric__next">${esc(next?.text || '')}</span>`;
+  }
+  if (Lyrics.status === 'local') {
+    return `<span class="np-lyric__cur is-placeholder">本地音频 / 没有歌词来源</span>`;
+  }
+  return `<span class="np-lyric__cur is-placeholder">${esc(Lyrics._msg || '这首歌没有可显示的歌词')}</span>`;
+}
+
 function renderNow() {
   const t = Player.current;
   if (!t) {
-    return `<div class="ne-now__ph mono">播放列表为空 · 先搜索并加入一首</div>`;
+    return `<div class="np-empty">
+      <span class="np-empty__mark" aria-hidden="true">${ICON.music}</span>
+      <div>
+        <b>还没有选中的曲目</b>
+        <p>搜索并点一首歌，或从下面的播放列表里点一行。播放后这里会显示封面、进度、歌词和沉浸舞台入口。</p>
+      </div>
+    </div>`;
   }
   const isNe = t.provider === 'netease';
   const embed = Player.isEmbed;
+  const dur = Number(t.audioSeconds) || Number(t.duration) || 0;
+  const total = Player.tracks.length;
+  const idx = Player.index + 1;
+  const repeat = Player.repeat;
   return `
-  <div class="ne-now__inner">
-    <div class="ne-now__cover">
-      ${t.cover ? `<img src="${esc(t.cover)}" alt="" referrerpolicy="no-referrer" />` : ICON.disc}
+  <div class="np-stage${Player.playing ? ' is-playing' : ''}${embed ? ' is-embed' : ''}">
+    <span class="np-stage__ghost" aria-hidden="true">${String(idx).padStart(2, '0')}</span>
+    <div class="np-stage__art">
+      <div class="np-stage__cover">
+        ${t.cover
+          ? `<img src="${esc(t.cover)}" alt="封面：${esc(t.title)}" referrerpolicy="no-referrer" />`
+          : `<span class="np-stage__coverph">${ICON.disc}</span>`}
+        <span class="np-stage__scan" aria-hidden="true"></span>
+        <span class="np-stage__corner np-stage__corner--tl" aria-hidden="true"></span>
+        <span class="np-stage__corner np-stage__corner--br" aria-hidden="true"></span>
+        <span class="np-stage__state mono" id="npState">${Player.playing ? 'PLAYING' : 'PAUSED'}</span>
+      </div>
+      <div class="np-stage__artfoot mono">
+        <span>TRACK ${String(idx).padStart(2, '0')} / ${String(total).padStart(2, '0')}</span>
+        <span>${isNe ? 'NETEASE' : 'LOCAL FILE'}</span>
+      </div>
     </div>
-    <div class="ne-now__meta">
-      <span class="k-label k-label--signal">${isNe ? 'NOW PLAYING · NETEASE' : 'NOW PLAYING'}</span>
+
+    <div class="np-stage__body">
+      <div class="np-stage__kicker">
+        <span class="k-label k-label--signal">${embed ? 'OFFICIAL EMBED' : 'NOW PLAYING'}</span>
+      </div>
       <h2 class="ne-now__title clamp-2">${esc(t.title)} ${vipTag(t)}</h2>
-      <div class="ne-now__sub mono">${esc(t.artist || '未知歌手')}${t.album ? ` · ${esc(t.album)}` : ''}</div>
-      <div class="ne-now__ctrl">
-        <button class="pbtn" id="npPrev" title="上一首">${ICON.prev}</button>
-        <button class="pbtn pbtn--main" id="npPlay" title="${embed ? '播放 / 暂停（官方播放器暂停后从头播放）' : '播放 / 暂停'}">${Player.playing ? ICON.pause : ICON.play}</button>
-        <button class="pbtn" id="npNext" title="下一首">${ICON.next}</button>
-        <span class="mono faint" style="font-size:var(--fs-2xs);margin-left:auto">
-          ${embed ? '进度与音量由网易云播放器自持' : fmtClock(Player.duration)}
+      <div class="ne-now__sub mono">
+        ${esc(t.artist || '未知歌手')}${t.album && t.album !== t.title ? ` / ${esc(t.album)}` : ''}
+        ${isNe ? ` / <span class="np-meta-id">ID ${esc(String(t.neteaseId || '—'))}</span>` : ''}
+      </div>
+
+      <button class="np-lyric" id="npLyricOpen" type="button" title="打开沉浸歌词" aria-label="打开沉浸歌词">
+        <span class="np-lyric__head">
+          <span class="np-lyric__label" id="npLyricLabel">LYRICS</span>
+          <span class="np-lyric__hint mono">点击进入沉浸舞台 ↗</span>
         </span>
+        <span class="np-lyric__body" id="npLyricBody">${nowLyricHTML()}</span>
+      </button>
+
+      <div class="np-progressrow">
+        <div class="np-progress${embed ? ' is-disabled' : ''}" id="npSeek" role="slider" tabindex="${embed ? -1 : 0}"
+             aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+             aria-disabled="${embed}" title="${embed ? '官方播放器不支持站外拖动进度' : '拖动跳转'}">
+          <span class="np-progress__fill" aria-hidden="true"></span>
+          <span class="np-progress__knob" aria-hidden="true"></span>
+        </div>
+        <div class="np-time mono">
+          <span id="npTime">00:00</span>
+          <span class="np-time__slash">/</span>
+          <span id="npDur">${dur ? fmtClock(dur) : '--:--'}</span>
+          <span class="np-time__flag" id="npFlag" ${embed ? '' : 'hidden'}>EMBED</span>
+        </div>
+      </div>
+
+      <div class="np-controls">
+        <div class="np-controls__main">
+          <button class="pbtn pbtn--sm" id="npPrev" title="上一首" aria-label="上一首">${ICON.prev}</button>
+          <button class="pbtn pbtn--main" id="npPlay" title="${embed ? '播放 / 暂停（官方播放器暂停后从头播放）' : '播放 / 暂停'}" aria-label="${Player.playing ? '暂停' : '播放'}">${Player.playing ? ICON.pause : ICON.play}</button>
+          <button class="pbtn pbtn--sm" id="npNext" title="下一首" aria-label="下一首">${ICON.next}</button>
+        </div>
+        <div class="np-controls__aux">
+          <button class="np-aux${Player.shuffle ? ' is-on' : ''}" id="npShuffle" title="随机播放" aria-label="随机播放" aria-pressed="${Player.shuffle}">${ICON.shuffle}</button>
+          <button class="np-aux${repeat !== 'off' ? ' is-on' : ''}" id="npRepeat" title="${repeat === 'one' ? '单曲循环' : repeat === 'off' ? '列表播完就停' : '列表循环'}" aria-label="循环模式" aria-pressed="${repeat !== 'off'}">
+            ${ICON.repeat}${repeat === 'one' ? '<b class="np-aux__one">1</b>' : ''}
+          </button>
+          <span class="np-controls__sep" aria-hidden="true"></span>
+          <button class="np-aux" id="npMute" title="${embed ? '官方播放器音量请在播放器内调整' : '静音'}" aria-label="静音">${embed || Player.muted ? ICON.mute : ICON.vol}</button>
+          <div class="np-vol${embed ? ' is-disabled' : ''}" id="npVol" role="slider" tabindex="${embed ? -1 : 0}"
+               aria-label="音量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" aria-disabled="${embed}">
+            <span class="np-vol__fill" aria-hidden="true"></span>
+          </div>
+        </div>
+        <button class="np-stagebtn" id="npStage" type="button" title="沉浸舞台 · 全屏歌词（Esc 退出）">
+          <span class="np-stagebtn__ico" aria-hidden="true">${STAGE_ICON}</span>
+          <span>沉浸舞台</span>
+        </button>
       </div>
     </div>
   </div>
@@ -840,7 +975,7 @@ function historyRow(e) {
     <span class="ne-hist__main">
       <span class="clamp-1"><b>${esc(e.title || '未命名曲目')}</b></span>
       <span class="mono faint" style="font-size:var(--fs-2xs)">
-        ${esc(e.artist || '未知歌手')}${pos >= 1 ? ` · 上次听到 ${fmtClock(pos)}` : ''}${e.plays > 1 ? ` · 播放 ${e.plays} 次` : ''}${timeAgo(e.at) ? ` · ${timeAgo(e.at)}` : ''}
+        ${esc(e.artist || '未知歌手')}${pos >= 1 ? ` / 上次听到 ${fmtClock(pos)}` : ''}${e.plays > 1 ? ` / 播放 ${e.plays} 次` : ''}${timeAgo(e.at) ? ` / ${timeAgo(e.at)}` : ''}
       </span>
     </span>
     <span class="ne-hist__acts">
@@ -862,7 +997,7 @@ function renderHistory() {
   return `
     <div class="ne-hist__list">${all.slice(0, 12).map(historyRow).join('')}</div>
     ${all.length > 12 ? `<p class="mono faint" style="font-size:var(--fs-2xs);margin:var(--sp-2) 0 0">
-      只显示最近 12 条 · 共 ${all.length} 条（上限 ${HISTORY_MAX} 条，超出丢最旧的）</p>` : ''}
+      只显示最近 12 条 / 共 ${all.length} 条（上限 ${HISTORY_MAX} 条，超出丢最旧的）</p>` : ''}
     ${freq.length > 1 ? `<div class="ne-hist__freq">
       <span class="k-label">常听</span>
       ${freq.map((e) => `<button class="chip" data-hist-id="${esc(e.id)}" data-act="resume" title="播放 ${e.plays} 次 · 点一下继续听">${esc(e.title || e.id)}</button>`).join('')}
@@ -894,7 +1029,10 @@ function paintNow() {
   const host = $('#neNow');
   if (host) {
     host.innerHTML = renderNow();
+    state.lyricKey = '';
     bindNowControls();
+    syncNow();
+    syncNowLyrics();
   }
   // 面板头上的来源标记（NETEASE / 本地音频 / 待机）
   const src = $('#npSource');
@@ -902,12 +1040,120 @@ function paintNow() {
     const t = Player.current;
     src.textContent = t ? (t.provider === 'netease' ? 'NETEASE' : '本地音频') : '待机';
   }
+  const top = $('#stageTop');
+  if (top) top.disabled = !Player.current;
+}
+
+let pageSeek = null;
+let pageVol = null;
+
+/** 只更新进度 / 播放键 / 音量，不重建 DOM —— 之前每次 timeupdate 都 innerHTML 会闪 */
+function syncNow() {
+  const host = $('#neNow');
+  if (!host) return;
+  const t = Player.current;
+  const stage = $('.np-stage', host);
+  if (!t || !stage) return;
+
+  const dur = Number(t.audioSeconds) || Number(t.duration) || 0;
+  const cur = Player.isEmbed ? Player.elapsed : (Player.currentTime || 0);
+  const ratio = dur ? Math.min(1, Math.max(0, cur / dur)) : 0;
+
+  pageSeek?.set(ratio);
+  // 拖进度时别让 4Hz 的播放事件把时间标签抢回去
+  if (!pageSeek?.dragging) {
+    $('#npTime') && ($('#npTime').textContent = fmtClock(cur));
+    $('#npDur') && ($('#npDur').textContent = dur ? fmtClock(dur) : '--:--');
+  }
+  const stateEl = $('#npState');
+  if (stateEl) stateEl.textContent = Player.playing ? 'PLAYING' : 'PAUSED';
+  const flag = $('#npFlag');
+  if (flag) flag.hidden = !Player.isEmbed;
+
+  const playBtn = $('#npPlay');
+  if (playBtn) {
+    playBtn.innerHTML = Player.playing ? ICON.pause : ICON.play;
+    playBtn.setAttribute('aria-label', Player.playing ? '暂停' : '播放');
+    playBtn.title = Player.isEmbed ? '播放 / 暂停（官方播放器暂停后从头播放）' : '播放 / 暂停';
+  }
+  stage.classList.toggle('is-playing', !!Player.playing);
+  stage.classList.toggle('is-embed', !!Player.isEmbed);
+
+  const shuffle = $('#npShuffle');
+  if (shuffle) {
+    shuffle.classList.toggle('is-on', Player.shuffle);
+    shuffle.setAttribute('aria-pressed', String(Player.shuffle));
+  }
+
+  const repeat = Player.repeat;
+  const repeatBtn = $('#npRepeat');
+  if (repeatBtn) {
+    repeatBtn.classList.toggle('is-on', repeat !== 'off');
+    repeatBtn.setAttribute('aria-pressed', String(repeat !== 'off'));
+    repeatBtn.title = repeat === 'one' ? '单曲循环' : repeat === 'off' ? '列表播完就停' : '列表循环';
+    repeatBtn.innerHTML = `${ICON.repeat}${repeat === 'one' ? '<b class="np-aux__one">1</b>' : ''}`;
+  }
+
+  const muteBtn = $('#npMute');
+  if (muteBtn) {
+    const muted = Player.isEmbed || Player.muted;
+    muteBtn.innerHTML = muted ? ICON.mute : ICON.vol;
+    muteBtn.title = Player.isEmbed ? '官方播放器音量请在播放器内调整' : (Player.muted ? '取消静音' : '静音');
+  }
+
+  const seekEl = $('#npSeek');
+  if (seekEl) {
+    seekEl.classList.toggle('is-disabled', !!Player.isEmbed);
+    seekEl.setAttribute('aria-disabled', String(!!Player.isEmbed));
+    seekEl.tabIndex = Player.isEmbed ? -1 : 0;
+    seekEl.title = Player.isEmbed ? '官方播放器不支持站外拖动进度' : '拖动跳转';
+  }
+
+  const volEl = $('#npVol');
+  if (volEl) {
+    pageVol?.set(Player.isEmbed ? 0 : Player.volume);
+    volEl.classList.toggle('is-disabled', !!Player.isEmbed);
+    volEl.setAttribute('aria-disabled', String(!!Player.isEmbed));
+    volEl.tabIndex = Player.isEmbed ? -1 : 0;
+  }
+}
+
+/** 当前行变化时才重画歌词，并给一个短促的上浮提示 */
+function syncNowLyrics() {
+  const body = $('#npLyricBody');
+  if (!body || !Player.current) return;
+  const trans = Lyrics.current()?.translation || '';
+  const key = `${Lyrics.status}|${Lyrics.index}|${Lyrics.current()?.text || ''}|${trans}`;
+  if (key === state.lyricKey) return;
+  const first = state.lyricKey === '';
+  state.lyricKey = key;
+  body.innerHTML = nowLyricHTML();
+
+  const label = $('#npLyricLabel');
+  if (label) {
+    label.textContent = Lyrics.status === 'ready'
+      ? (trans ? 'LYRICS / 原文 + 译文' : 'LYRICS / 原文')
+      : Lyrics.status === 'loading' ? 'LYRICS / LOADING'
+        : Lyrics.status === 'local' ? 'LYRICS / LOCAL AUDIO' : 'LYRICS';
+  }
+  if (!first) {
+    const cur = $('.np-lyric__cur', body);
+    if (cur?.animate && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      cur.animate(
+        [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 260, easing: 'cubic-bezier(.16,.84,.3,1)' },
+      );
+    }
+  }
 }
 
 function paintEmbed() {
   const wrap = $('#embedWrap');
   if (!wrap) return;
   wrap.innerHTML = embedHTML();
+  // 站内直放时官方播放器根本没有挂载，这一整块就别占版面：
+  // 主舞台已经写了「DIRECT STREAM · 真实进度」，再放一遍说明属于噪音。
+  wrap.hidden = !EmbedHost.active;
   // 进入音乐台：把常驻播放器内嵌到本页槽位（iframe 不重建，继续播放）
   if (EmbedHost.active) EmbedHost.noteRoute('music');
 }
@@ -992,4 +1238,39 @@ function bindNowControls() {
   $('#npPlay')?.addEventListener('click', () => Player.toggle());
   $('#npPrev')?.addEventListener('click', () => Player.prev());
   $('#npNext')?.addEventListener('click', () => Player.next());
+  $('#npShuffle')?.addEventListener('click', () => {
+    Player.setShuffle(!Player.shuffle);
+    Toast.show(Player.shuffle ? '随机播放：开' : '随机播放：关');
+  });
+  $('#npRepeat')?.addEventListener('click', () => {
+    const order = ['all', 'one', 'off'];
+    const next = order[(order.indexOf(Player.repeat) + 1) % order.length];
+    Player.setRepeat(next);
+    Toast.show(next === 'one' ? '单曲循环' : next === 'off' ? '列表播完就停' : '列表循环');
+  });
+  $('#npMute')?.addEventListener('click', () => Player.toggleMute());
+  $('#npStage')?.addEventListener('click', () => ListeningStage.open());
+  $('#npLyricOpen')?.addEventListener('click', () => ListeningStage.open());
+
+  pageSeek = bindRange($('#npSeek'), {
+    onInput: (r, commit) => {
+      const t = Player.current;
+      if (!t) return;
+      const d = Number(t.audioSeconds) || Number(t.duration) || 0;
+      if (d) {
+        const el = $('#npTime');
+        if (el) el.textContent = fmtClock(d * r);
+      }
+      if (!commit) return;
+      if (Player.isEmbed) Toast.show('官方播放器的进度条无法从站内拖动');
+      else Player.seekRatio(r);
+    },
+  });
+  pageVol = bindRange($('#npVol'), {
+    onInput: (r) => {
+      if (Player.isEmbed) return;
+      Player.setVolume(r);
+      if (Player.muted) Player.toggleMute();
+    },
+  });
 }

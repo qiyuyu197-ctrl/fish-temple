@@ -165,9 +165,8 @@
   <div class="drawer-scrim" id="drawerScrim" hidden></div>
 
   <!-- ============ MINI PLAYER (persistent) ============
-       极简「正在播放」条：只保留封面唱片 / 曲目信息 / 音浪条。
-       传输控制、进度、时间、音量、关闭按钮已按要求移除 ——
-       播放控制统一收在音乐台页面（点封面直达），底栏不再重复一套控件。
+       极简「正在播放」条：封面唱片 / 曲目信息 / 音浪条 + 一个沉浸舞台入口。
+       传输控制仍集中在音乐台与沉浸舞台里，底栏不重复一整套控件。
   -->
   <div class="miniplayer" id="miniplayer" hidden>
     <!-- 封面：点击即播放 / 暂停（播放时唱片旋转，悬停显示 ▶ / ❚❚） -->
@@ -187,6 +186,11 @@
     <div class="mp-wave" id="mpBars" aria-hidden="true" title="音浪">
       <span class="mp-wave__mid" aria-hidden="true"></span>
     </div>
+
+    <!-- 沉浸舞台：从任何板块都能把当前曲目铺满屏幕 -->
+    <button class="miniplayer__stage" id="mpStage" type="button" title="沉浸舞台 · 全屏歌词" aria-label="打开沉浸舞台">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" stroke="currentColor" stroke-width="1.7"/></svg>
+    </button>
   </div>
 </div>
 

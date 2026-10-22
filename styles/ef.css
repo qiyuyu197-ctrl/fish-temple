@@ -1,195 +1,429 @@
 /**
- * styles/ef.css — 工业风微调层（endfield 采纳版，v2）
+ * styles/ef.css — 全站「终末地风味」终端层 v3
  * ------------------------------------------------------------------
- * 规范见 design/endfield-adoption.md。**只做加法**，不碰任何尺寸/间距：
- *   ① 全站统一的动效曲线与时长（三曲线 + 一张时长表）
- *   ② 切角：所有按钮统一左下角一刀（主按钮刀口更大）—— 这是全站的"签名形状"
- *   ③ 行悬停：左缘色条落下 + 整行右移 2px
- *   ④ 主按钮悬停时亮色自左擦入；按下位移 1px
- *   ⑤ 尊重系统"减少动态效果"
+ * 规范见 design/endfield-adoption.md。这个文件只做“加法”：
+ * 不改页面结构、不改布局尺寸，只统一材质、形状、字体和动效。
  *
- * 为什么单独一个文件：改错了删掉 index.html 里一行 link 就回滚 ✓，不用在几千行 CSS 里找 ✗。
- * 为什么用 clip-path 而不是图片：切角是纯 CSS 形状，不改 DOM、不影响布局 ✓。
- * ⚠️ 刻意**不给 .panel 切角**：面板里可能装下拉/弹层，clip-path 会把它们裁掉 ✗。
+ * 三条固定规则：
+ *   ① 切角 = 可点击：按钮、筛选块、工具按钮切右下角；展示用的封面 / 面板不切。
+ *   ② 唯一强调色只做填充：黄块编号、黄底状态、进度填充；浅色主题里的“当前位置”
+ *      用墨色 trace，深色主题才是黄线。
+ *   ③ 宽体英文 + 粗体中文：Saira 自托管，英文标签 112% / 125% 宽。
+ *
+ * 页面之间允许不同（阅读页安静、展示页大胆、控制台密集），但上面三条不变。
+ * 改错了就删掉 index.html 里的这一行 link，整层回滚。
  */
 
 :root {
-  /* 三条曲线：snap 迅速到位后稳住 / mech 慢起硬停 / soft 只给颜色变化 */
-  --ef-snap: cubic-bezier(0.2, 0.9, 0.1, 1);
-  --ef-mech: cubic-bezier(0.55, 0.06, 0.22, 1);
-  --ef-soft: cubic-bezier(0.4, 0, 0.2, 1);
-  /* 时长表：按下 100 / 悬停 280 / 面板 360（超过 620ms 的一律不要） */
+  /* 切角与时长：小元素 5，常规 7；所有动效都落在这几张表里 */
+  --ef-cut: 7px;
+  --ef-cut-sm: 5px;
   --ef-t-press: 100ms;
   --ef-t-hover: 280ms;
   --ef-t-panel: 360ms;
-  /* 切角：普通按钮 8px，主按钮 12px */
-  --ef-cut: 12px;
-  --ef-cut-sm: 8px;
 }
 
-/* ① + ② 所有按钮：统一的左下切角；主按钮刀口更大 */
-.btn {
-  clip-path: polygon(
-    0 0,
-    100% 0,
-    100% 100%,
-    var(--ef-cut-sm) 100%,
-    0 calc(100% - var(--ef-cut-sm))
-  );
-  transition:
-    transform var(--ef-t-press) var(--ef-snap),
-    border-color var(--ef-t-hover) var(--ef-soft),
-    background-color var(--ef-t-hover) var(--ef-soft),
-    color var(--ef-t-hover) var(--ef-soft);
-}
-.btn--signal {
-  clip-path: polygon(
-    0 0,
-    100% 0,
-    100% 100%,
-    var(--ef-cut) 100%,
-    0 calc(100% - var(--ef-cut))
-  );
-}
-.btn:active {
-  transform: translateY(1px);
+/* ============================================================
+   01 字体：宽体英文 + 粗体中文
+   ============================================================ */
+
+.nav__link,
+.btn,
+.chip,
+.tag,
+.viewhead__idx,
+.viewhead__meta b,
+.card__meta,
+.k-label,
+.hero__eyebrow,
+.sect__link,
+.ticker,
+.ticker__tag,
+.clock,
+.footer__bar,
+.cmdk__group,
+.cmdk__hint,
+.cmdk__foot,
+.result-count,
+.admin__tab,
+.tool-tab,
+.leisure-tab__en {
+  font-family: var(--font-wide);
+  font-stretch: 112%;
 }
 
-/* ④ 主按钮：悬停时亮色自左擦入（不是整块变色） */
-.btn--signal {
-  position: relative;
-  overflow: hidden;
+/* 只有“英文页名”用宽体；中文内容标题保留原来的黑体，避免把
+   「FISH 鱼の灵庙」这种中英混排的大字标挤换行。 */
+.viewhead__title {
+  font-family: var(--font-wide);
+  font-stretch: 110%;
+  letter-spacing: -0.035em;
 }
-.btn--signal::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: color-mix(in srgb, var(--signal-ink, #121316) 16%, transparent);
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform var(--ef-t-hover) var(--ef-mech);
-  pointer-events: none;
-}
-.btn--signal:hover::before,
-.btn--signal:focus-visible::before {
-  transform: scaleX(1);
-}
+.hero__title { font-family: var(--font-sans); }
 
-/* ③ 行悬停：左缘色条落下 + 整行右移 2px（列表 / 表格 / 统计格） */
-.ms-stats > *,
-.mr-members li,
-table tbody tr,
-.log-line {
-  position: relative;
-  transition: transform var(--ef-t-hover) var(--ef-snap);
-}
-.ms-stats > *::before,
-.mr-members li::before,
-table tbody tr::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--signal);
-  transform: scaleY(0);
-  transform-origin: top center;
-  transition: transform var(--ef-t-hover) var(--ef-mech);
-  pointer-events: none;
-}
-.ms-stats > *:hover::before,
-.mr-members li:hover::before,
-table tbody tr:hover::before {
-  transform: scaleY(1);
-}
-.ms-stats > *:hover,
-.mr-members li:hover,
-table tbody tr:hover {
-  transform: translateX(2px);
-}
-
-/* 状态灯 / 小标签的过渡也收进同一套曲线，避免每处手感不同 */
-.status-dot,
-.mono,
-.panel {
-  transition-duration: var(--ef-t-hover);
-  transition-timing-function: var(--ef-soft);
-}
-
-/* ⑥ 宽体小字：等宽标签统一加一点字距 —— 这是"工业风标题"的骨架，
- *    站里 viewhead 的 idx（MODULE / 06 那类）本来就在，只是字距不统一。
- *    只加 0.04em，克制；加多了整站会显得松散 ✗ */
-.mono {
-  letter-spacing: 0.04em;
-}
-
-/* ⑦ 列表行编号：只给"成员/队友"这类真正的行列加序号（01 02 03…），
- *    不动导航（导航是链接、加编号会很奇怪 ✗）。
- *    用 CSS 计数器实现，不改任何标记 ✓ */
-.mr-members {
-  counter-reset: ef-row;
-}
-.mr-members li {
-  counter-increment: ef-row;
-}
-.mr-members li::after {
-  content: counter(ef-row, decimal-leading-zero);
-  order: -1;
-  margin-right: var(--sp-2, 8px);
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  color: var(--fg-faint);
+.viewhead__meta b,
+.hero__stat b,
+.card__idx,
+.card__meta,
+.sect__no {
+  font-family: var(--font-wide);
+  font-stretch: 112%;
   font-variant-numeric: tabular-nums;
 }
 
-/* ⑧ 空壳元素不显示
- *  MINES 页顶栏右侧那块"白矩形"：截图里它贴在 ticker 那一条的右端下方 ✓
- *  —— 是某个空槽（没有内容的 li / div）被渲染成了白块 ✗。
- *  统一让"没有任何内容的槽"不占位、不画背景：
- *   · :empty 只匹配"完全没有任何子节点"的元素，所以有文字的不会被误伤 ✓
- *   · 只作用于 ticker 与页签容器，范围收窄，不动站点其它地方 ✓
- */
-.ticker > *:empty,
-.ticker li:empty,
-.mr-tabs > *:empty {
-  display: none !important;
+.viewhead__idx::before { content: "// "; }
+.sect__no {
+  padding: 1px 5px;
+  color: var(--signal-ink);
+  background: var(--signal);
+  letter-spacing: 0.08em;
+}
+.k-label { letter-spacing: 0.12em; }
+
+/* 导航序号 / 字段用宽体数字；中文仍落回系统黑体 */
+.nav__idx,
+.clock b,
+.clock i,
+.footer__bar {
+  font-variant-numeric: tabular-nums;
 }
 
-/* ⑨ 空白的"歌词框"不占位、不画底
- *  DOM 取证结果：viewhead 右侧那块白矩形是 **.lyricbox**（styles/base.css 的注释里写着
- *  "viewhead 右侧本来是一块空白，现在放这块；没有曲目时 [hidden] 直接不占位"）。
- *  但 [hidden] 只是浏览器默认样式，一旦有别的规则把 display 设成 flex/block 就会失效 ✗
- *  → 没在听歌的人也会看到一个空白盒子（截图里就是它）。
- *  补两条：:empty 与 [hidden] 一律不显示，并加 !important 压过可能的 display 覆盖。
- */
-.lyricbox:empty,
-.lyricbox[hidden] {
-  display: none !important;
+/* ============================================================
+   02 切角 = 可点击
+   ============================================================ */
+
+.btn,
+.chip,
+.iconact,
+.ms-lv,
+.admin__tab,
+.tool-tab {
+  --cut: var(--ef-cut);
+  -webkit-mask: linear-gradient(-45deg, transparent calc(var(--cut) - 0.5px), #000 calc(var(--cut) + 0.5px));
+  mask: linear-gradient(-45deg, transparent calc(var(--cut) - 0.5px), #000 calc(var(--cut) + 0.5px));
+}
+.chip, .iconact { --cut: var(--ef-cut-sm); }
+.ms-lv, .tool-tab, .admin__tab { --cut: var(--ef-cut); }
+
+.btn { padding-right: 24px; }
+.btn--sm { padding-right: 16px; }
+.chip { padding-right: 14px; }
+.iconact { padding-right: 6px; }
+.ms-lv { padding-right: 18px; }
+.tool-tab, .admin__tab { padding-right: 22px; }
+
+/* 焦点框画在块内，避免被 mask 裁掉 */
+.btn:focus-visible,
+.chip:focus-visible,
+.iconact:focus-visible,
+.ms-lv:focus-visible,
+.admin__tab:focus-visible,
+.tool-tab:focus-visible {
+  outline-offset: -4px;
 }
 
-/* ⑩ 等高线底纹（极淡）
- *  挂在 body 的 **background-image** 上，不动颜色：
- *  base.css 里 body 用的是 `background: var(--bg)`（shorthand，只把 image 重置成 none），
- *  这里单独补 image，颜色照旧 ✓；background-attachment: fixed 让它不随滚动移动 ✓。
- *  浓度只有 3–4% 的墨色 —— 目的是一层"纸上的等高线"，不是装饰图案，所以不抢内容 ✓。
- */
-body {
-  background-image:
-    repeating-radial-gradient(circle at 14% -6%, transparent 0 28px, color-mix(in srgb, var(--ink-100) 3.5%, transparent) 28px 29px),
-    repeating-radial-gradient(circle at 86% 4%, transparent 0 34px, color-mix(in srgb, var(--ink-100) 3%, transparent) 34px 35px);
-  background-attachment: fixed;
-  background-repeat: repeat;
+/* 按钮：黄色从左擦入；主按钮桌面墨底、触屏静止黄底 */
+.btn::before {
+  transform: translateX(-101%);
+  transition: transform var(--ef-t-hover) var(--ease-mech);
+}
+.btn:hover::before,
+.btn:focus-visible::before { transform: none; }
+
+.btn--signal {
+  --btn-bg: var(--ink-100);
+  --btn-fg: var(--bg);
+  --btn-bd: var(--ink-100);
+}
+.btn--signal::before { background: var(--signal); }
+.btn--signal:hover { color: var(--signal-ink); border-color: var(--signal); }
+
+@media (hover: none) {
+  .btn--signal {
+    --btn-bg: var(--signal);
+    --btn-fg: var(--signal-ink);
+    --btn-bd: var(--signal);
+  }
+  .btn--signal::before { background: color-mix(in srgb, var(--signal), #000 12%); }
 }
 
-/* ⑤ 系统开了"减少动态效果"：全部直接跳到结束态，只保留颜色变化 */
+/* 筛选 / 状态：选中黄块；红色只给删除 */
+.chip.is-on {
+  color: var(--signal-ink);
+  background: var(--signal);
+  border-color: var(--signal);
+}
+.chip:hover { border-color: var(--trace); }
+
+.tag--alert {
+  color: var(--signal-ink);
+  background: var(--signal);
+  border-color: var(--signal);
+}
+.tag--signal {
+  color: var(--fg-muted);
+  background: var(--bg-alt);
+  border-color: var(--border);
+}
+.tag--ok {
+  color: var(--fg);
+  background: var(--bg-alt);
+  border-color: var(--fg-muted);
+}
+
+/* ============================================================
+   03 导航 / 播报 / 页头
+   ============================================================ */
+
+.nav__link { font-stretch: 112%; }
+.nav__link.is-active { font-weight: 800; }
+.nav__badge {
+  background: var(--signal);
+  color: var(--signal-ink);
+  font-family: var(--font-wide);
+  font-stretch: 112%;
+}
+.nav__link.is-active .nav__badge { background: var(--signal-ink); color: var(--signal); }
+
+.ticker { font-stretch: 112%; }
+.ticker__tag::before { animation: none; opacity: 1; }
+.clock b, .clock i { font-stretch: 112%; }
+
+/* ============================================================
+   04 卡片 / 列表 / 统计
+   ============================================================ */
+
+.card {
+  background: var(--bg);
+  transition: border-color var(--ef-t-hover) var(--ease-soft), background var(--ef-t-hover) var(--ease-soft);
+}
+.card::before {
+  content: "";
+  position: absolute; z-index: 3; top: 0; left: 0;
+  width: 14%; height: 4px; background: var(--ink-100);
+  transform-origin: left; transition: width var(--t-slow) var(--ease-mech);
+  pointer-events: none;
+}
+.card:hover::before, .card:focus-within::before { width: 100%; }
+.card:hover { border-color: var(--border-hard); transform: none; background: var(--bg); }
+.card::after { width: 3px; background: var(--trace); }
+.card__idx { color: var(--fg-faint); mix-blend-mode: normal; font-size: var(--fs-2xs); }
+.card__title { letter-spacing: -0.015em; }
+.card:hover .card__title { text-decoration-color: var(--trace); }
+
+.row { transition: background var(--ef-t-hover) var(--ease-soft), padding-left var(--ef-t-hover) var(--ease-snap); }
+.row:hover { padding-left: var(--sp-2); }
+.row:hover::before { background: var(--trace); }
+
+.hero__stat {
+  position: relative; overflow: hidden;
+  background: var(--bg);
+  transition: background var(--ef-t-hover) var(--ease-soft);
+}
+.hero__stat::before {
+  content: ""; position: absolute; top: 0; left: 0;
+  width: 14%; height: 4px; background: var(--ink-100);
+  transition: width var(--t-slow) var(--ease-mech);
+}
+.hero__stat:hover::before { width: 100%; }
+.hero__stat:hover { background: var(--bg-alt); }
+.hero__stat b { font-size: clamp(1.6rem, 2.6vw, 2.2rem); font-weight: 800; letter-spacing: -0.03em; }
+
+/* 表格行也用 trace，不用黄色铺底 */
+table tbody tr { transition: background var(--ef-t-hover) var(--ease-soft), box-shadow var(--ef-t-hover) var(--ease-snap); }
+table tbody tr:hover { background: var(--bg-alt); box-shadow: inset 3px 0 0 var(--trace); }
+th {
+  font-family: var(--font-wide); font-stretch: 112%;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  font-size: var(--fs-2xs); color: var(--fg-muted);
+}
+
+/* ============================================================
+   05 提示 / 空态 / 表单
+   ============================================================ */
+
+.notice {
+  border-left-color: var(--signal);
+  background: var(--bg);
+}
+.notice__icon {
+  width: 20px; height: 20px; display: grid; place-items: center;
+  background: var(--signal); color: var(--signal-ink);
+  font-family: var(--font-wide); font-weight: 700;
+}
+.notice--signal .notice__icon { background: var(--signal); color: var(--signal-ink); }
+
+.empty {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.empty::before {
+  content: ""; position: absolute; top: 0; left: 0;
+  width: 14%; height: 5px; background: var(--ink-100);
+  transition: width var(--t-slow) var(--ease-mech);
+}
+.empty:hover::before { width: 100%; }
+.empty svg { color: var(--ink-25); }
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+select, textarea {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 0;
+  transition: border-color var(--ef-t-hover) var(--ease-soft), box-shadow var(--ef-t-hover) var(--ease-soft);
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):focus,
+select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--trace);
+  box-shadow: inset 0 -2px 0 var(--trace);
+}
+
+/* 歌词框“可能无声”不再用红色：黄块标签 + 墨线 */
+.lyricbox.is-silent {
+  border-right-color: var(--trace);
+  background: color-mix(in srgb, var(--signal) 8%, var(--bg-sunk));
+}
+.lyricbox__label[data-tone="alert"] {
+  padding: 1px 5px;
+  color: var(--signal-ink);
+  background: var(--signal);
+}
+
+/* ============================================================
+   06 浮层：命令面板 / 抽屉 / 提示
+   ============================================================ */
+
+.cmdk__panel {
+  box-shadow: none;
+  border-top: 4px solid var(--ink-100);
+}
+.cmdk__head input { font-family: var(--font-wide); font-stretch: 108%; }
+.cmdk__item.is-cursor { box-shadow: inset 3px 0 0 var(--trace); }
+.cmdk__item.is-cursor .cmdk__ico { color: var(--fg); }
+
+.drawer { border-left-color: var(--border-hard); }
+.drawer__nav a.is-active {
+  color: var(--fg);
+  background: var(--bg-alt);
+  box-shadow: inset 3px 0 0 var(--trace);
+}
+.drawer__nav a.is-active:hover { color: var(--fg); }
+
+.toast {
+  border-left: 4px solid var(--signal);
+  box-shadow: none;
+  font-family: var(--font-wide);
+  font-stretch: 108%;
+}
+
+/* ============================================================
+   07 页面级随机应变
+   ============================================================ */
+
+/* 首页：字标 / 统计已经是展示页，不再套卡片网格；只加强数字与切角 */
+.hero__cta .btn { font-stretch: 112%; }
+.hero__stats { border-color: var(--border-hard); }
+.hero__stat:first-child { border-left: 3px solid var(--trace); }
+
+/* 文章 / 公告：卡片是“看板”，不是普通白卡；顶部黑页签 + 左 trace */
+.logs .card::before { background: var(--ink-100); }
+
+/* 论坛：未启用账号时是一块完整空态，不是虚线框 */
+.forum__list .empty, .forum__tools ~ .empty { border-color: var(--border-hard); }
+
+/* 插画 / 相册：图片永远直角；只有按钮切角 */
+.gallery .thumb, .gallery .masonry__item, .gallery .stage, .gallery .stage__img { border-radius: 0; }
+
+/* 工具台：拖放区是工作台，不是虚线“上传框” */
+.tools .tool-drop {
+  border: 1px solid var(--border-hard);
+  background: var(--bg);
+}
+.tools .tool-drop:hover { background: var(--bg-alt); box-shadow: inset 3px 0 0 var(--trace); }
+.tools .tool-tab.is-on { background: var(--ink-100); color: var(--bg); }
+
+/* 控制台：输入区是“板”，侧栏是索引；当前表单项用 trace 下边 */
+.admin .admin__tab.is-on { background: var(--ink-100); color: var(--bg); }
+.admin .admin__side { border-color: var(--border-hard); }
+
+/* 减少动态效果：全部直接跳到结束态 */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* 看板：顶部一段墨色页签，悬停时沿整条边伸开（面板本身不切角） */
+.panel::before,
+.section-block::before {
+  content: ""; position: absolute; z-index: 2; top: 0; left: 0;
+  width: 14%; height: 4px; background: var(--ink-100);
+  transition: width var(--t-slow) var(--ease-mech);
+  pointer-events: none;
+}
+.section-block { position: relative; }
+.panel:hover::before,
+.panel:focus-within::before,
+.section-block:hover::before { width: 100%; }
+
+/* 游戏页顶部模式页签：当前项切角并保持黄块 */
+.mr-tab.is-on {
+  --cut: var(--ef-cut-sm);
+  -webkit-mask: linear-gradient(-45deg, transparent calc(var(--cut) - 0.5px), #000 calc(var(--cut) + 0.5px));
+  mask: linear-gradient(-45deg, transparent calc(var(--cut) - 0.5px), #000 calc(var(--cut) + 0.5px));
+  padding-right: 21px;
+}
+
+/* 文章页两组筛选：类型黄块、分类墨块，同一排不要两个黄色当前项 */
+.logs .gallery__bar > .grid:nth-child(3) .chip.is-on {
+  color: var(--bg);
+  background: var(--ink-100);
+  border-color: var(--ink-100);
+}
+
+/* 顶栏当前板块：黄块右下切角；不增加内边距，避免导航宽度跳动 */
+.nav__link.is-active {
+  --cut: var(--ef-cut);
+  -webkit-mask: linear-gradient(-45deg, transparent calc(var(--cut) - 0.5px), #000 calc(var(--cut) + 0.5px));
+  mask: linear-gradient(-45deg, transparent calc(var(--cut) - 0.5px), #000 calc(var(--cut) + 0.5px));
+}
+.nav__link.is-active:focus-visible { outline-offset: -4px; }
+
+/* 文娱页签是“分段选择”：当前项墨底反白，不再用黄色下划线 */
+.leisure-tab.is-on {
+  background: var(--ink-100);
+  color: var(--bg);
+}
+.leisure-tab.is-on::after { display: none; }
+.leisure-tab.is-on .leisure-tab__en { color: color-mix(in srgb, var(--bg) 72%, transparent); }
+.leisure-tab.is-on b { border-color: color-mix(in srgb, var(--bg) 40%, transparent); color: var(--bg); }
+
+.mr-tab, .leisure-tab { font-family: var(--font-wide); font-stretch: 112%; }
+
+/* 标签不拆行：筛选的英文 / 中文再窄也保持一条，容器负责横向滚动 */
+.btn, .chip, .tag, .k-label, .nav__link { white-space: nowrap; }
+
+/* 顶栏导航在宽体字体下会变宽：1920 起隐藏序号，1100–1240 收紧字与内边距，
+   保证 10 个板块 + 登录头像都能放下。 */
+.nav__link { font-stretch: 100%; }
+@media (max-width: 2000px) { .nav__idx { display: none; } }
+@media (max-width: 1240px) and (min-width: 901px) {
+  .nav__link { padding: 0 6px; font-size: 10px; letter-spacing: 0.04em; }
+}
+
+/* 1180 以下不再硬塞 10 个板块：切到抽屉导航（抽屉本身是站内既有组件） */
+@media (max-width: 1180px) {
+  .nav { display: none; }
+  .iconbtn--menu { display: grid; }
+}
+
+/* 1300 以下统一收进抽屉，避免 1181–1299 这段“看起来还宽、实际已经挤住”的灰区 */
+@media (max-width: 1299px) {
+  .nav { display: none; }
+  .iconbtn--menu { display: grid; }
 }

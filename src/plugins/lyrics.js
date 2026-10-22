@@ -29,12 +29,16 @@ import { Player } from '../core/player.js';
 const OFFSET_MS = 600;
 const TICK_MS = 250;
 const MAX_LINES = 400;
+/** 内存里保留多少首歌词：来回切歌时不用重复打接口，也不至于无限涨 */
+const CACHE_MAX = 80;
 
 /** 歌词开头的「作词/作曲/编曲/制作人…」是随 LRC 一起回来的制作信息，
- *  网易云自己的播放器也会显示，但放在我们这块标题栏里很怪 —— 前 3 秒内
- *  命中关键词 + 冒号的行直接丢掉（歌曲正文里出现这些词的概率极低）。
+ *  网易云自己的播放器也会显示，但放在我们这块标题栏里很怪。
+ *  早期只丢掉前 3 秒内的行，结果歌曲末尾的「录音棚 / 混音 / 母带室」又会
+ *  跑进沉浸歌词里；现在只要它长成「关键词 + 冒号」的样子就丢掉
+ *  （歌曲正文里出现这些词的概率极低）。
  *  注意写法不固定：「制作人/编曲：Yu H.」这种也是制作信息。 */
-const CREDIT_WORDS = /(作词|作曲|编曲|制作人|监制|混音|母带|录音|配唱|和声|吉他|贝斯|鼓|键盘|弦乐|出品|发行|演唱|Produced|Composed|Arranged|Lyricist|Vocals?)/i;
+const CREDIT_WORDS = /(作词|作曲|编曲|制作人|监制|混音|母带|录音|配唱|和声|吉他|贝斯|鼓|键盘|弦乐|出品|发行|演唱|主唱|企划|Produced|Composed|Arranged|Lyricist|Vocals?)/i;
 
 function isCreditLine(text) {
   const head = text.slice(0, 24);
@@ -54,12 +58,30 @@ export function parseLrc(text) {
       const sec = Number(m[2]) || 0;
       const frac = m[3] ? Number(`0.${m[3].padEnd(3, '0').slice(0, 3)}`) : 0;
       const t = Math.round((min * 60 + sec + frac) * 1000);
-      if (t < 3000 && isCreditLine(body)) continue;
+      if (isCreditLine(body)) continue;
       out.push({ t, text: body });
     }
   }
   out.sort((a, b) => a.t - b.t);
   return out.slice(0, MAX_LINES);
+}
+
+/**
+ * 把网易云的翻译 LRC 并进原文行。
+ *
+ * 翻译时间轴与原文通常逐行对齐，但偶尔会差几十毫秒，所以不要求时间戳完全相同，
+ * 取最近的一行、且距离不超过 350ms。没有翻译的曲目原样返回，界面会自己隐藏译文行。
+ */
+export function attachTranslations(lines, translatedLrc) {
+  const trans = parseLrc(translatedLrc);
+  if (!trans.length || !lines.length) return lines;
+  let j = 0;
+  for (const line of lines) {
+    while (j + 1 < trans.length && Math.abs(trans[j + 1].t - line.t) <= Math.abs(trans[j].t - line.t)) j++;
+    const hit = trans[j];
+    if (hit && Math.abs(hit.t - line.t) <= 350) line.translation = hit.text;
+  }
+  return lines;
 }
 
 export const Lyrics = {
@@ -73,6 +95,7 @@ export const Lyrics = {
   _frozen: 0,
   _timer: null,
   _msg: '',
+  _cache: new Map(),
 
   init() {
     bus.on('player:track', ({ track } = {}) => {
@@ -110,9 +133,22 @@ export const Lyrics = {
   /** 取歌词（带内存缓存，同一首只请求一次） */
   async load(track) {
     if (!track?.neteaseId) return this.clear();
-    const same = this.track?.neteaseId === track.neteaseId;
+    const id = String(track.neteaseId);
+    const same = this.track?.neteaseId === id;
     this.track = track;
     if (same && (this.status === 'ready' || this.status === 'empty')) return this;
+
+    // 之前听过、切回来时直接用缓存：不闪「正在取歌词」，也不重复请求
+    const cached = this._cache.get(id);
+    if (cached) {
+      this.lines = cached.lines;
+      this.status = cached.status;
+      this._msg = cached.msg;
+      this.index = -1;
+      bus.emit('lyrics:ready', { track, lines: this.lines, status: this.status, nolyric: cached.nolyric, cached: true });
+      this._tick(true);
+      return this;
+    }
 
     this.status = 'loading';
     this.lines = [];
@@ -121,15 +157,17 @@ export const Lyrics = {
     bus.emit('lyrics:ready', { track, lines: [], status: 'loading' });
 
     try {
-      const res = await fetch(`/api/netease/lyric?id=${encodeURIComponent(track.neteaseId)}`);
+      const res = await fetch(`/api/netease/lyric?id=${encodeURIComponent(id)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      const lines = parseLrc(json.lrc);
+      // 译文与原文一起回来，按最近时间戳对齐；没有译文就只显示原文
+      const lines = attachTranslations(parseLrc(json.lrc), json.tlyric || '');
       // 当前曲目可能在请求期间被切走了
-      if (this.track?.neteaseId !== track.neteaseId) return this;
+      if (this.track?.neteaseId !== id) return this;
       this.lines = lines;
       this.status = lines.length ? 'ready' : 'empty';
       this._msg = json.nolyric ? '纯音乐 · 没有歌词' : '这首歌没有可显示的歌词';
+      this._remember(id, { lines, status: this.status, msg: this._msg, nolyric: !!json.nolyric });
       bus.emit('lyrics:ready', { track, lines, status: this.status, nolyric: !!json.nolyric });
       this._tick(true);
     } catch (err) {
@@ -138,6 +176,15 @@ export const Lyrics = {
       bus.emit('lyrics:ready', { track, lines: [], status: 'error', error: String(err.message || err) });
     }
     return this;
+  },
+
+  _remember(id, entry) {
+    if (!id) return;
+    if (this._cache.size >= CACHE_MAX) {
+      // Map 保持插入顺序：删最早的一首
+      this._cache.delete(this._cache.keys().next().value);
+    }
+    this._cache.set(id, entry);
   },
 
   clear() {
@@ -204,6 +251,8 @@ export const Lyrics = {
 
   current() { return this.index >= 0 ? this.lines[this.index] : null; },
   next() { return this.lines[this.index + 1] || null; },
+  prev() { return this.index > 0 ? this.lines[this.index - 1] : null; },
+  translation() { return this.current()?.translation || ''; },
 
   _ensureTimer() {
     if (this._timer) return;

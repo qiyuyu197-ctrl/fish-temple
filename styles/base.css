@@ -2,6 +2,18 @@
    base.css — 重置、排版、外壳骨架
    ============================================================ */
 
+/* Saira：自托管的可变宽度无衬线字体（SIL OFL 1.1，许可证在
+   assets/fonts/Saira-OFL.txt）。音乐台的宽体英文标签与数字用它，
+   中文自动落回 --font-sans 的系统黑体。 */
+@font-face {
+  font-family: "Saira";
+  src: url("../assets/fonts/Saira.ttf") format("truetype");
+  font-weight: 100 900;
+  font-stretch: 50% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
 /* hidden 属性必须优先于组件类里的 display 声明，

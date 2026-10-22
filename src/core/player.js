@@ -254,6 +254,14 @@ export const Player = {
   },
   get currentTime() { return this.isEmbed ? 0 : (this.audio?.currentTime || 0); },
   get shuffle() { return !!Settings.get('shuffle'); },
+  /**
+   * 循环模式：off（播完列表就停）/ all（列表循环）/ one（单曲循环）。
+   * 默认 all，保持原来「放完自动接下一首、到末尾回到第一首」的行为。
+   */
+  get repeat() {
+    const v = Settings.get('repeat');
+    return v === 'off' || v === 'one' || v === 'all' ? v : 'all';
+  },
 
   /** 可视化模式：'analyser' 真频谱 / 'synthetic' 合成动画 / 'off' */
   get visualizerMode() {
@@ -621,16 +629,49 @@ export const Player = {
   next({ auto = false } = {}) {
     if (!this.tracks.length) return false;
     const want = this.playing || this._intent || auto;
+
+    // 单曲循环：自动接播时重开同一首。官方 iframe 没法 seek，只能重建播放器；
+    // 直放则优先从 0 继续，媒体管线不会中断。
+    if (auto && this.repeat === 'one') {
+      if (this.isEmbed) {
+        this.prepare(this.index, { autoplay: true });
+      } else {
+        this._ending = false;
+        this.seek(0);
+        void this.play();
+      }
+      return true;
+    }
+
     if (this.shuffle && this._shuffleOrder) {
       const pos = this._shuffleOrder.indexOf(this.index);
+      // 随机播放 + 「播完就停」：走到乱序队列的最后一首也要真正停下
+      if (auto && this.repeat === 'off' && pos === this._shuffleOrder.length - 1) {
+        this.playing = false;
+        this._intent = false;
+        this._clearAdvance();
+        this._updateMediaSession();
+        this._emitState();
+        return false;
+      }
       const nxt = this._shuffleOrder[(pos + 1) % this._shuffleOrder.length];
       this.prepare(nxt, { autoplay: want });
       return true;
     }
     const nxt = (this.index + 1) % this.tracks.length;
-    // 走到列表末尾时，只有「本地音频/站内直放且允许自动下一首」才从头再来；
-    // 网易云外链曲目用的是另一个开关（embedAutoNext），别把两者混在一起
-    const allowWrap = this.isEmbed ? this.embedAutoNext : !!PLAYER.autoplayNext;
+    // 走到列表末尾时：
+    //   · repeat=all → 回到第一首
+    //   · repeat=off → 自动接播时停在结尾（手动点下一首仍然可以绕回去）
+    //   · 网易云外链曲目还有自己的 embedAutoNext 开关，没开时到点停住
+    let allowWrap;
+    if (auto) {
+      if (this.repeat === 'all') allowWrap = true;
+      else if (this.repeat === 'one') allowWrap = true;   // 已在上面处理，这里只是兜底
+      else allowWrap = false;
+      if (this.isEmbed && !this.embedAutoNext) allowWrap = false;
+    } else {
+      allowWrap = true;
+    }
     if (auto && nxt === 0 && !allowWrap) {
       // 列表放完了：停在这首的结尾。状态必须跟着落地，否则界面会一直显示"播放中"，
       // 而实际上声音早就没了 —— 后台放完一整张列表后回到前台看到的就是这个假状态。
@@ -690,6 +731,15 @@ export const Player = {
     bus.emit('player:state', { shuffle: on });
   },
 
+  setRepeat(mode) {
+    const next = mode === 'off' || mode === 'one' || mode === 'all' ? mode : 'all';
+    Settings.set('repeat', next);
+    // 外链播放器的「到点做什么」也要跟着重布防
+    if (this.isEmbed && this.playing && !this._advanceSuspended) this._scheduleAdvance(this.current);
+    bus.emit('player:state', { repeat: next });
+    return next;
+  },
+
   _makeShuffle() {
     const arr = this.tracks.map((_, i) => i);
     for (let i = arr.length - 1; i > 0; i--) {
@@ -710,6 +760,9 @@ export const Player = {
       this.playing = false;
       this._clearAdvance();
       bus.emit('player:embed', { track: null, index: -1, autoplay: false });
+      // 清空也要发 track（track=null）：否则音乐台与底栏会继续显示上一首，
+      // 看起来像「列表空了但还在播」。
+      bus.emit('player:track', { track: null, index: -1 });
       bus.emit('playlist:change', { tracks: [], index: -1 });
       this._emitState();
       return;
@@ -1027,7 +1080,9 @@ export const Player = {
     if (!this.isEmbed || this._advanceSuspended) return;
     const total = Number(track?.audioSeconds) || Number(track?.duration) || 0;
     if (total <= 0) return;
-    this._advanceAction = this.embedAutoNext ? 'next' : 'pause';
+    this._advanceAction = !this.embedAutoNext
+      ? 'pause'
+      : (this.repeat === 'one' ? 'repeat' : 'next');
     this._advanceTotal = total;
     // 墙钟基准的触发点（兜底计时器用）
     this._advanceAt = this.embedAutoNext
@@ -1041,6 +1096,7 @@ export const Player = {
       const action = this._advanceAction;
       this._clearAdvance();
       if (action === 'pause') this.pause();
+      else if (action === 'repeat') this.prepare(this.index, { autoplay: true });
       else this.next({ auto: true });
     };
 

@@ -28,6 +28,7 @@ import { MiniPlayer } from './ui/miniaudio.js';
 import { AlmanacUI } from './ui/almanac.js';
 import { EmbedHost } from './ui/embed-host.js';
 import { initLyricsUI } from './ui/lyrics.js';
+import { ListeningStage } from './ui/listening-stage.js';
 import { initWaveRow } from './ui/wave-row.js';
 import { Boot } from './ui/boot.js';
 
@@ -169,6 +170,7 @@ async function boot() {
   // 5.5) 歌词引擎 + 板块标题栏与首页的歌词显示 + 首页圆形音浪
   Lyrics.init();
   initLyricsUI();
+  ListeningStage.init();
   initWaveRow();
 
   // 6) 视图注册（顺序即导航顺序，可被 Registry.addNav 覆盖）
@@ -234,4 +236,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* 供调试：window.Terminal.randomArt() 等 */
-window.Terminal = { ctx, Player, Stage, Lyrics, Registry, Router, Posts, News, Settings, Theme, Palette, openPalette, EmbedHost, Mines, MinesLive, Almanac, AlmanacUI, Auth };
+window.Terminal = { ctx, Player, Stage, Lyrics, ListeningStage, Registry, Router, Posts, News, Settings, Theme, Palette, openPalette, EmbedHost, Mines, MinesLive, Almanac, AlmanacUI, Auth };

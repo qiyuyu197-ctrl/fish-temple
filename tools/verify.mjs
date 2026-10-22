@@ -1775,6 +1775,113 @@ async function main() {
       JSON.stringify({ embedInsideNp: layout?.embedInsideNp, histInTracks: layout?.histInTracks, legacyGrid: layout?.legacyGrid, panels: layout?.panelCount, metaCount: layout?.metaCount }));
   }
 
+  /* ---------------- 沉浸舞台：全屏歌词 / 队列 / 循环 / 译文 ---------------- */
+  await visit('#/music');
+  const stageUI = await evaluate(`(async () => {
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const P = window.Terminal.Player;
+    const L = window.Terminal.Lyrics;
+    const out = {};
+
+    // 用一段本地 WAV 驱动 UI，不依赖上游曲目是否可播
+    const wav = (() => {
+      const sr = 8000, secs = 3, n = sr * secs;
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      ws(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      ws(36, 'data'); v.setUint32(40, n * 2, true);
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return 'data:audio/wav;base64,' + btoa(bin);
+    })();
+
+    P.setRepeat('all');
+    P.setTracks([
+      { id: 'stage-check-1', provider: 'local', src: wav, title: '沉浸舞台自检', artist: 'FISH', duration: 3 },
+      { id: 'stage-check-2', provider: 'local', src: wav, title: '队列第二首', artist: 'FISH', duration: 3 },
+    ]);
+    P.prepare(0, { autoplay: false });
+    await wait(350);
+
+    out.page = {
+      stageBtn: !!document.getElementById('npStage'),
+      lyricBtn: !!document.getElementById('npLyricOpen'),
+      seek: !!document.getElementById('npSeek'),
+      volume: !!document.getElementById('npVol'),
+      inputs: [...document.querySelectorAll('.music input')].map(i => i.id || i.type),
+    };
+
+    document.getElementById('npStage').click();
+    await wait(500);
+    const overlay = document.querySelector('.lstage');
+    out.open = {
+      visible: !!overlay && !overlay.hidden,
+      locked: document.body.classList.contains('is-locked'),
+      seek: !!document.getElementById('lsSeek'),
+      volume: !!document.getElementById('lsVol'),
+      line: document.getElementById('lsLine')?.textContent || '',
+      queueBtn: !!document.getElementById('lsQueueBtn'),
+    };
+
+    document.getElementById('lsQueueBtn').click();
+    await wait(250);
+    out.queue = {
+      open: !document.getElementById('lsQueue')?.hidden,
+      rows: document.querySelectorAll('#lsQueueList .lstage__qrow').length,
+      expanded: document.getElementById('lsQueueBtn')?.getAttribute('aria-expanded'),
+    };
+    document.getElementById('lsQueueClose').click();
+    await wait(150);
+
+    const before = P.repeat;
+    document.getElementById('lsRepeat').click();
+    await wait(100);
+    const one = P.repeat;
+    document.getElementById('lsRepeat').click();
+    await wait(100);
+    const off = P.repeat;
+    P.setRepeat('all');
+    out.repeat = { before, one, off, restored: P.repeat };
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(400);
+    out.closed = {
+      hidden: document.querySelector('.lstage')?.hidden === true,
+      unlocked: !document.body.classList.contains('is-locked'),
+    };
+
+    // 译文合并：不依赖真实曲目，直接喂一段 LRC
+    const { parseLrc, attachTranslations } = await import('/src/plugins/lyrics.js');
+    const merged = attachTranslations(parseLrc('[00:01.00]第一句\\n[00:12.25]副歌'), '[00:01.10]第一句译文\\n[00:12.25]副歌译文');
+    out.translation = merged.map(l => l.translation || '').join('|');
+
+    P.clear();
+    L.clear();
+    return out;
+  })()`);
+  record('沉浸舞台：打开即全屏、锁定滚动，歌词 / 进度 / 音量齐全',
+    stageUI?.page?.stageBtn && stageUI?.page?.lyricBtn && stageUI?.page?.seek && stageUI?.page?.volume
+      && JSON.stringify(stageUI?.page?.inputs) === JSON.stringify(['neInput'])
+      && stageUI?.open?.visible === true && stageUI?.open?.locked === true
+      && stageUI?.open?.seek === true && stageUI?.open?.volume === true,
+    JSON.stringify(stageUI?.page));
+  record('沉浸舞台：队列抽屉能打开并列出全部曲目',
+    stageUI?.queue?.open === true && stageUI?.queue?.rows === 2 && stageUI?.queue?.expanded === 'true',
+    JSON.stringify(stageUI?.queue));
+  record('沉浸舞台：循环模式按 列表 → 单曲 → 播完停 切换',
+    stageUI?.repeat?.before === 'all' && stageUI?.repeat?.one === 'one'
+      && stageUI?.repeat?.off === 'off' && stageUI?.repeat?.restored === 'all',
+    JSON.stringify(stageUI?.repeat));
+  record('歌词：译文按最近时间戳并进原文行（没有译文不占位）',
+    stageUI?.translation === '第一句译文|副歌译文', stageUI?.translation);
+  record('沉浸舞台：Esc 退出并释放滚动锁',
+    stageUI?.closed?.hidden === true && stageUI?.closed?.unlocked === true,
+    JSON.stringify(stageUI?.closed));
+
 
   /* ---------------- 会员曲目「不出声」的判定与处理 ---------------- */
   // 官方外链播放器对 VIP / 付费专辑曲目不放音频（服务端匿名探测：外链 302 到 /404），

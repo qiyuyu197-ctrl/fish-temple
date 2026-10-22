@@ -50,11 +50,22 @@
   --selection-bg: var(--signal);
   --selection-fg: var(--ink-100);
 
+  /* ---------- 深色命令栏（两套主题都保持深色） ---------- */
+  --console-bg:    #121316;
+  --console-fg:    #F1EFE8;
+  --console-muted: #9C9A94;
+  --console-line:  #34363B;
+  /* “当前位置”的线：浅色用墨，深色用强调色 */
+  --trace:         var(--ink-100);
+
   /* ---------- 字体 ---------- */
   --font-sans: "Inter", "Helvetica Neue", "Segoe UI", "Noto Sans SC",
                "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace,
                "SFMono-Regular", "Cascadia Mono", Consolas, "Courier New", monospace;
+  /* 宽体几何英文：音乐台的眉标、字段、按钮和大数字（Saira 自托管） */
+  --font-wide: "Saira", "Inter", "Helvetica Neue", "Segoe UI", "Noto Sans SC",
+               "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-display: var(--font-sans);
 
   /* ---------- 字号 ---------- */
@@ -99,6 +110,9 @@
   --ease-in:   cubic-bezier(0.55, 0, 1, 0.45);
   --ease-out:  cubic-bezier(0, 0.55, 0.45, 1);
   --ease-step: steps(6, end);
+  /* 机械感：出现用 snap（快到位），擦入 / 快门用 mech（慢起硬停） */
+  --ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-mech: cubic-bezier(0.7, 0, 0.2, 1);
   --t-fast:    120ms;
   --t-mid:     220ms;
   --t-slow:    420ms;
@@ -159,6 +173,11 @@
   --selection-fg: #0E0F11;
 
   --grid-line: rgba(241, 239, 232, 0.06);
+  --console-bg:    #121316;
+  --console-fg:    #F1EFE8;
+  --console-muted: #9C9A94;
+  --console-line:  #34363B;
+  --trace:         var(--signal);
   color-scheme: dark;
 }
 
@@ -189,6 +208,11 @@
   --line-soft:    #123A60;
 
   --grid-line: rgba(234, 244, 255, 0.07);
+  --console-bg:    #09203A;
+  --console-fg:    #EAF4FF;
+  --console-muted: #8FB1D2;
+  --console-line:  #17456F;
+  --trace:         var(--signal);
   color-scheme: dark;
 }
 

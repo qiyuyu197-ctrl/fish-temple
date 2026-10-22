@@ -99,39 +99,39 @@ export function paintLyricBox() {
 
   const setLabel = (text, tone = '') => {
     if (!label) return;
-    label.textContent = silentNote ? `${text} · ${silentNote}` : text;
+    label.textContent = silentNote ? `${text} / ${silentNote}` : text;
     label.dataset.tone = silentNote ? 'alert' : tone;
   };
 
   const title = track.title || '未命名曲目';
   switch (Lyrics.status) {
     case 'loading':
-      setLabel(`NOW PLAYING · ${title}`);
+      setLabel(`NOW PLAYING / ${title}`);
       rollText(cur, '正在取歌词 …');
       rollText(next, '');
       break;
     case 'ready': {
       const line = Lyrics.current();
       const nxt = Lyrics.next();
-      setLabel(`LYRICS · ${title}`);
+      setLabel(`LYRICS / ${title}`);
       // 唱到句子里就是那一句，还没开口（前奏）用一个占位符
       rollText(cur, line ? line.text : '· · ·');
       rollText(next, nxt ? nxt.text : '');
       break;
     }
     case 'empty':
-      setLabel(`NOW PLAYING · ${title}`, 'muted');
+      setLabel(`NOW PLAYING / ${title}`, 'muted');
       rollText(cur, Lyrics._msg || '没有可显示的歌词');
       rollText(next, '');
       break;
     case 'error':
-      setLabel(`NOW PLAYING · ${title}`, 'muted');
+      setLabel(`NOW PLAYING / ${title}`, 'muted');
       rollText(cur, Lyrics._msg || '歌词获取失败');
       rollText(next, '');
       break;
     case 'local':
-      setLabel(`NOW PLAYING · ${title}`, 'muted');
-      rollText(cur, '本地音频 · 没有歌词来源');
+      setLabel(`NOW PLAYING / ${title}`, 'muted');
+      rollText(cur, '本地音频 / 没有歌词来源');
       rollText(next, '');
       break;
     default:

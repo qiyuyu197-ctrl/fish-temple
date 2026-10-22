@@ -321,3 +321,62 @@ body.has-miniplayer .footer { padding-bottom: calc(var(--miniplayer-h) + var(--s
 @media (max-width: 1180px) and (min-width: 1081px) {
   .nav__link { padding: 0 4px; font-size: 10px; letter-spacing: 0; }
 }
+
+/* ============================================================
+   播放列表 / 正在播放：手机端收列
+   ============================================================ */
+@media (max-width: 720px) {
+  .track {
+    grid-template-columns: 24px 34px minmax(0, 1fr) 30px;
+    gap: var(--sp-2);
+    padding: 8px var(--sp-3);
+  }
+  .track__tags, .track__dur { display: none; }
+  .track__idx { height: 34px; }
+  .track__cover { width: 34px; height: 34px; }
+  .track__album { display: none; }
+  .track__del { width: 30px; height: 30px; }
+  .np__head { flex-wrap: wrap; row-gap: 4px; }
+  .np__src { margin-left: auto; }
+}
+
+@media (max-width: 430px) {
+  .np__now { padding: var(--sp-3); }
+  .np-stage__artfoot { display: none; }
+  .np-lyric__trans { white-space: normal; }
+  .np-controls .pbtn { width: 34px; height: 34px; }
+  .np-controls .pbtn--main { width: 44px; height: 44px; }
+}
+
+/* 触控目标：舞台顶栏与传输键在手机上至少 36–40px */
+@media (max-width: 760px) {
+  .lstage__queuebtn { min-width: 36px; min-height: 36px; justify-content: center; }
+  .lstage__close { min-height: 36px; min-width: 36px; justify-content: center; }
+  .lstage__ctl { width: 40px; height: 40px; }
+  .lstage__ctl--play { width: 50px; height: 50px; }
+  .lstage__ctl--play svg { width: 22px; height: 22px; }
+}
+@media (max-width: 430px) {
+  .np-controls .pbtn { width: 38px; height: 38px; }
+  .np-controls .pbtn--main { width: 46px; height: 46px; }
+  .np-aux { width: 34px; height: 34px; }
+}
+
+/* 音乐台页头两个动作：手机上并排，不要各占一整行 */
+@media (max-width: 720px) {
+  .music .viewhead .hero__cta { flex-direction: row; flex-wrap: nowrap; width: 100%; }
+  .music .viewhead .hero__cta .btn { flex: 1 1 0; min-width: 0; justify-content: center; padding-left: 6px; padding-right: 6px; }
+}
+
+@media (max-width: 760px) {
+  .lstage__queuebtn { padding: 7px 9px; }
+  .lstage__queuebtn span { display: inline; }
+  .lstage__queuebtn b { display: none; }
+}
+
+/* 触屏：可点元素至少给到舒服的高度（切角保持不变） */
+@media (hover: none) {
+  .music .ne-search__bar .btn { min-height: 44px; }
+  .music .ne-row__acts .btn, .music .tracks__head .btn { min-height: 36px; }
+  .music .chip { min-height: 32px; }
+}

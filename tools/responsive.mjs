@@ -160,7 +160,10 @@ async function main() {
         gap: Math.round(nav.getBoundingClientRect().left - brand.getBoundingClientRect().right),
         alpha,
         ghostRisk: backdrop ? alpha < 0.95 : alpha < 1,
-        hScroll: de.scrollWidth > de.clientWidth + 1,
+        // 某些平台（Windows headless / 移动仿真）会把 3px 的纵向滚动条算进
+        // innerWidth，但 clientWidth 不含它；只看 clientWidth 会把这种
+        // “文档宽度 == 布局视口”误报成横向滚动。
+        hScroll: de.scrollWidth > Math.max(de.clientWidth, window.innerWidth) + 1,
         docWidth: de.scrollWidth,
         overflow,
         heroFontPx: getComputedStyle(document.querySelector('.hero__title') || document.body).fontSize,

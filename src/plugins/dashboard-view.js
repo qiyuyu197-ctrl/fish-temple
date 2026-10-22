@@ -39,7 +39,8 @@ function donut(pairs, size = 150) {
   const R = size / 2 - 12;
   const C = 2 * Math.PI * R;
   let acc = 0;
-  const colors = ['var(--signal)', 'var(--ink-100)', 'var(--alert)', 'var(--ok)', 'var(--ink-40)', 'var(--ink-25)'];
+  // 图表不使用红绿：一根黄柱表示当前，其余全走灰阶，色盲也能读。
+  const colors = ['var(--signal)', 'var(--ink-100)', 'var(--ink-60)', 'var(--ink-40)', 'var(--ink-25)', 'var(--ink-12)'];
   const arcs = pairs.map(([label, v], i) => {
     const frac = v / total;
     const dash = `${(frac * C).toFixed(2)} ${C.toFixed(2)}`;

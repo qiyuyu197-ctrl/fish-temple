@@ -35,7 +35,9 @@ const OUT = path.join(ROOT, '.shots');
    不适合用来自检直放链路）。取自「飙升榜」实测 playable=true 的三首。 */
 const TRACKS = [
   { id: 'ne-554322674', provider: 'netease', neteaseId: '554322674', title: '偷心', artist: 'SASIOVERLXRD/连麻Swimming', duration: 0 },
-  { id: 'ne-211520', provider: 'netease', neteaseId: '211520', title: '你不要那样看着我的眼睛', artist: '蔡琴', duration: 0 },
+  // 原第二首 211520 在 2026-10 已匿名 404；换成当前服务端确认可播的曲目，
+  // 否则「后台自动接下一首」会卡在下一首根本没有音源上。
+  { id: 'ne-2041508513', provider: 'netease', neteaseId: '2041508513', title: '逆さまの蝶', artist: '麦吉_Maggie/kurumamado车窗', duration: 0 },
   { id: 'ne-1899705498', provider: 'netease', neteaseId: '1899705498', title: 'Star (反方向的钟)', artist: 'XMASwu(吴骜)', duration: 0 },
 ];
 
