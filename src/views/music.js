@@ -745,36 +745,39 @@ function soundNoticeHTML() {
   const alts = info.alternatives || [];
   const frag = info.fragment === true;
   return `
-  <div class="ne-silent${frag ? ' ne-silent--frag' : ''}" id="neSilent">
-    <div class="ne-silent__head">
+  <details class="ne-silent${frag ? ' ne-silent--frag' : ''}" id="neSilent">
+    <summary class="ne-silent__head">
       <span class="ne-silent__ico">!</span>
       <b>${frag ? '站内只有试听片段' : '这首歌未登录会员时不会出声'}</b>
-      <span class="mono faint" style="font-size:var(--fs-2xs)">${info.checking ? '正在找更完整的版本 …' : esc(info.reason || '网易云不向匿名请求提供音频')}</span>
+      <span class="ne-silent__reason mono">${info.checking ? '正在找更完整的版本 …' : esc(info.reason || '网易云不向匿名请求提供音频')}</span>
+      <span class="ne-silent__toggle mono">详情<i>▾</i></span>
+    </summary>
+    <div class="ne-silent__body">
+      <p class="ne-silent__text">
+        ${frag
+          ? '官方外链只给试听片段；自动下一首按实际音频长度切，不会干等。想听完整版可以换下面的版本。'
+          : '服务器拿不到匿名音频。官方播放器点 ▶ 仍会出声（手机没声音通常是因为不允许自动起播）；也可以直接换成下面能放的版本。'}
+      </p>
+      ${alts.length ? `<div class="ne-silent__alts">
+        <span class="k-label">${frag ? '更完整的版本' : '可播放的版本'}</span>
+        ${alts.map((a) => `<button class="ne-alt" data-alt='${esc(JSON.stringify(a))}'>
+          ${a.cover ? `<img src="${esc(a.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ''}
+          <span class="ne-alt__main">
+            <span class="clamp-1">${esc(a.name)}</span>
+            <span class="mono faint" style="font-size:var(--fs-2xs)">${esc((a.artists || []).join(' / '))}</span>
+          </span>
+          <span class="mono faint" style="font-size:var(--fs-2xs)">▶</span>
+        </button>`).join('')}
+      </div>` : (info.checking ? '' : '<p class="ne-silent__text faint">没找到同名的免费版本，试试换一首，或去网易云听原版。</p>')}
+      <div class="ne-silent__acts">
+        <a class="btn btn--sm" href="${pageUrl(info.id)}" target="_blank" rel="noopener noreferrer">${ICON.ext}去网易云听</a>
+        <a class="btn btn--sm" href="orpheus://song/${esc(String(info.id))}"
+           title="用你手机上的网易云 App 打开（如果你的浏览器支持唤起 App）">App 打开</a>
+        <button class="btn btn--sm" id="neSilentNext">换下一首能播的</button>
+        ${frag ? '' : '<button class="btn btn--sm" id="neVipSet" title="官方播放器在 music.163.com 上，会带上你自己的登录状态">我登录了会员，能听到声音</button>'}
+      </div>
     </div>
-    <p class="ne-silent__text">
-      ${frag
-        ? '官方外链给这首歌的音频比曲目短，放完就没了 —— 自动下一首会按**实际音频长度**（上面的秒数）来切，不会干等。想听完整版可以换下面的版本。'
-        : '本站服务器拿不到这首歌的匿名音频（网易云对 VIP / 付费专辑不下发）。下方的<b>官方播放器仍可播放</b>：<b>手机上没有声音，是因为移动端浏览器不允许它自动起播</b> —— 点一下那个播放器里的 ▶ 就会出声（在浏览器里登录网易云会员后通常更顺）。也可以直接换成下面这些能放的版本。'}
-    </p>
-    ${alts.length ? `<div class="ne-silent__alts">
-      <span class="k-label">${frag ? '更完整的版本' : '可播放的版本'}</span>
-      ${alts.map((a) => `<button class="ne-alt" data-alt='${esc(JSON.stringify(a))}'>
-        ${a.cover ? `<img src="${esc(a.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ''}
-        <span class="ne-alt__main">
-          <span class="clamp-1">${esc(a.name)}</span>
-          <span class="mono faint" style="font-size:var(--fs-2xs)">${esc((a.artists || []).join(' / '))}</span>
-        </span>
-        <span class="mono faint" style="font-size:var(--fs-2xs)">▶</span>
-      </button>`).join('')}
-    </div>` : (info.checking ? '' : '<p class="ne-silent__text faint">没找到同名的免费版本，试试换一首，或去网易云听原版。</p>')}
-    <div class="ne-silent__acts">
-      <a class="btn btn--sm" href="${pageUrl(info.id)}" target="_blank" rel="noopener noreferrer">${ICON.ext}去网易云听</a>
-      <a class="btn btn--sm" href="orpheus://song/${esc(String(info.id))}"
-         title="用你手机上的网易云 App 打开（如果你的浏览器支持唤起 App）">App 打开</a>
-      <button class="btn btn--sm" id="neSilentNext">换下一首能播的</button>
-      ${frag ? '' : '<button class="btn btn--sm" id="neVipSet" title="官方播放器在 music.163.com 上，会带上你自己的登录状态">我登录了会员，能听到声音</button>'}
-    </div>
-  </div>`;
+  </details>`;
 }
 
 function renderNow() {

@@ -1136,35 +1136,78 @@ body[data-embed-crop="1"] .ne-embed-slot__stage { height: 48px; }   /* 紧凑形
 }
 .ne-embed-slot__ph p.faint { text-transform: none; letter-spacing: 0; font-family: var(--font-sans); }
 
-/* 「这首歌放不出来」的说明块（会员 / 付费曲目：官方外链不出声） */
+/* 「这首歌放不出来」的说明块（会员 / 付费曲目：官方外链不出声）
+   默认折叠成一行，点开才看说明 / 可播放版本 / 操作，避免整块红框压住正在播放。 */
 .ne-silent {
-  margin: var(--sp-4) 0 0; padding: var(--sp-4);
-  border: 1px solid var(--alert);
-  background: color-mix(in srgb, var(--alert) 8%, var(--bg-alt));
+  margin: var(--sp-3) 0 0; padding: 0;
+  border: 1px solid color-mix(in srgb, var(--alert) 35%, var(--border));
+  background: color-mix(in srgb, var(--alert) 4%, var(--bg-alt));
   animation: msBannerIn 240ms var(--ease-out) both;
 }
-.ne-silent__head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-3); }
-.ne-silent__head b { font-size: 1rem; }
-.ne-silent__ico {
-  width: 20px; height: 20px; display: grid; place-items: center; flex: 0 0 auto;
-  background: var(--alert); color: #fff; font-family: var(--font-mono); font-size: 12px;
+.ne-silent__head {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 38px; padding: 7px 10px;
+  cursor: pointer; list-style: none;
 }
-.ne-silent__text { margin: 0; font-size: var(--fs-sm); color: var(--fg-muted); line-height: 1.75; max-width: 78ch; }
+.ne-silent__head::-webkit-details-marker { display: none; }
+.ne-silent__head b {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+.ne-silent__ico {
+  width: 18px; height: 18px; display: grid; place-items: center; flex: 0 0 auto;
+  background: var(--alert); color: #fff; font-family: var(--font-mono); font-size: 11px;
+}
+.ne-silent__reason {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg-faint); font-size: 10px;
+}
+.ne-silent__toggle {
+  display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
+  color: var(--fg-faint); font-size: 9px; letter-spacing: 0; text-transform: none;
+}
+.ne-silent__toggle i {
+  font-style: normal; transition: transform var(--t-fast) var(--ease);
+}
+.ne-silent[open] .ne-silent__toggle i { transform: rotate(180deg); }
+.ne-silent[open] .ne-silent__toggle { color: var(--fg-muted); }
+.ne-silent__body {
+  padding: 0 10px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--alert) 18%, var(--border));
+}
+.ne-silent__text {
+  margin: 9px 0 0; font-size: var(--fs-xs); color: var(--fg-muted);
+  line-height: 1.7; max-width: 78ch;
+}
 .ne-silent__text b { color: var(--fg); }
-.ne-silent__alts { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-4) 0 0; }
+.ne-silent__alts {
+  display: flex; align-items: center; gap: 6px; flex-wrap: nowrap;
+  margin: var(--sp-2) 0 0; padding-bottom: 2px;
+  overflow-x: auto; scrollbar-width: thin;
+}
+.ne-silent__alts .k-label { flex: 0 0 auto; }
 .ne-alt {
-  display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px;
+  display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  padding: 4px 8px 4px 4px; max-width: 190px;
   border: 1px solid var(--border); background: var(--bg); text-align: left;
-  transition: all var(--t-fast) var(--ease); max-width: 260px;
+  transition: all var(--t-fast) var(--ease);
 }
 .ne-alt:hover { border-color: var(--signal); background: color-mix(in srgb, var(--signal) 10%, var(--bg)); }
-.ne-alt img { width: 30px; height: 30px; flex: 0 0 auto; object-fit: cover; border: 1px solid var(--border); }
-.ne-alt__main { min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: var(--fs-sm); }
-.ne-silent__acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--sp-3); }
+.ne-alt img { width: 24px; height: 24px; flex: 0 0 auto; object-fit: cover; border: 1px solid var(--border); }
+.ne-alt__main { min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: var(--fs-2xs); }
+.ne-alt__main > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ne-silent__acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--sp-2); }
+.ne-silent__acts .btn { padding: 4px 8px; font-size: 9px; }
 /* 已声明「浏览器登录了会员」时的精简版：一行 + 一个撤销按钮 */
 .ne-silent--slim {
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
   padding: var(--sp-2) var(--sp-3); border-color: var(--border); background: var(--bg-sunk);
+}
+@media (max-width: 620px) {
+  .ne-silent__reason { display: none; }
+  .ne-silent__head { gap: 6px; }
+  .ne-silent__alts .k-label { display: none; }
+  .ne-alt { max-width: 160px; }
 }
 
 /* 播放列表：操作键移到标题行，列表后面接一块「最近播放」 */
