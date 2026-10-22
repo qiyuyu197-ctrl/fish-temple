@@ -396,7 +396,10 @@ function heroHTML() {
     </div>
     <div class="leisure-hero__copy">
       <span class="k-label">${live ? 'CURRENT SEASON / 当季' : 'ARCHIVE / 已完结'}</span>
-      <h2 class="leisure-hero__title">${esc(s.headline || '这一季，')}<br /><em>${esc(s.headlineEm || '看点什么？')}</em></h2>
+      <h2 class="leisure-hero__title">
+        <span class="leisure-hero__title-main">${esc(s.headline || '这一季，')}</span>
+        <span class="leisure-hero__title-sub"><i aria-hidden="true">01</i>${esc(s.headlineEm || '看点什么？')}</span>
+      </h2>
       <p class="leisure-hero__intro">${esc(s.intro || '')}</p>
       <div class="leisure-hero__stats">
         <div><b>${pad(DATA.current.length)}</b><span>本季收录</span></div>
