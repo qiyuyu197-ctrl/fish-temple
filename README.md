@@ -43,6 +43,8 @@ python -m http.server 5173
 ```
 .
 ├── index.html              页面骨架：顶栏 / 播报条 / 视图容器 / 播放条 / 命令面板
+├── start.cmd               Windows 双击启动（切到脚本目录 + 检查 Node.js 后跑 server.mjs）
+├── manifest.webmanifest    PWA 清单：名称 / 图标 / 主题色 / iOS 全屏声明
 ├── server.mjs              本地服务器 + 全部 /api 实现（导出 handleApiRequest，Netlify Function 复用的就是它）
 ├── auth.mjs                Auth0 令牌校验（RS256 + JWKS，只用 node:crypto）+ 角色判定（站长 / 普通成员）
 ├── storage.mjs             内容存储双驱动：本地写 data/ 文件，线上写 Netlify Blobs
@@ -54,6 +56,10 @@ python -m http.server 5173
 ├── .github/
 │   └── workflows/
 │       └── season-roll.yml 每季自动换季：AniList → anime.json + 封面 → commit（失败开 issue）
+├── design/                 设计与取舍笔记（不参与构建，供人读）
+│   ├── endfield-adoption.md 全站 endfield 层的采纳范围与取舍
+│   ├── forum-comments.md    论坛评论（楼中楼 / 图片 / 表态）的设计与状态表
+│   └── leisure.md           文娱板块：数据形态与季档规则
 ├── src/
 │   ├── main.js             启动流程与扩展点注册（想加功能先看这里）
 │   ├── config/
@@ -76,6 +82,7 @@ python -m http.server 5173
 │   │   ├── lyrics.js       板块标题栏歌词 + 完整歌词浮层
 │   │   ├── range.js        零依赖横向滑块（进度 / 音量）
 │   │   ├── almanac.js      顶栏黄历小组件（懒加载通书数据 / 面板 / 吉日之歌）
+│   │   ├── comments.js     帖子评论区（自包含组件，详情页两行接入）
 │   │   ├── bits.js         可复用展示片段（卡片 / 列表行 / 分区标题）
 │   │   ├── boot.js         开机自检动画
 │   │   └── toast.js        轻提示 / 复制 / 下载
@@ -87,12 +94,21 @@ python -m http.server 5173
 │   │                       redirect.js 负责老路由跳转（#/posts → #/logs）
 │   │                       forum.js 论坛板块（#/forum：列表 / 详情 / 发帖 / 编辑，作者或站长才能改）
 │   │                       leisure.js 文娱板块（#/leisure：当季新番 / 推荐动漫 / 追番）
+│   │                       fish-run.js 像素小鱼（单键跳跃的跑酷小游戏，越久越快）
+│   │                       mine-room.js 联机扫雷的房间界面（棋盘与反馈复用单人局那一套）
+│   │                       tierlist.js Tier List 视图（TOOLS 里的一个工具，逻辑在 plugins/tierlist.js）
+│   │                       audio-extract.js 从视频里提取音轨（TOOLS 的一个页签，全程在浏览器内）
 │   └── plugins/            扩展示例
 │       ├── auth.js         Auth0 PKCE 登录（零依赖实现 code_verifier/challenge）＋顶栏账号控件与令牌刷新
 │       ├── stage.js        随机插画引擎
 │       ├── netease.js      网易云集成（搜索 / 直放 provider `netease-audio` / 官方播放器回退 / 列表持久化）
 │       ├── almanac.js      黄历判定（干支 / 建除十二神 / 二十八宿 / 黄道黑道 / 宜忌 → 吉凶 + 依据）
 │       ├── minesweeper.js  扫雷规则引擎（纯逻辑，视图在 views/mine.js）
+│       ├── mine-room.js    联机扫雷房间客户端（短请求轮询 version，不用 WebSocket，VPS / Netlify 都能跑）
+│       ├── victory-song.js 高级扫雷通关后自动播放「关羽之歌」（单人 / 联机都生效）
+│       ├── tierlist.js     Tier List 引擎（纯逻辑，状态可 JSON 序列化，视图在 views/tierlist.js）
+│       ├── comment-model.js 评论的纯逻辑模型：server.mjs / 前端 / 自检三方共用同一套校验
+│       ├── lyrics.js       歌词引擎：LRC 解析 + 自建时钟（iframe 读不到进度时的补偿）
 │       ├── tools/          工具台内核（zip / docx / image / audio / text）
 │       ├── dashboard-view.js  插件路由示例（#/dashboard）
 │       └── example-widget.js  首页插槽组件示例
@@ -102,6 +118,9 @@ python -m http.server 5173
 │   ├── components.css      组件层（按编号分节）
 │   ├── almanac.css         黄历面板（顶栏小组件）
 │   ├── leisure.css         文娱板块：季档横幅 / 放送表 / 排版海报 / 详情弹层
+│   ├── authpanel.css       页内登录面板（只收邮箱，密码交给 Auth0）
+│   ├── comments.css        帖子评论区（ui/comments.js 配套，楼中楼用左侧竖线 + 缩进表层级）
+│   ├── mine-room.css       联机扫雷房间界面（共享棋盘用 --mr-cols 控制列数）
 │   ├── mobile.css          移动端 / 触控适配层（在 components.css 之后加载）
 │   └── ef.css              ★ 全站 endfield 层 v3：切角 / 宽体 / 卡片页签 / 当前行 trace
 ├── data/
@@ -110,18 +129,20 @@ python -m http.server 5173
 │   ├── anime.json          文娱数据：2026 秋新番 + 推荐动漫（season / current / recommended）
 │   ├── anime-overrides.json 换季 override：按 AniList id 覆盖中文名 / 短评 / 声优 / 放送信息
 │   ├── anime-covers.json   文娱封面映射：id → assets/leisure/covers/*.jpg（AniList 缓存）
+│   ├── album.json          相册清单：url / thumb / 标题 / 尺寸 / 字节数（album-build.py 生成）
 │   ├── gallery.json        本地插画清单
 │   ├── users/              账号资料（角色 / 首次与最近出现；本地跑时生成）
 │   ├── forum/              论坛帖（一条一个文件；线上则写进 Netlify Blobs）
 │   └── .backup/            服务器写入时自动生成的历史备份（可删）
 ├── .blobs-dev/             本地仿真「线上 Blobs」的替身目录（tools/netlify-dev.mjs 写入，已 gitignore）
 ├── assets/
-│   ├── audio/              音频文件放这里
-│   ├── img/                图片 / 本地插画
+│   ├── audio/              音频文件放这里（fish-run.mp3 = 像素小鱼的背景音乐）
+│   ├── img/                图片 / 本地插画（art-01~03.svg 是画廊里的示例条目）
 │   ├── leisure/covers/     文娱番剧封面（fetch-covers.mjs 下载 + optimize-covers.py 压缩）
 │   ├── icons/              标识与图标（品牌插画生成的 mark-*/favicon-* + 字标 logo.svg）
 │   ├── fonts/              Saira 可变字体（SIL OFL 1.1）+ 许可证；音乐台的宽体标签用
 │   └── vendor/             原样引入的第三方库（不动源码，LICENSE 放在旁边）
+│       ├── lame.min.js     LAME MP3 编码器（152KB；工具体「视频提取音频」导出 MP3 时用）
 │       └── lunar-javascript/  MIT 通书数据（© 2018 6tail；黄历的宜忌 / 建除 / 星宿 / 黄道黑道，懒加载，~425KB）
 └── tools/                  开发期自检脚本（不影响站点运行）
     ├── verify.mjs          全站自动化自检（219 项）
@@ -131,16 +152,16 @@ python -m http.server 5173
     ├── verify-deploy.mjs   线上形态自检：打包安全 lint（含"页面代码送给浏览器前先做语法检查"）+ `/api/*` 语义
     │                       + 账号与论坛（health/config、论坛真读线上 Blobs、未配 Auth0 时不许出现点不动的登录控件）
     │                       + 真机端到端（相册 / Pixiv 抽卡 / 音乐台搜索与出声 / 黄历吉日之歌）+ 手机形态两条
-    │                       （iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（34 项，配好 Auth0 后 36 项）
+    │                       （iPhone UA + 390×844 + 触摸：曲目要么同源出声、要么官方播放器真的在视口里）（36 项）
     ├── verify-auth.mjs     账号 / 权限 / 论坛自检：本地模拟 IdP（真 RSA 密钥 + JWKS + 真签名）跑权限矩阵，
-    │                       再用仿真器验「部署形态下站长在线发布 → 写 Blobs → 读覆盖层 → 删除留墓碑」（53 项）
+    │                       再用仿真器验「部署形态下站长在线发布 → 写 Blobs → 读覆盖层 → 删除留墓碑」（82 项）
     ├── verify-forum-ui.mjs 界面级自检（真浏览器 + 模拟 IdP）：登录入口与三态顶栏、论坛发帖、
     │                       作者专属的编辑删除、越权 403、用户内容不被当 HTML 执行、真登出、
-    │                       发布控制台的站长门禁（24 项）
+    │                       发布控制台的站长门禁（33 项）
     ├── verify-all.mjs      **一条命令按顺序跑齐上面几套**（自己探测空闲端口、起本地服务与部署仿真、
     │                       每套之间冷却、汇总"通过 x / y"、失败原样带出明细、结束清理）——
     │                       浏览器套件并行跑会互相抢资源造成假失败，所以用这个串行入口
-    ├── test-markdown.mjs   Markdown 渲染器单元测试（34 项）
+    ├── test-markdown.mjs   Markdown 渲染器单元测试（33 项）
     ├── content-build.mjs   批量写作：tools/content/*.md → data/posts.json & news.json（整份覆盖）
     ├── content/            批量写作的正文源文件（Markdown）
     ├── make-audio.mjs      生成示例音频
@@ -150,7 +171,10 @@ python -m http.server 5173
     ├── optimize-covers.py  压缩 assets/leisure/covers/*.jpg（宽 460，渐进式 JPEG，需 Pillow）
     ├── album-pull.ps1      从 iPhone 随机抽取照片到 staging（MTP，需数据线）
     ├── album-build.py      把原图压成站点素材 + 生成 data/album.json（需 Pillow）
+    ├── shrink-images.py    图片瘦身体检 / 压缩（一次性工具，不参与站点运行）
+    ├── webp-migrate.py     两阶段把 assets/img 迁到 WebP 并精确改写引用（convert → check → delete）
     ├── cdp.mjs / eval.mjs  无头浏览器截图与取值（eval 支持 @脚本文件）
+    └── shot.mjs            指定主题 / 路由截图（开发期用）
 ```
 
 ---
@@ -403,7 +427,7 @@ Provider 层面是两个 id：`netease-audio`（直放，`embed: false`，在 `s
 > 并让一首**播到结束自动跳下一首**（**前台与 `document.hidden === true` 各一遍**），
 > 再在 360 / 390 / 430px 三个手机宽度 + 触摸模拟下检查移动适配层（无横向滚动、触控尺寸、
 > 音浪条保留、宽表可滚动、manifest / iOS 全屏声明、顶栏图标不被裁切、黄历面板不溢出），
-> 截图存进 `.shots/`；失败退出码 1。实测 **43/43 PASS**。
+> 截图存进 `.shots/`；失败退出码 1。实测 **53/53 PASS**。
 
 ### 为什么「暂停续播」做不到（重要 · 仅 iframe 回退）
 
@@ -1619,7 +1643,9 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 最后用 **iPhone UA + 390×844 + 触摸**再验一遍手机形态：用户报过的那首曲目必须
 **要么同源出声、要么官方播放器真的落在视口里**（失败时会把几何信息
 `vh/docH/scrollY/dock/hostRect/position` 一并打印出来）。
-实测 **34/34 PASS**（本地仿真与线上 https://yumiao.netlify.app 都跑过；配好 Auth0 后会再多两条真校验，共 35 项）。
+实测 **35/36 PASS**（本地仿真；未配 Auth0 时其中 1 项记 SKIP 并说明该配哪三个环境变量）。
+**当前有 1 项未通过**：手机形态下「真 VIP 曲目（`fee=1`）不允许静默失败」——
+排查记录见下方「当前实测状态」。
 
 ### 本地 / 线上能力对照
 
@@ -1642,7 +1668,7 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
 
 > **进度**：服务端与客户端界面**都已完成**（`auth.mjs` / `storage.mjs` / `/api/auth/*` / `/api/forum/*`，
 > 以及顶栏登录入口、`#/forum` 论坛板块、控制台仅站长可写）。
-> 自检：`tools/verify-auth.mjs` **53/53**（接口与权限契约）、`tools/verify-forum-ui.mjs` **24/24**
+> 自检：`tools/verify-auth.mjs` **82/82**（接口与权限契约）、`tools/verify-forum-ui.mjs` **33/33**
 > （真浏览器里的登录三态、发帖、作者专属编辑删除、越权 403、用户内容不当 HTML 执行、真登出、站长门禁）。
 > **唯一还没做的是"真实 Auth0 登录"的线上验证** —— 那需要在 Netlify 配好下面那三个环境变量，
 > 并用真实邮箱走一遍注册 / 验证邮件；在此之前本层的接口契约已按模拟 IdP 全覆盖。
@@ -1735,7 +1761,7 @@ node tools/verify-deploy.mjs http://127.0.0.1:5199    # 线上形态自检（也
   论坛放用户创作，作者能改自己的、改不了别人的。
 - 跨域预检放行了 `Authorization` 与 `PATCH`（见「服务器 API」末尾），否则浏览器在预检就会被拦下。
 
-### 这一块怎么验（`tools/verify-auth.mjs`，53 项）
+### 这一块怎么验（`tools/verify-auth.mjs`，82 项）
 
 Auth0 的真实登录要真人点（要跳转、要收验证邮件），没法在自检里点；但**真正危险的部分**
 —— 令牌校验与权限判定 —— 完全可以在本地真验。这个脚本起一个**本地模拟 IdP**
@@ -1760,13 +1786,14 @@ Auth0 的真实登录要真人点（要跳转、要收验证邮件），没法�
 ## 开发期自检
 
 ```bash
-node tools/test-markdown.mjs              # Markdown 渲染器单元测试（34 项）
-node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 文娱（路由 / 导航）+ 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ XSS（含 Markdown 危险协议链接）（214 项）
+node tools/verify-all.mjs                 # 一条命令串行跑齐六套（自己起服务、套件间冷却、汇总通过数）
+node tools/test-markdown.mjs              # Markdown 渲染器单元测试（33 项）
+node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 文娱（路由 / 导航）+ 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ XSS（含 Markdown 危险协议链接）（219 项）
 node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢出检查（1920→360）+ 截图
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（53 项）
 node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs + Blobs 替身）
-node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 账号与论坛 + 客户端端到端 + 手机形态（34 项，配好 Auth0 后 35）
-node tools/verify-auth.mjs                # 账号 / 权限 / 论坛自检：本地模拟 IdP + Blobs 替身，验权限矩阵与"站长在线发布"（53 项）
+node tools/verify-deploy.mjs http://127.0.0.1:5199   # 线上形态自检：打包安全 lint + /api/* 语义 + 账号与论坛 + 客户端端到端 + 手机形态（36 项）
+node tools/verify-auth.mjs                # 账号 / 权限 / 论坛自检：本地模拟 IdP + Blobs 替身，验权限矩阵与"站长在线发布"（82 项）
 node tools/make-audio.mjs                 # 生成示例音频（可选，本地播放列表用）
 
 # 相册导入（需要手机连线 / Pillow）
@@ -1792,14 +1819,14 @@ provider 是 `netease-audio`、有真实时长、进度在走、Media Session �
 360 / 390 / 430px + 触摸模拟下检查移动适配层（无横向滚动、触控尺寸、音浪条、宽表滚动、
 manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图标不被裁切、面板至少两张卡、
 面板完整落在视口内、关闭键 ≥ 40px、面板打开时无横向滚动，以及吉日之歌会让站点播放器让路），
-并把截图写进 `.shots/`；失败退出码 1（实测 **43/43 PASS**）。
+并把截图写进 `.shots/`；失败退出码 1（实测 **53/53 PASS**）。
 `netlify-dev.mjs [port]` 用来在本地把**线上形态**跑起来：按 Netlify 的行为托管仓库
 （静态文件、**没有 SPA 兜底**，不存在的路径就 404），并把 `/api/*` 与
 `/.netlify/functions/api/*` 两条路都转给真实的 `netlify/functions/api.mjs`
 （v2 形态：直接传 Web `Request`、收 Web `Response`，与线上同一个入口）；默认端口 5199。
 `NETLIFY_FAKE_FN_PATH=1` 可模拟"平台给的是函数自己的路径"那种语义。
 `verify-deploy.mjs [baseUrl]` 就是对着它（或真实站点 URL）验"部署完之后到底能不能用"，
-一共 **34 项**（配好 Auth0 后会再多两条真校验，共 35），分两层：
+一共 **36 项**（未配 Auth0 时其中 1 项记 SKIP 并说明该配哪三个环境变量），分两层：
 
 **① 静态 + 接口层**
 - **打包安全 lint（零依赖，先跑）**：扫 `server.mjs` 与 `netlify/functions/api.mjs` 的顶层声明
@@ -1828,15 +1855,17 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
   免得又变成"界面在转但没声音"却无从下手；
 - **一首真 VIP 曲目（`fee=1`）**：不允许静默失败 —— 官方播放器要在视口里，或者给出明确提示。
 
-线上实测：**34/34 PASS against https://yumiao.netlify.app**，其中那首曲目的手机检查
+线上实测（套件还是 34 项时）：**34/34 PASS against https://yumiao.netlify.app**，其中那首曲目的手机检查
 报 `inView:true`，几何为 `geo: {dock:"docked", expanded:"1", hostRect:{top:630,bottom:776}, vh:844}` ——
 也就是官方播放器确实被停靠并展开在 844px 高的视口里，▶ 摸得到。
 它的价值在于：**相册 / 音乐台 / 吉日之歌 这三件事一旦线上失效，最先坏的就是这里**。
 
+> ⚠️ 上面第二条（真 VIP 曲目不静默失败）是后加的用例，**目前仍未通过** —— 见本节末尾「已知失败」。
+
 `verify-auth.mjs` 验账号、权限与论坛：它起一个**本地模拟 IdP**（真 RSA 密钥 + 标准 JWKS +
 真签名的 RS256 令牌），让 `server.mjs` 走与线上**完全相同**的校验路径，再用仿真器配
 **Blobs 替身**跑一遍部署形态（站长在线发布 → 写 Blobs → 读覆盖层）。整个过程写进临时目录
-（`FT_DATA_DIR`），**不碰仓库里的 `data/`** —— 跑完 `git status` 应该是干净的；实测 **53/53 PASS**。
+（`FT_DATA_DIR`），**不碰仓库里的 `data/`** —— 跑完 `git status` 应该是干净的；实测 **82/82 PASS**。
 细节（权限矩阵、Auth0 配置清单、论坛接口）见「账号 / 权限 / 论坛」一节。
 
 有几件事**看起来像失败、其实不是**，别把数字读歪：
@@ -1852,6 +1881,41 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 
 修改核心代码或 CSS 后建议都跑一遍 —— 但**一次只跑一个**：这些都是真浏览器套件，
 并行会互相抢资源，时序类断言（搜索超时、`Stage.busy`、播放窗口）会无端变红。
+
+### 当前实测状态
+
+2026-10-22 本机 `node tools/verify-all.mjs` 串行全跑，总耗时 7.4 分钟：
+
+| 套件 | 通过 / 总数 | 耗时 | 结果 |
+| --- | --- | --- | --- |
+| `verify.mjs` | 219 / 219 | 264.0 s | ✅ |
+| `verify-playback.mjs` | 53 / 53 | 38.2 s | ✅ |
+| `verify-auth.mjs` | 82 / 82 | 1.1 s | ✅ |
+| `verify-deploy.mjs` | **35 / 36** | 66.1 s | ⚠️ 1 项未通过 |
+| `verify-forum-ui.mjs` | 33 / 33 | 37.7 s | ✅ |
+| `responsive.mjs` | 19 个宽度 | 22.8 s | ✅ |
+| `test-markdown.mjs`（不在 `verify-all` 里，单独跑） | 33 / 33 | — | ✅ |
+
+#### 未通过的那一项
+
+`verify-deploy.mjs` 的手机形态：**「真 VIP 曲目（`fee=1`）不允许静默失败」**。
+串行全跑与单独重跑该套件**都能稳定复现**，不是并发抖动。
+
+| 证据字段 | 实测值 | 含义 |
+| --- | --- | --- |
+| `playing` | `true` | 界面认为正在播 |
+| `audioNet` | `1` | 只有一次网络请求，之后再无进展 |
+| `frameShown` / `inView` | `false` / `false` | 官方播放器没有出现在视口里 |
+| `hostHidden` / `hostDock` | `true` / `"none"` | 宿主是隐藏的、没有停靠展开 |
+| `notice` / `altCount` | `false` / `0` | 既没给说明，也没推荐可播放的替代版本 |
+| `at` / `timedOut` / `via` | `15` / `true` / `"none"` | 等满 15 秒，什么都没发生 |
+
+- **用例意图**：只放一首匿名态拿不到流的 VIP 曲目（`Love Story`），断言
+  **官方播放器真的在视口里**（`inView: true`）**或**给出明确说明（`notice`）。
+- **实际表现**：三级回退走到第 ② 步（用访问者自己的 IP 直取官方外链）之后就停住了，
+  既没退到官方播放器，也没提示 —— 用户看到的是「在转但没声音」，
+  正是本文档反复在避免的那种情况。
+- **其余 35 项**与另外五套全部通过。
 
 ---
 
@@ -1882,7 +1946,8 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
   Authors，SIL Open Font License 1.1）；许可证全文见同目录 `Saira-OFL.txt`。
   来自 [endfield-ui-skill](https://github.com/hhikr/endfield-ui-skill)，只用于音乐台的
   宽体英文标签与数字。
-- `assets/audio/demo-*.wav` 由 `tools/make-audio.mjs` 程序生成，无版权问题。
+- `assets/audio/fish-run.mp3` 是像素小鱼（`#/fish-run`）的背景音乐；
+  `tools/make-audio.mjs` 可以另外生成一段示例音频，用于本地点播测试。
 - `assets/img/art-0*.svg` 为占位示例图，请替换为自有作品。
 - 站点视觉语言参考《明日方舟：终末地》官网风格，仅作学习研究用途；
   请勿用于商业项目，相关角色与商标权利归鹰角网络所有。
