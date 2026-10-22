@@ -49,6 +49,9 @@ python -m http.server 5173
 ├── netlify/
 │   └── functions/
 │       └── api.mjs         Netlify Function（v2：export default + config.path）：把 /api/* 交给 server.mjs 的 handleApiRequest
+├── .github/
+│   └── workflows/
+│       └── season-roll.yml 每季自动换季：AniList → anime.json + 封面 → commit（失败开 issue）
 ├── src/
 │   ├── main.js             启动流程与扩展点注册（想加功能先看这里）
 │   ├── config/
@@ -74,10 +77,11 @@ python -m http.server 5173
 │   ├── util/
 │   │   ├── dom.js          DOM 助手 + 图标库
 │   │   └── markdown.js     Markdown 渲染器（含 XSS 转义）
-│   ├── views/              页面：home / logs / music / gallery / mine / tools /
+│   ├── views/              页面：home / logs / music / gallery / leisure / mine / tools /
 │   │                       admin / notfound（+ post、newsItem 作为详情渲染器）
 │   │                       redirect.js 负责老路由跳转（#/posts → #/logs）
 │   │                       forum.js 论坛板块（#/forum：列表 / 详情 / 发帖 / 编辑，作者或站长才能改）
+│   │                       leisure.js 文娱板块（#/leisure：当季新番 / 推荐动漫 / 追番）
 │   └── plugins/            扩展示例
 │       ├── auth.js         Auth0 PKCE 登录（零依赖实现 code_verifier/challenge）＋顶栏账号控件与令牌刷新
 │       ├── stage.js        随机插画引擎
@@ -92,10 +96,14 @@ python -m http.server 5173
 │   ├── base.css            重置、排版、外壳骨架
 │   ├── components.css      组件层（按编号分节）
 │   ├── almanac.css         黄历面板（顶栏小组件）
+│   ├── leisure.css         文娱板块：季档横幅 / 放送表 / 排版海报 / 详情弹层
 │   └── mobile.css          移动端 / 触控适配层（在 components.css 之后加载）
 ├── data/
 │   ├── posts.json          文章种子数据
 │   ├── news.json           公告种子数据
+│   ├── anime.json          文娱数据：2026 秋新番 + 推荐动漫（season / current / recommended）
+│   ├── anime-overrides.json 换季 override：按 AniList id 覆盖中文名 / 短评 / 声优 / 放送信息
+│   ├── anime-covers.json   文娱封面映射：id → assets/leisure/covers/*.jpg（AniList 缓存）
 │   ├── gallery.json        本地插画清单
 │   ├── users/              账号资料（角色 / 首次与最近出现；本地跑时生成）
 │   ├── forum/              论坛帖（一条一个文件；线上则写进 Netlify Blobs）
@@ -104,11 +112,12 @@ python -m http.server 5173
 ├── assets/
 │   ├── audio/              音频文件放这里
 │   ├── img/                图片 / 本地插画
+│   ├── leisure/covers/     文娱番剧封面（fetch-covers.mjs 下载 + optimize-covers.py 压缩）
 │   ├── icons/              标识与图标（品牌插画生成的 mark-*/favicon-* + 字标 logo.svg）
 │   └── vendor/             原样引入的第三方库（不动源码，LICENSE 放在旁边）
 │       └── lunar-javascript/  MIT 通书数据（© 2018 6tail；黄历的宜忌 / 建除 / 星宿 / 黄道黑道，懒加载，~425KB）
 └── tools/                  开发期自检脚本（不影响站点运行）
-    ├── verify.mjs          全站自动化自检（204 项）
+    ├── verify.mjs          全站自动化自检（214 项）
     ├── responsive.mjs      多断点布局溢出检查 + 截图（1920→360）
     ├── verify-playback.mjs 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏黄历按钮不被裁切（43 项）
     ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs + 注入 Blobs 替身（默认 5199）
@@ -129,6 +138,9 @@ python -m http.server 5173
     ├── content/            批量写作的正文源文件（Markdown）
     ├── make-audio.mjs      生成示例音频
     ├── make-brand.py       从品牌插画生成整套图标（mark-*/favicon/apple-touch-icon）
+    ├── fetch-covers.mjs    从 AniList 匹配并下载文娱封面，写 data/anime-covers.json
+    ├── roll-season.mjs     换季：AniList 当季列表 + anime-overrides.json → data/anime.json
+    ├── optimize-covers.py  压缩 assets/leisure/covers/*.jpg（宽 460，渐进式 JPEG，需 Pillow）
     ├── album-pull.ps1      从 iPhone 随机抽取照片到 staging（MTP，需数据线）
     ├── album-build.py      把原图压成站点素材 + 生成 data/album.json（需 Pillow）
     ├── cdp.mjs / eval.mjs  无头浏览器截图与取值（eval 支持 @脚本文件）
@@ -1006,6 +1018,86 @@ src/views/mine.js            画面与交互：HUD、棋盘、动效、键盘、
 > 另外用 `python-docx` 独立读过生成的文件：`[Heading 1] / [Normal] / [Heading 2] / [List Paragraph]`
 > 与表格都识别正确 —— 说明生成的不是"能下载但打不开"的空壳。
 
+### 7. 文娱（`#/leisure`）
+
+站点自己的番剧档案：**当季新番 + 推荐动漫 + 本机追番**。信息结构参考常见的番剧目录
+（卡片网格、标题、一句短评），视觉沿用 FISH 的纸 / 墨 / 信号黄。
+
+| 路由 | 内容 |
+| --- | --- |
+| `#/leisure` | 当季新番：季档横幅、本周放送表、按放送日排序的卡片 |
+| `#/leisure?tab=picks` | 推荐动漫：年份 / 话数 / 制作 / 评分 / 推荐理由 |
+| `#/leisure?tab=mine` | 我的追番：只存在 `localStorage`，按在看 / 想看 / 看完筛选 |
+| `#/leisure?random=1` | 随机打开一部（命令面板「文娱：随机挑一部」也走这里） |
+
+**数据**主要分三份：`data/anime.json` 是当前展示数据——`season` 季档元信息，`current` 当季条目
+（放送日、时间、声优、简介、期待值），`recommended` 推荐条目（年份、话数、制作、评分、推荐理由）；
+`data/anime-covers.json` 只放封面映射（`id → assets/leisure/covers/*.jpg`）；
+`data/anime-overrides.json` 放换季 override。搜索会匹配中文名、日文名、声优、类型、简介和推荐语。
+
+**封面**：有 `cover` 时铺真实封面（3:4 裁切 + 暗角 + 左上角季档小签），缺图 / 404 则自动退回
+`poster` 字段生成的 CSS「排版海报」（两个色相 + 几何母题 + 四种竖排标题版式），不会留破图。
+封面缓存自 **AniList**：`bgm.tv` / `api.bgm.tv` / `lain.bgm.tv` 在开发机上不可达（DNS 被污染、
+连接超时，公共代理也回 522），所以没有直接引用 Bangumi 的图；想换回 Bangumi，把
+`assets/leisure/covers/` 下的同名文件替换掉即可，路径不用改。封面版权归原作者 / 制作方，
+站点只做检索展示，不要再打包分发原图。
+
+```bash
+node tools/fetch-covers.mjs --dry   # 只打印 AniList 匹配结果
+node tools/fetch-covers.mjs         # 下载缺失封面 + 写 data/anime-covers.json
+python tools/optimize-covers.py     # 压成宽 460 的渐进式 JPEG（32 张约 2.4MB）
+```
+
+**换季**：`node tools/roll-season.mjs --write` 按当前季度拉 AniList 当季 TV 动画（`--limit` 默认 24），
+用 `data/anime-overrides.json` 覆盖中文名 / 短评 / 声优 / 放送信息，写 `data/anime.json`；
+当前季已是最新会直接跳过。`--next` 生成下一季，`--season=2027-winter` 指定季，`--force` 强制重建。
+`recommended` 不参与自动生成，原样保留。
+
+override 以 **AniList subject id** 为 key，只写想改的字段；当前 2026 秋 22 部的编辑字段已经迁进去：
+
+```jsonc
+{
+  "items": {
+    "195516": {
+      "id": "kusuriya-s3",
+      "title": "药屋少女的呢喃 第三期",
+      "hook": "猫猫又回宫了。…",
+      "cast": ["悠木碧", "大塚剛央", "小西克幸"],
+      "score": 9.6,
+      "auto": false
+    }
+  }
+}
+```
+
+没有 override 的新番会显示日文名 + AniList 英文简介，脚注标「参考评分」；补一次 override 就成正片。
+
+> 当前 22 部的文案已经复制进 `anime-overrides.json`。以后改中文名 / 短评 / 声优请改 overrides，
+> 否则下一次 `--force` 会用 overrides 里的旧值覆盖 `anime.json`。
+
+**自动跑**：`.github/workflows/season-roll.yml` 每季首日 10:00 JST（01:00 UTC）执行
+`roll-season --write → fetch-covers → optimize-covers → commit/push`，push 后由 Netlify 自动部署。
+当前季没变时不产生空提交；失败会开一个 `[换季失败]` issue（AniList 未收录 / 429 / 分支保护拦 push 都会写进去）。
+任何定时任务都可能延迟或被停用，失败 issue 是最后一道提醒；也可以在 Actions 页面用 `season` / `force` 手动补跑。
+
+> `--force` 会用 AniList 热度前 24 重排当前季，可能挤掉手工挑的条目；只在新季或确实要重建时用。
+> 日常想刷新封面/数据，先跑不带 `--force` 的 `--write`。
+
+> 注意：自动抓来的是日文标题和英文简介，`score` 是 AniList 参考评分；不要把自动数据当成精编数据。
+> 中文名、短评、声优、放送局都靠 `anime-overrides.json` 补。
+
+完整字段表、封面抓取、override 与换季说明见 `design/leisure.md`。
+
+**追番**存在 `localStorage` 的 `ft.terminal.leisure.watch`：
+`{ [animeId]: "watching" | "plan" | "done" }`。卡片右上角按钮循环
+「未加入 → 想看 → 在看 → 看完 → 移除」，详情弹层里可以直接选状态；「清空追番」有二次确认。
+只在本机生效，不经过服务端。换季后不在 `current` / `recommended` 里的条目会从「我的追番」消失
+（状态只按当前数据映射）；如果要把追番当长期档案，得另做一份跨季存储。
+
+> 评分、期待值与推荐语在编辑条目里是主观的；自动条目的评分来自 AniList，页脚与详情有标注。
+> 放送时间以关东地上波为准，`24:30` 这类跨日节目按节目表原样保留。
+> 换季时跑 `node tools/roll-season.mjs --write`，页面会按 `season.start` / `end` 自动显示「当季」或「ARCHIVE / 已完结」。
+
 ---
 
 ## 扩展指南
@@ -1589,7 +1681,7 @@ Auth0 的真实登录要真人点（要跳转、要收验证邮件），没法�
 
 ```bash
 node tools/test-markdown.mjs              # Markdown 渲染器单元测试（34 项）
-node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ XSS（含 Markdown 危险协议链接）（204 项）
+node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 文娱（路由 / 导航）+ 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ XSS（含 Markdown 危险协议链接）（214 项）
 node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢出检查（1920→360）+ 截图
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（43 项）
 node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs + Blobs 替身）
@@ -1611,7 +1703,7 @@ node tools/eval.mjs "http://localhost:5173/#/gallery" @.shots/check.js
 黄历小组件另有 12 条：懒加载、按钮位置、真实鼠标点击打开、今天/明天两张卡、
 每张卡都有标签 + 宜 + 忌 + 依据、可信手势证据、出现吉日才自动播、
 已知凶日 2026-10-09 判凶（忌「诸事不宜」）、已知吉日 2026-10-10 判吉（危日 · 明堂黄道）、
-查询吉日会自动播 `id=1345751384`、Esc 关闭、点面板内部不关（实测 **204/204 PASS**）。
+查询吉日会自动播 `id=1345751384`、Esc 关闭、点面板内部不关（实测 **214/214 PASS**）。
 `responsive.mjs` 在 1920→360px 之间逐档检查横向滚动与导航重叠，并把截图存到
 `.shots/responsive/`。
 `verify-playback.mjs [baseUrl]` 用无头 Edge/Chrome（CDP）种入 3 首匿名可播的曲目，断言

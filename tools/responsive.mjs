@@ -140,7 +140,7 @@ async function main() {
         .filter(el => {
           if (el.closest('.hero__bg')) return false;               // 首屏装饰背景（由父级 overflow:hidden 裁剪）
           const cs = getComputedStyle(el);
-          if (cs.position === 'absolute' && el.closest('.hero, .stage, .album, .card__thumb, .masonry__item')) return false;
+          if (cs.position === 'absolute' && el.closest('.hero, .stage, .album, .card__thumb, .masonry__item, .poster')) return false;
           if (inScroller(el)) return false;
           const r = el.getBoundingClientRect();
           return r.width > 0 && (r.right > window.innerWidth + 2 || r.left < -2);

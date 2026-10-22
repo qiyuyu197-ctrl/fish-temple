@@ -160,6 +160,7 @@ export default {
           { t: '文章与公告', e: 'LOGS', d: '两类发布物合成一条时间线：文章与公告。', h: '#/logs', i: ICON.doc, n: `${String(Posts.published.length).padStart(2, '0')}+${String(News.published.length).padStart(2, '0')}` },
           { t: '音乐', e: 'MUSIC', d: '搜索网易云曲目，官方播放器站内试听。', h: '#/music', i: ICON.music, n: String(Player.tracks.length).padStart(2, '0') },
           { t: '插画', e: 'GALLERY', d: '本地相册网格 + 随机抽图，一键跳转 Pixiv。', h: '#/gallery', i: ICON.image, n: `${Registry.imageProviders.length}` },
+          { t: '文娱', e: 'LEISURE', d: '当季新番、私心推荐，以及只存在本地的追番标记。', h: '#/leisure', i: ICON.screen, n: '22' },
           { t: '扫雷', e: 'MINES', d: '三档难度，首点安全、和弦、键盘都能来。', h: '#/mine', i: ICON.grid, n: 'GAME' },
           { t: '工具台', e: 'TOOLS', d: '格式转换 / 图片压缩 / 文本处理，文件不出浏览器。', h: '#/tools', i: ICON.tools, n: '03' },
           { t: '发布', e: 'CONSOLE', d: '在浏览器里写文章、发公告、导出数据。', h: '#/admin', i: ICON.settings, n: 'IO' },

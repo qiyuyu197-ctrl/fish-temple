@@ -286,6 +286,7 @@ async function main() {
     ['#/logs/news_launch', '公告详情'],
     ['#/music', '音乐'],
     ['#/gallery', '插画'],
+    ['#/leisure', '文娱'],
     ['#/mine', '扫雷'],
     ['#/tools', '工具台'],
     ['#/admin', '控制台'],
@@ -405,7 +406,7 @@ async function main() {
       map: {},
       labels: [...document.querySelectorAll('#nav .nav__link')].map(a => a.textContent.trim().replace(/\\s+/g, ' ')),
     };
-    for (const h of ['#/', '#/logs', '#/logs/news_launch', '#/posts', '#/post/post_overview', '#/music', '#/gallery', '#/mine', '#/tools', '#/admin', '#/dashboard', '#/nope']) {
+    for (const h of ['#/', '#/logs', '#/logs/news_launch', '#/posts', '#/post/post_overview', '#/music', '#/gallery', '#/leisure', '#/mine', '#/tools', '#/admin', '#/dashboard', '#/nope']) {
       location.hash = h;
       await wait(620);
       out.map[h] = read();
@@ -418,7 +419,7 @@ async function main() {
     '#/': 'home', '#/logs': 'logs', '#/logs/news_launch': 'logs',
     // 老地址会跳到 #/logs，所以高亮的也应该是合并后的那一项
     '#/posts': 'logs', '#/post/post_overview': 'logs',
-    '#/music': 'music', '#/gallery': 'gallery', '#/mine': 'mine', '#/tools': 'tools',
+    '#/music': 'music', '#/gallery': 'gallery', '#/leisure': 'leisure', '#/mine': 'mine', '#/tools': 'tools',
     '#/admin': 'admin', '#/dashboard': 'dashboard',
   };
   record('导航：当前板块高亮跟随路由（合并板块 + 详情 + 老地址）',

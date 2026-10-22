@@ -24,7 +24,7 @@ export const SITE = {
   /** 一句话简介，用于首屏与页脚 */
   tagline: '记录、播放、归档。一个零依赖的静态终端。',
   /** 站点描述（SEO + 页脚 SITE 区） */
-  description: '静态站点 · 站内音乐播放 · Pixiv 随机插画 · 公告与文章发布',
+  description: '静态站点 · 站内音乐播放 · Pixiv 随机插画 · 新番文娱 · 公告与文章发布',
   /** 站点语言 */
   lang: 'zh-CN',
   /** 版本号，显示在页脚 BUILD 区 */
@@ -52,6 +52,7 @@ export const NAV = [
   { id: 'forum',   path: '#/forum',     label: 'FORUM',   cn: '论坛' },
   { id: 'music',   path: '#/music',     label: 'MUSIC',   cn: '音乐' },
   { id: 'gallery', path: '#/gallery',   label: 'GALLERY', cn: '插画' },
+  { id: 'leisure', path: '#/leisure',   label: 'LEISURE', cn: '文娱' },
   { id: 'mine',    path: '#/mine',      label: 'GAME',    cn: '游戏' },
   { id: 'tools',   path: '#/tools',     label: 'TOOLS',   cn: '工具台' },
   { id: 'admin',   path: '#/admin',     label: 'CONSOLE', cn: '发布' },
@@ -62,6 +63,7 @@ export const TICKER = [
   'SYSTEM ONLINE',
   '网易云搜索通道已就绪',
   'PIXIV 随机插画通道已连接',
+  '2026 秋新番档案已上线 · 文娱板块',
   '{latest}',
   'CTRL + K 打开命令面板',
 ];
@@ -361,6 +363,8 @@ export const COMMANDS = [
   { id: 'goto-home',   label: '前往首页',        hint: 'G H', run: (ctx) => ctx.navigate('#/') },
   { id: 'goto-music',  label: '打开音乐台（网易云搜索）', hint: 'G M', run: (ctx) => ctx.navigate('#/music') },
   { id: 'goto-gallery',label: '打开插画画廊',    hint: 'G G', run: (ctx) => ctx.navigate('#/gallery') },
+  { id: 'goto-leisure',label: '打开文娱（当季新番）', hint: 'G L', run: (ctx) => ctx.navigate('#/leisure') },
+  { id: 'random-anime',label: '文娱：随机挑一部', hint: 'R A', run: (ctx) => ctx.navigate('#/leisure?random=1') },
   { id: 'random-art',  label: '随机一张插画',    hint: 'R',   run: (ctx) => ctx.randomArt() },
   { id: 'toggle-play', label: '播放 / 暂停',     hint: 'SPC', run: (ctx) => ctx.togglePlay() },
   { id: 'next-track',  label: '下一首',          hint: 'N',   run: (ctx) => ctx.nextTrack() },

@@ -1,0 +1,130 @@
+name: Season roll
+
+# 每季首日 10:00 JST（01:00 UTC）自动换季：
+#   AniList 当季列表 → data/anime.json（overrides 覆盖）→ 封面 → 压缩 → commit
+# 手动也可以跑：Actions → Season roll → Run workflow。
+on:
+  schedule:
+    - cron: '0 1 1 1,4,7,10 *'
+  workflow_dispatch:
+    inputs:
+      season:
+        description: '目标季（如 2027-winter；留空 = 当前季）'
+        required: false
+        default: ''
+      force:
+        description: '当前季已是最新也强制重建（会按 AniList 热度重排）'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: season-roll
+  cancel-in-progress: false
+
+jobs:
+  roll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Pillow
+        run: python -m pip install --upgrade pip Pillow
+
+      - name: Roll season data
+        env:
+          SEASON: ${{ github.event.inputs.season }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          ARGS="--write"
+          if [ -n "$SEASON" ]; then
+            ARGS="$ARGS --season=$SEASON"
+          fi
+          if [ "$FORCE" = "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          node tools/roll-season.mjs $ARGS
+
+      - name: Detect data change
+        id: changed
+        run: |
+          if git diff --quiet -- data/anime.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Season data is already current; skip covers/commit."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch covers
+        if: steps.changed.outputs.changed == 'true'
+        run: node tools/fetch-covers.mjs
+
+      - name: Optimize covers
+        if: steps.changed.outputs.changed == 'true'
+        run: python tools/optimize-covers.py
+
+      - name: Commit and push
+        if: steps.changed.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/anime.json data/anime-covers.json data/anime-overrides.json assets/leisure/covers
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          SEASON_ID=$(node -p "require('./data/anime.json').season.id")
+          git commit -m "chore(leisure): roll season to $SEASON_ID"
+          git push
+
+      - name: Open failure issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `[换季失败] ${new Date().toISOString().slice(0, 10)}`;
+            const q = `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:title "换季失败"`;
+            const { data } = await github.rest.search.issuesAndPullRequests({ q });
+            if (data.total_count > 0) {
+              core.info('已有未关闭的换季失败 issue，跳过重复创建。');
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body: [
+                '自动换季没有完成，请检查 Actions 日志。',
+                '',
+                '常见原因：',
+                '- AniList 还没收录新季（等一两天后在 Actions 里手动重跑）',
+                '- AniList 429 限流 / 网络超时',
+                '- main 分支保护导致 `git push` 被拒',
+                '',
+                '本地补跑：',
+                '```bash',
+                'node tools/roll-season.mjs --write',
+                'node tools/fetch-covers.mjs',
+                'python tools/optimize-covers.py',
+                '```',
+                '',
+                '如果确实是同一季要重建，再加 `--force`；它会按 AniList 热度重排当前季。',
+                '',
+                '处理完后关闭本 issue。',
+              ].join('\n'),
+            });

@@ -305,16 +305,19 @@ body.has-miniplayer .footer { padding-bottom: calc(var(--miniplayer-h) + var(--s
 }
 
 /* ============================================================
-   笔记本宽度（1081–1280）：导航有 9 项 + 右侧还有 4 个图标/账号控件
+   笔记本宽度（1081–1440）：导航有 10 项 + 右侧还有 4 个图标/账号控件
    ------------------------------------------------------------
-   实测 1100px 一档会挤压：9 项 × 每侧 12px 内边距就要 605px，而可用只有 552px，
+   实测 1100px 一档会挤压：每侧 12px 内边距的 10 项就要 600px+，而可用只有 552px，
    表现为最后一项被裁掉并与右侧图标重叠。这里**不隐藏任何栏目**（栏目要靠顶栏找到），
-   只收紧内边距与间距 —— ≤1080 时导航本来就换成抽屉，所以只影响这一段。
+   只收紧字号、内边距与间距 —— ≤1080 时导航本来就换成抽屉，所以只影响这一段。
    ============================================================ */
+@media (max-width: 1440px) and (min-width: 1081px) {
+  .nav__link { padding: 0 8px; font-size: 11px; letter-spacing: 0.02em; }
+}
 @media (max-width: 1280px) and (min-width: 1081px) {
   .topbar { gap: var(--sp-3); }
   .nav__link { padding: 0 7px; letter-spacing: 0.02em; }
 }
 @media (max-width: 1180px) and (min-width: 1081px) {
-  .nav__link { padding: 0 5px; letter-spacing: 0; }
+  .nav__link { padding: 0 4px; font-size: 10px; letter-spacing: 0; }
 }

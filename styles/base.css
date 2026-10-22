@@ -214,8 +214,9 @@ code, pre { font-family: var(--font-mono); }
 /* 点亮块本身也要有悬停反馈，否则鼠标移上去会像"没反应" */
 .nav__link.is-active:hover { background: color-mix(in srgb, var(--signal) 86%, var(--ink-100)); }
 .nav__idx { color: var(--fg-faint); font-size: var(--fs-2xs); }
-/* 导航项较多（含插件栏目）时优先隐藏序号，保证标签不被挤压 */
-@media (max-width: 1560px) {
+/* 导航项较多（含插件栏目）时优先隐藏序号，保证标签不被挤压。
+   第 10 个板块（文娱）加进来后，1600px 一带会出现挤压，所以阈值从 1560 提到 1680。 */
+@media (max-width: 1680px) {
   .nav__idx { display: none; }
   .nav__link { padding: 0 var(--sp-3); }
 }
