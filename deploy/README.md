@@ -335,6 +335,8 @@ sudo docker compose -f deploy/docker-compose.yml logs -f
   都是 **401** —— 即"配了 Auth0 就必须站长身份"，与是否 loopback 无关；
 - 静态文件缓存头：本地 `node server.mjs` 对 `/`、`/data/album.json`、`/styles/base.css` 都回
   `Cache-Control: no-cache`（**如实记录**：本地不做长缓存；Netlify 上有自己的 CDN 规则，那是另一套）；
+  例外是 AI 分轨的 `/assets/models/*` 与 `/assets/vendor/onnxruntime-web/*`：内容是版本化的二进制，
+  回 `public, max-age=31536000, immutable`；
 - 跑完已停服务、删临时数据目录。
 
 **未验证**（需要真实 Linux 服务器才能验，这里只保证文档与资产按标准写法给出）：

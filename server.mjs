@@ -136,6 +136,9 @@ const MIME = {
   '.flac': 'audio/flac',
   '.webm': 'video/webm',
   '.mp4': 'video/mp4',
+  // ONNX Runtime 的 wasm 必须发 application/wasm，否则它只能退回 arrayBuffer 实例化
+  '.wasm': 'application/wasm',
+  '.onnx': 'application/octet-stream',
   '.woff2': 'font/woff2',
   '.woff': 'font/woff',
   '.ttf': 'font/ttf',
@@ -2645,6 +2648,67 @@ async function handleApi(req, res, url, opts = {}) {
   return fail(res, 404, `未知接口：${url.pathname}`);
 }
 
+/* ---------------- AI 模型（/model/…） ----------------
+ * 模型不进仓库：发布在 GitHub Release（tag model-v1）。
+ *   本地 / 自托管：assets/models/ 里有文件就直接发（tools/fetch-model.mjs 下载）；
+ *   没有就按顺序代理到 Release → hf-mirror → aifasthub。
+ * 浏览器始终请求同源 /model/…，不需要 CORS；Netlify 上用 redirects 代理（见 netlify.toml）。
+ */
+
+const MODEL_DIR = path.join(ROOT, 'assets', 'models');
+const MODEL_NAMES = new Set(['UVR-MDX-NET-Inst_HQ_3.onnx']);
+const MODEL_UPSTREAMS = [
+  'https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/model-v1/',
+  'https://hf-mirror.com/Blane187/all_public_uvr_models/resolve/main/',
+  'https://aifasthub.com/Blane187/all_public_uvr_models/resolve/main/',
+];
+
+async function serveModel(req, res, url) {
+  // 只允许本目录下的已知模型名，挡掉 ../ 和随便拿它当开放代理
+  const name = path.basename(decodeURIComponent(url.pathname));
+  if (!MODEL_NAMES.has(name)) return fail(res, 404, '未知模型');
+
+  try {
+    const abs = path.join(MODEL_DIR, name);
+    const data = await fs.readFile(abs);
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': data.length,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    });
+    return res.end(req.method === 'HEAD' ? undefined : data);
+  } catch { /* 本地没有，走上游 */ }
+
+  for (const base of MODEL_UPSTREAMS) {
+    let started = false;
+    try {
+      const upstream = await fetch(base + name, {
+        redirect: 'follow',
+        signal: AbortSignal.timeout(60_000),
+        headers: { 'User-Agent': 'fish-temple/model-proxy' },
+      });
+      if (!upstream.ok) { await upstream.body?.cancel?.(); continue; }
+      const type = String(upstream.headers.get('content-type') || '');
+      if (/text\/html/i.test(type)) { await upstream.body?.cancel?.(); continue; }
+
+      const len = upstream.headers.get('content-length');
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        ...(len ? { 'Content-Length': len } : {}),
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      });
+      started = true;
+      if (req.method === 'HEAD' || !upstream.body) return res.end();
+      await pipeline(Readable.fromWeb(upstream.body), res);
+      return;
+    } catch (err) {
+      if (started) return; // 头已经发出去，不能再换上游
+      log('[model] 上游失败', new URL(base).host, err?.message || err);
+    }
+  }
+  return fail(res, 504, '模型上游暂时不可达；可以把 .onnx 放到 assets/models/ 再试');
+}
+
 /* ---------------- 静态文件 ---------------- */
 
 async function serveStatic(req, res, url) {
@@ -2667,10 +2731,12 @@ async function serveStatic(req, res, url) {
   try {
     const data = await fs.readFile(target);
     const ext = path.extname(target).toLowerCase();
+    // AI 模型（~64MB）与 ORT 的 wasm 是不变的二进制，长缓存；其它静态资源维持 no-cache
+    const immutable = rel.startsWith('/assets/models/') || rel.startsWith('/assets/vendor/onnxruntime-web/');
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Content-Length': data.length,
-      'Cache-Control': ext === '.html' ? 'no-cache' : 'no-cache',
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
       'Accept-Ranges': ext === '.mp3' || ext === '.mp4' ? 'bytes' : 'none',
     });
     res.end(data);
@@ -2696,7 +2762,8 @@ async function handleHttp(req, res) {
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   try {
-    if (url.pathname.startsWith('/api')) await handleApi(req, res, url);
+    if (url.pathname.startsWith('/model/')) await serveModel(req, res, url);
+    else if (url.pathname.startsWith('/api')) await handleApi(req, res, url);
     else await serveStatic(req, res, url);
   } catch (err) {
     console.error('[error]', err);

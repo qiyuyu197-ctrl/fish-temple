@@ -1,5 +1,9 @@
 # FISH 鱼の灵庙 · 静态站点
 
+> 🚀 **只是想在自己电脑上跑起来？直接看 [INSTALL.md](INSTALL.md)** ——
+> 只需要 Node.js 18+，三步启动，不用 `npm install`，不用配数据库。
+> 本文档是完整的工程说明（功能、设计取舍、自检），篇幅较长。
+
 一个零依赖的静态站点：**站内音乐播放 / 本地相册插画 / 文章与公告发布**，
 视觉语言参考《明日方舟：终末地》官网（奶油纸底 · 墨黑文字 · 信号黄强调 · 全直角工业编辑风）。
 音乐台在这个前提下参考了 [Folia](https://github.com/chthollyphile/folia-major) 的沉浸式歌词思路：
@@ -22,6 +26,9 @@ node server.mjs
 ```
 
 **Windows 用户可以直接双击 `start.cmd`**，效果相同（会自动切到脚本所在目录并检查 Node.js）。
+
+> 第一次上手、或者遇到问题，看 **[INSTALL.md](INSTALL.md)**：里面有环境要求、换端口、
+> 「能做什么 / 做不了什么」的对照表、以及常见故障的排查表。
 
 > 💡 **网站打不开时**：先确认服务器还在运行 —— 运行 `node server.mjs` 的那个窗口
 > 一旦被关掉，网站就连不上了。重新执行 `node server.mjs`（或双击 `start.cmd`）即可。
@@ -84,6 +91,7 @@ python -m http.server 5173
 │   │   ├── almanac.js      顶栏黄历小组件（懒加载通书数据 / 面板 / 吉日之歌）
 │   │   ├── comments.js     帖子评论区（自包含组件，详情页两行接入）
 │   │   ├── bits.js         可复用展示片段（卡片 / 列表行 / 分区标题）
+│   │   ├── tools-tabs.js   TOOLS 板块的页签条（工具台 / Tier List / 提取音频 / 去人声）
 │   │   ├── boot.js         开机自检动画
 │   │   └── toast.js        轻提示 / 复制 / 下载
 │   ├── util/
@@ -98,6 +106,7 @@ python -m http.server 5173
 │   │                       mine-room.js 联机扫雷的房间界面（棋盘与反馈复用单人局那一套）
 │   │                       tierlist.js Tier List 视图（TOOLS 里的一个工具，逻辑在 plugins/tierlist.js）
 │   │                       audio-extract.js 从视频里提取音轨（TOOLS 的一个页签，全程在浏览器内）
+│   │                       vocal-remove.js 去人声 / 提纯伴奏（TOOLS 的一个页签：M/S 快速/精细 + AI 分轨 + 试听与导出）
 │   └── plugins/            扩展示例
 │       ├── auth.js         Auth0 PKCE 登录（零依赖实现 code_verifier/challenge）＋顶栏账号控件与令牌刷新
 │       ├── stage.js        随机插画引擎
@@ -109,7 +118,7 @@ python -m http.server 5173
 │       ├── tierlist.js     Tier List 引擎（纯逻辑，状态可 JSON 序列化，视图在 views/tierlist.js）
 │       ├── comment-model.js 评论的纯逻辑模型：server.mjs / 前端 / 自检三方共用同一套校验
 │       ├── lyrics.js       歌词引擎：LRC 解析 + 自建时钟（iframe 读不到进度时的补偿）
-│       ├── tools/          工具台内核（zip / docx / image / audio / text）
+│       ├── tools/          工具台内核（zip / docx / image / audio / text / vocal / ai-separator）
 │       ├── dashboard-view.js  插件路由示例（#/dashboard）
 │       └── example-widget.js  首页插槽组件示例
 ├── styles/
@@ -141,11 +150,14 @@ python -m http.server 5173
 │   ├── leisure/covers/     文娱番剧封面（fetch-covers.mjs 下载 + optimize-covers.py 压缩）
 │   ├── icons/              标识与图标（品牌插画生成的 mark-*/favicon-* + 字标 logo.svg）
 │   ├── fonts/              Saira 可变字体（SIL OFL 1.1）+ 许可证；音乐台的宽体标签用
+│   ├── models/             AI 分轨模型说明（模型约 64MiB，发布在 GitHub Release `model-v1`，不进仓库）
 │   └── vendor/             原样引入的第三方库（不动源码，LICENSE 放在旁边）
-│       ├── lame.min.js     LAME MP3 编码器（152KB；工具体「视频提取音频」导出 MP3 时用）
-│       └── lunar-javascript/  MIT 通书数据（© 2018 6tail；黄历的宜忌 / 建除 / 星宿 / 黄道黑道，懒加载，~425KB）
+│       ├── lame.min.js     LAME MP3 编码器（152KB；「提取音频」与「去人声」导出 MP3 时按需加载）
+│       ├── lunar-javascript/  MIT 通书数据（© 2018 6tail；黄历的宜忌 / 建除 / 星宿 / 黄道黑道，懒加载，~425KB）
+│       ├── web-audio-separation/  MIT；浏览器端 MDX-Net 推理（改了 ORT 的导入与 wasm 路径）
+│       └── onnxruntime-web/      MIT；ONNX Runtime Web 1.29（只留 CPU / WebGPU 两个 wasm）
 └── tools/                  开发期自检脚本（不影响站点运行）
-    ├── verify.mjs          全站自动化自检（219 项）
+    ├── verify.mjs          全站自动化自检（222 项）
     ├── responsive.mjs      多断点布局溢出检查 + 截图（1920→360）
     ├── verify-playback.mjs 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏黄历按钮不被裁切（53 项）
     ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs + 注入 Blobs 替身（默认 5199）
@@ -164,6 +176,7 @@ python -m http.server 5173
     ├── test-markdown.mjs   Markdown 渲染器单元测试（33 项）
     ├── content-build.mjs   批量写作：tools/content/*.md → data/posts.json & news.json（整份覆盖）
     ├── content/            批量写作的正文源文件（Markdown）
+    ├── fetch-model.mjs     重新下载 AI 分轨模型（多镜像 + 断点续传；仓库里通常已带，不用跑）
     ├── make-audio.mjs      生成示例音频
     ├── make-brand.py       从品牌插画生成整套图标（mark-*/favicon/apple-touch-icon）
     ├── fetch-covers.mjs    从 AniList 匹配并下载文娱封面，写 data/anime-covers.json
@@ -1086,14 +1099,18 @@ src/views/mine.js            画面与交互：HUD、棋盘、动效、键盘、
 
 ### 6. 工具台（`#/tools`）
 
-三个工具，**全部在浏览器里跑，文件不上传**：没有后端，所以也不需要把文件交给谁。
-内核是 `src/plugins/tools/`（纯函数 + 浏览器 API），界面在 `src/views/tools.js`。
+三件主力工具 + 两个独立页签（`?tab=audio` / `?tab=vocal`），**全部在浏览器里跑，文件不上传**：
+没有后端，所以也不需要把文件交给谁。内核是 `src/plugins/tools/`（纯函数 + 浏览器 API），
+界面在 `src/views/tools.js`；页签条收在 `src/ui/tools-tabs.js`，四个页签渲染同一份，
+免得抄四遍时漏了 `aria-selected`。
 
 | 工具 | 做什么 | 内核 |
 | --- | --- | --- |
 | **格式转换** | 图片 / 文档 / 音频互转，可一次拖一批、逐个选目标格式、整包下载 ZIP | `index.js` 调度 |
 | **图片压缩** | 批量缩放（最长边）+ 质量 + 换格式，实时看前后体积与合计省下多少 | `image.js` |
 | **文本工具** | JSON 格式化/压缩、Base64、URL 编解码、行处理（去重/排序/编号…）、文本统计、文件 SHA-256 | `text.js` |
+| **提取音频** | 视频里的音轨 → WAV / MP3（`?tab=audio`） | 复用 `audio.js` |
+| **去人声** | 放进一首歌，抽掉人声留伴奏：M/S 快速/精细，或 AI 分轨（MDX-Net）；试听 A/B 后导出 WAV / MP3（`?tab=vocal`） | `vocal.js` / `ai-separator.js` |
 
 **支持矩阵**（能做到什么、做不到什么，界面上也写着同一张表）：
 
@@ -1112,13 +1129,56 @@ src/views/mine.js            画面与交互：HUD、棋盘、动效、键盘、
   生成时附带一份最小 `word/styles.xml`，标题才会是**真的标题**（Heading 1/2），不只是大号粗体。
 - **mp3 → m4a 是"实时重编码"**：浏览器没有离线 AAC 编码器，但 `MediaRecorder` 能录媒体流，
   于是把解码后的音频送进 `MediaStreamAudioDestinationNode` 边播边录 —— 代价是**耗时≈音频时长**。
-- **MP3 编码明确不做**：需要第三方编码器（LAME 之类），与本项目的零依赖相冲突。
-  与其放一个点了没反应的假按钮，不如在支持矩阵里写清楚。
+- **格式转换里不做 MP3 编码**：要额外编码器，与"点一下就转"的轻量定位不符。
+  「提取音频」和「去人声」的 MP3 导出是另一回事，它们**按需**加载 `assets/vendor/lame.min.js`
+  （MIT，约 150KB），只在真的点「导出 MP3」时才拉，没这个文件时 WAV 照常可用。
 - **PDF / XLSX / PPTX 也不做**：解析量级远超"顺手写个小工具"。
+
+**去人声（`vocal.js`）是怎么做的**：
+
+1. 解码成左右两条 `Float32Array`，先算一次中置占比（`M = (L+R)/2` 与 `S = (L−R)/2` 的能量比）。
+   左右相关系数接近 1 时直接提示「单声道没有人声可抵消」，不让人白等。
+2. **快速**：`outM = M_lp + k·(M − M_lp)`，`k = 1 − 强度`，再还原成 `L' = outM + S`、`R' = outM − S`。
+   `M_lp` 是 24dB/oct 低通（两级双二阶），把贝斯与底鼓补回来 —— 所以只会带走"中置的中高频"。
+   几百万个采样只要几十毫秒。
+3. **精细**：STFT（2048 点 Hann、75% 重叠、Hann² 归一化 1.5）后逐频点估计
+   `w = 1 − |L−R| / |L+R|`（1 = 纯中置，0 = 纯两侧），只把中置成分乘 `1 − 强度·w`，两侧原样保留；
+   `bassHz` 以下加一段平滑的"别碰"斜坡。3 分钟音频约 2.5 秒（Node 实测），浏览器里同量级。
+4. 等响：按输入 / 输出 RMS 算一个增益（上限 2×，并给峰值留 2% 余量），A/B 试听时不会被"变小了"骗到。
+5. 试听走 `AudioBufferSourceNode`，不生成临时 WAV；「原曲 / 纯伴奏 / 人声残留」从同一个播放位置切换。
+
+**AI 分轨（`ai-separator.js`）是怎么做的**：
+
+- **模型**：UVR 社区的 `UVR-MDX-NET-Inst_HQ_3`（66,759,214 字节，约 64MiB），
+  **不进仓库**，发布在 GitHub Release（tag `model-v1`）。浏览器请求同源
+  `/model/UVR-MDX-NET-Inst_HQ_3.onnx`：本地 / 自托管由 `server.mjs` 直接发本地文件或代理到
+  Release，Netlify 由 `netlify.toml` 的 `[[redirects]]` 代理；首次下载后存进 CacheStorage，
+  之后同一浏览器不再下载。也可以点「选择本地模型」直接选 `.onnx`。
+  本地取文件：`node tools/fetch-model.mjs`（落到 `assets/models/`，已 gitignore）。
+- **运行时**：`assets/vendor/web-audio-separation`（MIT）+ `assets/vendor/onnxruntime-web`
+  （MIT，1.29；只留 CPU / WebGPU 两个 wasm）。两者都是动态 import，不点 AI 不加载。
+- **推理**：库负责分段 STFT / 反变换，ORT 跑 MDX-Net；返回「人声 + 伴奏」两条 WAV，
+  页面解码后进同一套播放器 / 波形 / 导出。全程在标签页里，音频不上传。
+- **速度**：看设备和 WebGPU。本机 3 秒素材：WebGPU（Intel 核显）约 15–17 秒，
+  单线程 WASM 约 100 秒 —— 折算 3 分钟的歌大约 8 分钟 / 50 分钟。没有 WebGPU 的浏览器
+  页面会明确警告；Chrome / Edge 一般会走 WebGPU。页面会显示「下载模型 / 加载 / 第几段」。
+- **没有模型时**：`/model` 与 Release / 镜像都拿不到，页面会明说原因（以及
+  `node tools/fetch-model.mjs` 的补救方式），不会假装在跑。
+- **授权**：模型权重来自 UVR 社区，个人使用为主；商用或再分发请自行确认原模型授权。
+
+M/S 的极限也写在页面上：单声道无解；军鼓、贝斯、钢琴这类**也摆在正中**的乐器会一起被削；
+混响、双轨人声、稍微偏一点的人声会留在伴奏里。要更干净就切 AI 分轨 ——
+它不是 Demucs 那种顶级分离，但比 M/S 干净得多。
 
 > 自检里对这套工具是**真跑**，不是检查按钮在不在：造一个 docx 再读回来（标题/列表/表格都要在）、
 > canvas 编一张噪声 PNG 转 jpg/webp 并缩放、合成 1.2 秒音频 → WAV → 解码 → 录成 M4A
 > 并检查 `ftyp` 头、SHA-256 对一个已知向量（`abc`）。
+> 去人声的 M/S 则是**数值断言**：造一对「中置 440Hz + 两侧 660Hz + 正中 80Hz」的声道，
+> 强度 0 必须原样返回、强度 1 且不保护低频时必须等于 `(L−R)/2`；带保护时快速模式 440 要压到
+> 原来的 1/10 以下、660 与 80 保留九成以上，精细模式 440 要压到 1/100 以下。
+> 再真的合成一个 WAV 丢进拖放区，等它解码 → 分离 → 出现播放台。
+> AI 分轨在自检里只验**入口**（页签、模型选择、不预跑），不跑 64MiB 模型；
+> 完整管线（模型 → ORT → STFT → 播放器）在本地用一个同形状的假 ONNX 跑通过，真实模型靠人工试听。
 > 另外用 `python-docx` 独立读过生成的文件：`[Heading 1] / [Normal] / [Heading 2] / [List Paragraph]`
 > 与表格都识别正确 —— 说明生成的不是"能下载但打不开"的空壳。
 
@@ -1788,7 +1848,7 @@ Auth0 的真实登录要真人点（要跳转、要收验证邮件），没法�
 ```bash
 node tools/verify-all.mjs                 # 一条命令串行跑齐六套（自己起服务、套件间冷却、汇总通过数）
 node tools/test-markdown.mjs              # Markdown 渲染器单元测试（33 项）
-node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 文娱（路由 / 导航）+ 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ XSS（含 Markdown 危险协议链接）（219 项）
+node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 文娱（路由 / 导航）+ 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ 工具台（含去人声的数值、真流程与 AI 分轨入口）+ XSS（含 Markdown 危险协议链接）（222 项）
 node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢出检查（1920→360）+ 截图
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（53 项）
 node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs + Blobs 替身）
@@ -1810,7 +1870,7 @@ node tools/eval.mjs "http://localhost:5173/#/gallery" @.shots/check.js
 黄历小组件另有 12 条：懒加载、按钮位置、真实鼠标点击打开、今天/明天两张卡、
 每张卡都有标签 + 宜 + 忌 + 依据、可信手势证据、出现吉日才自动播、
 已知凶日 2026-10-09 判凶（忌「诸事不宜」）、已知吉日 2026-10-10 判吉（危日 · 明堂黄道）、
-查询吉日会自动播 `id=1345751384`、Esc 关闭、点面板内部不关（目前全站自检 **219/219 PASS**，含沉浸舞台的 5 条）。
+查询吉日会自动播 `id=1345751384`、Esc 关闭、点面板内部不关（全站自检现为 **222 项**，含沉浸舞台的 5 条）。
 `responsive.mjs` 在 1920→360px 之间逐档检查横向滚动与导航重叠，并把截图存到
 `.shots/responsive/`。
 `verify-playback.mjs [baseUrl]` 用无头 Edge/Chrome（CDP）种入 3 首匿名可播的曲目，断言
@@ -1895,6 +1955,11 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 | `verify-forum-ui.mjs` | 33 / 33 | 37.7 s | ✅ |
 | `responsive.mjs` | 19 个宽度 | 22.8 s | ✅ |
 | `test-markdown.mjs`（不在 `verify-all` 里，单独跑） | 33 / 33 | — | ✅ |
+
+> 2026-10-23 加了「去人声」的三项目检（M/S 数值、真流程、AI 入口），`verify.mjs` 从 219 项变成 222 项。
+> 当日在本机单独跑为 **220 / 222**：失败的两条是网易云网络相关用例
+> （搜索结果出现后的播放器槽位对齐 / 站内直放的真实时长 / 163cn.tv 短链展开超时之间轮换），
+> 随网络状况变化；去人声的三条与 AI 入口每次都过，本次改动也只碰 TOOLS 与静态资源。
 
 #### 未通过的那一项
 

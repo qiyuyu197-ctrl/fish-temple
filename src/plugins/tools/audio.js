@@ -10,8 +10,9 @@
  *     一条媒体流。做法是把解码后的音频送进 `MediaStreamAudioDestinationNode`，
  *     边"播"边录 —— 于是**耗时 ≈ 音频时长**（实时）。这也是唯一不引入第三方编码器
  *     的办法。m4a 是否可用取决于浏览器（Chrome 实测支持 audio/mp4）。
- *   · **mp3 导出**：做不到。MP3 编码器（LAME 之类）是第三方二进制，本项目零依赖，
- *     所以工具里明确不提供，而不是给一个假按钮。
+ *   · **mp3 导出**：浏览器没有内置编码器，只能用第三方 lamejs。它被**按需加载**
+ *     （`assets/vendor/lame.min.js`，MIT），只在真的点「导出 MP3」时才拉进来；
+ *     没有这个文件时其余功能照常，按钮会给出人话提示而不是静默失败。
  */
 
 /** 可用的录音编码（按浏览器能力探测，顺序即推荐顺序） */
@@ -29,6 +30,9 @@ const ctxOf = () => {
   if (!sharedCtx || sharedCtx.state === 'closed') sharedCtx = new (window.AudioContext || window.webkitAudioContext)();
   return sharedCtx;
 };
+
+/** 共享的 AudioContext（解码与试听共用；用户第一次点按后才创建） */
+export const audioCtx = ctxOf;
 
 /**
  * 解码音频文件。
@@ -136,6 +140,63 @@ export async function encodeRealtime(buffer, { mime = 'audio/mp4', bitrate = 192
   return new Blob([blob], { type: mime });
 }
 
+/* ---------------- MP3（可选：按需加载 lamejs） ---------------- */
+
+const LAME_SRC = 'assets/vendor/lame.min.js';
+let lamePromise = null;
+
+/**
+ * 按需加载 lamejs（window.lamejs）。
+ * 只有真的点「导出 MP3」时才把 150KB 拉进来，不拖慢首屏。
+ */
+export function loadLame() {
+  if (window.lamejs) return Promise.resolve(window.lamejs);
+  if (lamePromise) return lamePromise;
+  lamePromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = LAME_SRC;
+    s.onload = () => (window.lamejs ? resolve(window.lamejs) : reject(new Error('库加载了但没挂上 window.lamejs')));
+    s.onerror = () => reject(new Error('没找到 assets/vendor/lame.min.js'));
+    document.head.append(s);
+  });
+  return lamePromise;
+}
+
+/** Float32 [-1,1] → Int16 */
+function floatTo16(f32) {
+  const out = new Int16Array(f32.length);
+  for (let i = 0; i < f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return out;
+}
+
+/**
+ * AudioBuffer → MP3（lamejs）。
+ * @param {AudioBuffer} buffer
+ * @param {number} kbps 128 / 192 / 320
+ * @returns {Promise<Blob>}
+ */
+export async function encodeMp3(buffer, kbps = 192) {
+  const lame = await loadLame();
+  const ch = Math.min(2, buffer.numberOfChannels);
+  const enc = new lame.Mp3Encoder(ch, buffer.sampleRate, kbps);
+  const left = floatTo16(buffer.getChannelData(0));
+  const right = ch > 1 ? floatTo16(buffer.getChannelData(1)) : null;
+  const chunks = [];
+  const STEP = 1152;
+  for (let i = 0; i < left.length; i += STEP) {
+    const l = left.subarray(i, i + STEP);
+    const r = right ? right.subarray(i, i + STEP) : null;
+    const out = ch > 1 ? enc.encodeBuffer(l, r) : enc.encodeBuffer(l);
+    if (out.length) chunks.push(new Uint8Array(out));
+  }
+  const tail = enc.flush();
+  if (tail.length) chunks.push(new Uint8Array(tail));
+  return new Blob(chunks, { type: 'audio/mpeg' });
+}
+
 /** 秒 → 0:00 */
 export const fmtTime = (s) => {
   const n = Math.max(0, Number(s) || 0);
@@ -143,5 +204,7 @@ export const fmtTime = (s) => {
   return `${m}:${String(Math.floor(n % 60)).padStart(2, '0')}`;
 };
 
-export const AudioTools = { decodeAudio, toWav, encodeRealtime, supportedEncoders, fmtTime };
+export const AudioTools = {
+  decodeAudio, toWav, encodeRealtime, encodeMp3, loadLame, audioCtx, supportedEncoders, fmtTime,
+};
 export default AudioTools;

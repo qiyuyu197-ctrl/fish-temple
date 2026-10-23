@@ -46,6 +46,11 @@ data/.cache/
 assets/audio/private/
 assets/img/private/
 
+# AI 分轨模型：不进仓库（~64MB），发布在 GitHub Release（tag model-v1）
+# 本地 / 服务器用 `node tools/fetch-model.mjs` 取；浏览器走同源 /model/… 代理
+assets/models/*.onnx
+assets/models/*.part
+
 # 宣传 PV 工程：整目录不入库（成片 / 静帧 / 截图 / 联系表都是可重生成的生成物，
 # 需要时用 pv/capture.mjs 重抓截图、pv/run.mjs 重录成片；想恢复入库就删掉这一条）
 pv/

@@ -16,83 +16,13 @@
 import { esc } from '../util/dom.js';
 import { Toast } from '../ui/toast.js';
 import { viewhead } from '../ui/bits.js';
-
-const LAME_SRC = 'assets/vendor/lame.min.js';
-
-/** 按需加载 lamejs（window.lamejs）✓ */
-let lamePromise = null;
-function loadLame() {
-  if (window.lamejs) return Promise.resolve(window.lamejs);
-  if (lamePromise) return lamePromise;
-  lamePromise = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = LAME_SRC;
-    s.onload = () => (window.lamejs ? resolve(window.lamejs) : reject(new Error('库加载了但没挂上 window.lamejs')));
-    s.onerror = () => reject(new Error('没找到 assets/vendor/lame.min.js'));
-    document.head.append(s);
-  });
-  return lamePromise;
-}
-
-/** Float32 [-1,1] → Int16 ✓ */
-function floatTo16(f32) {
-  const out = new Int16Array(f32.length);
-  for (let i = 0; i < f32.length; i++) {
-    const s = Math.max(-1, Math.min(1, f32[i]));
-    out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-  }
-  return out;
-}
-
-/** AudioBuffer → WAV（16-bit PCM，零依赖 ✓） */
-function encodeWav(buf) {
-  const ch = buf.numberOfChannels;
-  const len = buf.length;
-  const bytes = 44 + len * ch * 2;
-  const ab = new ArrayBuffer(bytes);
-  const v = new DataView(ab);
-  const w = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
-  w(0, 'RIFF'); v.setUint32(4, bytes - 8, true); w(8, 'WAVE');
-  w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true);
-  v.setUint32(24, buf.sampleRate, true); v.setUint32(28, buf.sampleRate * ch * 2, true);
-  v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true);
-  w(36, 'data'); v.setUint32(40, len * ch * 2, true);
-  const chans = [];
-  for (let c = 0; c < ch; c++) chans.push(buf.getChannelData(c));
-  let off = 44;
-  for (let i = 0; i < len; i++) {
-    for (let c = 0; c < ch; c++) {
-      const s = Math.max(-1, Math.min(1, chans[c][i]));
-      v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-      off += 2;
-    }
-  }
-  return new Blob([ab], { type: 'audio/wav' });
-}
-
-/** AudioBuffer → MP3（lamejs，16-bit PCM ✓） */
-async function encodeMp3(buf, kbps) {
-  const lame = await loadLame();
-  const ch = Math.min(2, buf.numberOfChannels);
-  const enc = new lame.Mp3Encoder(ch, buf.sampleRate, kbps);
-  const left = floatTo16(buf.getChannelData(0));
-  const right = ch > 1 ? floatTo16(buf.getChannelData(1)) : null;
-  const chunks = [];
-  const STEP = 1152;
-  for (let i = 0; i < left.length; i += STEP) {
-    const l = left.subarray(i, i + STEP);
-    const r = right ? right.subarray(i, i + STEP) : null;
-    const out = ch > 1 ? enc.encodeBuffer(l, r) : enc.encodeBuffer(l);
-    if (out.length) chunks.push(new Uint8Array(out));
-  }
-  const tail = enc.flush();
-  if (tail.length) chunks.push(new Uint8Array(tail));
-  return new Blob(chunks, { type: 'audio/mpeg' });
-}
+import { toolsTabs } from '../ui/tools-tabs.js';
+import { toWav, encodeMp3 } from '../plugins/tools/audio.js';
 
 const human = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
-let decoded = null;   // { buffer, name, size }
+let decoded = null;      // { buffer, name, size }
+let previewUrl = '';     // <audio> 试听用的对象 URL
 
 function statusHTML() {
   if (!decoded) {
@@ -105,7 +35,7 @@ function statusHTML() {
     时长 ${secs}s · 采样率 ${buffer.sampleRate} Hz · 声道 ${buffer.numberOfChannels}<br>
     WAV 预计 ${human(44 + buffer.length * buffer.numberOfChannels * 2)}
   </div>
-  <audio id="aePreview" controls src="${esc(window.__aeUrl || '')}" style="width:100%;margin-top:var(--sp-2)"></audio>`;
+  ${previewUrl ? `<audio controls src="${esc(previewUrl)}" style="width:100%;margin-top:var(--sp-2)"></audio>` : ''}`;
 }
 
 function download(blob, name) {
@@ -128,11 +58,7 @@ export default {
       sub: '把视频里的音轨提出来，导出 WAV 或 MP3。全程在浏览器里跑，文件不上传；能不能解这个容器取决于浏览器。',
       idx: 'TOOLS / AUDIO',
     })}
-    <div class="mr-tabs" role="tablist" aria-label="工具">
-      <a class="mr-tab" href="#/tools">工具台</a>
-      <a class="mr-tab" href="#/tools?tab=tier">Tier List</a>
-      <a class="mr-tab is-on" href="#/tools?tab=audio" role="tab" aria-selected="true">提取音频</a>
-    </div>
+    ${toolsTabs('audio')}
     <div class="mr-card" style="display:grid;gap:var(--sp-3)">
       <div class="mr-row">
         <label class="btn btn--sm">选择视频<input type="file" id="aeFile" accept="video/*,audio/*" hidden /></label>
@@ -174,8 +100,8 @@ export default {
         const buffer = await ctx.decodeAudioData(ab.slice(0));
         ctx.close?.();
         decoded = { buffer, name: file.name, size: file.size };
-        if (window.__aeUrl) URL.revokeObjectURL(window.__aeUrl);
-        window.__aeUrl = URL.createObjectURL(new Blob([ab], { type: file.type || 'video/mp4' }));
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(new Blob([ab], { type: file.type || 'video/mp4' }));
         repaint();
         setEnabled(true);
         Toast.ok('音轨已解析，可以导出了');
@@ -192,7 +118,7 @@ export default {
       if (e.target.closest('#aeWav')) {
         const btn = e.target.closest('#aeWav');
         btn.disabled = true; btn.textContent = '生成中…';
-        const blob = encodeWav(decoded.buffer);
+        const blob = toWav(decoded.buffer);
         download(blob, decoded.name.replace(/\.[^.]+$/, '') + '.wav');
         btn.disabled = false; btn.textContent = '导出 WAV';
         Toast.ok(`WAV 已导出（${human(blob.size)}）`);
@@ -215,7 +141,7 @@ export default {
     });
 
     return () => {
-      if (window.__aeUrl) { URL.revokeObjectURL(window.__aeUrl); window.__aeUrl = ''; }
+      if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = ''; }
     };
   },
 };

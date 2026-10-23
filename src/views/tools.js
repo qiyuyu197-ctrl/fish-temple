@@ -1,25 +1,28 @@
 /**
  * views/tools.js — TOOLS / 工具台
  * ------------------------------------------------------------------
- * 三件工具，**全部在浏览器里跑，文件不上传**（这是站点"零依赖静态站"的直接收益：
+ * 五件工具，**全部在浏览器里跑，文件不上传**（这是站点"零依赖静态站"的直接收益：
  * 没有后端，所以也不需要把用户的文件交给谁）。
  *
  *   ① 格式转换  图片 png/jpg/webp/gif/bmp ↔；docx → txt/md/html；txt/md/html/csv → docx；
  *              音频 mp3/m4a/wav/ogg/flac → wav（瞬时）或 m4a/webm（实时重编码）
  *   ② 图片压缩  批量缩放 + 质量 + 换格式，实时看前后体积
  *   ③ 文本工具  JSON 格式化/压缩、Base64、URL 编解码、行处理、文本统计、文件 SHA-256
+ *   ④ 提取音频  视频里的音轨 → WAV / MP3（独立页签 ?tab=audio）
+ *   ⑤ 去人声    一边听一边抽掉中置人声，留伴奏 → WAV / MP3（独立页签 ?tab=vocal）
  *
- * 做不到的也写在界面上：mp3 编码（需要第三方编码器）、pdf/xlsx/pptx 解析（复杂度不划算）。
+ * 做不到的也写在界面上：pdf/xlsx/pptx 解析（复杂度不划算）；AI 分轨的模型权重按需加载（见 vocal 页签）。
  */
 
 import { $, $$, esc, ICON } from '../util/dom.js';
-// TOOLS 板块的第二个页签：Tier List（?tab=tier）
+// TOOLS 板块的页签：Tier List（?tab=tier）、提取音频（?tab=audio）、去人声（?tab=vocal）
 import tierlist from './tierlist.js';
-// 第三个页签：视频提取音频（?tab=audio）
 import audioExtract from './audio-extract.js';
+import vocalRemove from './vocal-remove.js';
 import { Toast } from '../ui/toast.js';
 import { Motion } from '../core/motion.js';
 import { viewhead, emptyState } from '../ui/bits.js';
+import { toolsTabs, activeToolsTab } from '../ui/tools-tabs.js';
 import {
   kindOf, targetsFor, defaultTarget, convert, humanSize, fmtTime, FORMAT_LABEL, EXT_OF,
 } from '../plugins/tools/index.js';
@@ -274,23 +277,17 @@ export default {
   title: '工具台',
 
   render() {
-    // TOOLS 板块有两个页签：工具台 / Tier List（用 ?tab=tier 切，导航仍指向 #/tools ✓）
-    const onTier = /[?&]tab=tier/.test(String(location.hash || ''));
-    const onAudio = /[?&]tab=audio/.test(String(location.hash || ''));
-    const tabs = `
-      <div class="mr-tabs" role="tablist" aria-label="工具">
-        <a class="mr-tab ${onTier || onAudio ? '' : 'is-on'}" href="#/tools" role="tab" aria-selected="${!onTier && !onAudio}">工具台</a>
-        <a class="mr-tab ${onTier ? 'is-on' : ''}" href="#/tools?tab=tier" role="tab" aria-selected="${onTier}">Tier List</a>
-        <a class="mr-tab ${onAudio ? 'is-on' : ''}" href="#/tools?tab=audio" role="tab" aria-selected="${onAudio}">提取音频</a>
-      </div>`;
-    if (onTier) return tabs + tierlist.render();
-    if (onAudio) return tabs + audioExtract.render();
+    // 板块内页签用 ?tab=… 切换，导航仍指向 #/tools ✓
+    const tab = activeToolsTab();
+    if (tab === 'tier') return toolsTabs('tier') + tierlist.render();
+    if (tab === 'audio') return audioExtract.render();     // 它自己带页签条
+    if (tab === 'vocal') return vocalRemove.render();      // 同上
     return `
     <section class="tools">
-      ${tabs}
+      ${toolsTabs('hub')}
       ${viewhead({
         title: 'TOOLBOX',
-        sub: '三个在浏览器里跑的小工具：格式转换、图片压缩、文本处理。文件不上传、不落盘，关掉页面就没了 —— 因为没有后端，所以也不需要把文件交给谁。',
+        sub: '三个在浏览器里跑的小工具：格式转换、图片压缩、文本处理；再加上「提取音频」与「去人声」两个独立页签。文件不上传、不落盘，关掉页面就没了 —— 因为没有后端，所以也不需要把文件交给谁。',
         idx: 'MODULE / 06',
         meta: [
           { label: 'TOOLS', value: String(TABS.length).padStart(2, '0') },
@@ -314,9 +311,11 @@ export default {
   },
 
   mount(root) {
-    // Tier List 页签：挂载整个交给它自己的 mount（它自己管拖拽与存档），工具台这边的状态不碰
-    if (/[?&]tab=tier/.test(String(location.hash || ''))) return tierlist.mount(root);
-    if (/[?&]tab=audio/.test(String(location.hash || ''))) return audioExtract.mount(root);
+    // 独立页签：挂载整个交给各自的 mount（它们自己管拖拽与状态），工具台这边的状态不碰
+    const tab = activeToolsTab();
+    if (tab === 'tier') return tierlist.mount(root);
+    if (tab === 'audio') return audioExtract.mount(root);
+    if (tab === 'vocal') return vocalRemove.mount(root);
     const body = () => $('#toolBody');
 
     const repaint = ({ focusInput = false } = {}) => {
