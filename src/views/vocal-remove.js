@@ -1,24 +1,16 @@
 /**
- * views/vocal-remove.js — 去人声 / 提取纯伴奏（TOOLS 板块里的一个页签）
+ * views/vocal-remove.js — 分离纯音乐 / 人声（TOOLS 板块里的一个页签）
  * ==================================================================
- * 放进一首歌 → 抽掉正中间的人声 → 试听 → 导出 WAV / MP3。
- * 全程在浏览器里跑，文件不上传，也没有后端可上传。
+ * 放进一首歌 → 分出「纯音乐」和「人声」两条轨 → 试听 / 导出。
+ * 全程在浏览器里跑，文件不上传。
  *
- * 两种做法：
- *   · 快速 / 精细 —— M/S 中置抵消（所有卡拉 OK 机都是这个做法），免费、瞬时；
- *     缺点也写清楚：混响、双轨、偏一点的人声拿不掉。
- *   · AI 分轨 —— 按 UVR 的思路配两份 MDX-Net（伴奏模型 + 人声模型），
- *     在浏览器里用 ONNX Runtime Web 推理。只跑伴奏模型时人声是残差；
- *     「人声优先 / 双模型」用人声模型拿干净的纯人声。第一次慢，模型按需加载。
+ * 只有 AI 分轨这一种做法（M/S 已移除）：
+ *   · 伴奏专精：UVR-MDX-NET-Inst_HQ_3
+ *   · 人声专精：Kim_Vocal_2
+ *   · 双模型：伴奏取 Inst、人声取 Kim；再用伴奏当参照做「人声残留清理」
  *
- * 页面分三段：
- *   01 音源    解码 + 看一眼左右声道（相关系数 / 中置占比）
- *   02 怎么分  快速 / 精细 / AI 分轨 + 对应参数
- *   03 试听    原曲 / 纯伴奏 / 人声（残留）三选一，波形对比，导出
- *
- * 交互上两个约定：
- *   · 快速模式参数一松手就重算（几毫秒），精细模式必须按「重新分离」（几秒）；
- *   · 试听走 WebAudio 的 BufferSource，不生成临时 WAV —— 换 A/B 时从同一个位置接着放。
+ * 模型不进仓库，发布在 GitHub Release（tag model-v1）；页面从同源
+ * /model/<文件名> 取（本地 server.mjs / Netlify redirects 代理）。
  */
 
 import { esc } from '../util/dom.js';
@@ -26,34 +18,25 @@ import { Toast } from '../ui/toast.js';
 import { viewhead } from '../ui/bits.js';
 import { toolsTabs } from '../ui/tools-tabs.js';
 import { decodeAudio, toWav, encodeMp3, audioCtx, fmtTime } from '../plugins/tools/audio.js';
-import { analyze, separate } from '../plugins/tools/vocal.js';
 import { cancelBleed } from '../plugins/tools/bleed.js';
 import {
   AI_MODELS, AI_MODES, ensureModel, separateFile as separateWithAI, separateDual, aiReady,
 } from '../plugins/tools/ai-separator.js';
 import { humanSize } from '../plugins/tools/index.js';
 
-const MAX_SECONDS = 10 * 60;         // 10 分钟以上就不要在浏览器里玩了（解码后的内存是每秒 384KB）
-const LONG_SECONDS = 6 * 60;         // 超过 6 分钟提示精细模式会久
+const MAX_SECONDS = 10 * 60;
+const LONG_SECONDS = 6 * 60;
 const ACCEPT = '.mp3,.m4a,.aac,.wav,.ogg,.oga,.flac,.webm,.opus,audio/*';
 
 const state = {
   status: 'idle',        // idle | loading | ready | working | error
   file: null,
-  buffer: null,          // AudioBuffer（原始）
-  info: null,            // analyze() 结果
+  buffer: null,
   error: '',
-  progress: 0,
 
-  method: 'spectral',    // fast | spectral | ai
-  strength: 0.9,         // 0..1
-  bassHz: 150,
-  autoGain: true,
-
-  // AI 分轨：模型按需下载 / 本地文件可选，进度单独记
   ai: {
     mode: 'inst',        // inst | vocal | dual
-    stage: 'idle',       // idle | download | load | demix | write | decode | ready | error
+    stage: 'idle',       // idle | download | load | demix | write | decode | clean | ready | error
     loaded: 0,
     total: AI_MODELS.inst.bytes,
     fraction: 0,
@@ -64,34 +47,34 @@ const state = {
     totalChunks: 0,
     localFile: null,
     localName: '',
-    localFor: '',        // 本地模型对应 inst / vocal
-    clean: 1,            // 人声残留清理强度 0..1（仅双模型）
-    rawInst: null,       // 双模型原始伴奏，供清理重算
-    rawVocal: null,      // 双模型原始人声
+    localFor: '',
+    clean: 1,
+    rawInst: null,
+    rawVocal: null,
     cleanProgress: 0,
     cached: false,
     error: '',
     ms: 0,
   },
-  workText: '',
 
-  result: null,          // { l, r, gain, ms, method, strength, bassHz, autoGain }
-  instBuffer: null,      // 伴奏 AudioBuffer（试听 / 导出）
-  vocalBuffer: null,     // 被抽掉的人声（懒生成）
+  result: null,          // { l, r, method, model, aiMode, modelKey, ms }
+  instBuffer: null,
+  vocalBuffer: null,
 
   source: 'inst',        // orig | inst | vocal
+  exportSource: 'inst',  // inst | vocal
   position: 0,
   playing: false,
   mp3Busy: false,
 };
 
 let runToken = 0;
+let cleanSeq = 0;
 let ctx = null;
 let srcNode = null;
 let startedAt = 0;
 let rafId = 0;
 let ro = null;
-/** 重绘整块的入口，mount 时注入（loadFile / run 在 mount 外面） */
 let repaintView = () => {};
 
 /* ---------------- 小工具 ---------------- */
@@ -100,7 +83,8 @@ const pct = (v) => `${Math.round(v * 100)}%`;
 
 function outName(ext) {
   const base = String(state.file?.name || 'audio').replace(/\.[^.]+$/, '') || 'audio';
-  return `${base} (instrumental).${ext}`;
+  const kind = state.exportSource === 'vocal' ? 'vocals' : 'instrumental';
+  return `${base} (${kind}).${ext}`;
 }
 
 function saveBlob(blob, name) {
@@ -124,22 +108,18 @@ function audioDuration() {
   return state.buffer ? state.buffer.duration : 0;
 }
 
-const methodLabel = (m) => (m === 'ai' ? 'AI · MDX-Net' : m === 'spectral' ? '精细（频域）' : '快速（相位）');
-
+const aiModeOf = (id) => AI_MODES[id] || AI_MODES.inst;
 const modelKey = () => `${state.ai.mode}:${state.ai.localFile ? state.ai.localName : 'builtin'}`;
 
 function isStale() {
   const r = state.result;
   if (!r) return false;
-  if (r.method === 'ai' || state.method === 'ai') {
-    return r.method !== state.method
-      || (r.method === 'ai' && (r.aiMode !== state.ai.mode || r.modelKey !== modelKey()));
-  }
-  return r.method !== state.method || r.strength !== state.strength
-    || r.bassHz !== state.bassHz || r.autoGain !== state.autoGain;
+  return r.aiMode !== state.ai.mode || r.modelKey !== modelKey();
 }
 
-const aiModeOf = (id) => AI_MODES[id] || AI_MODES.dual;
+function exportBuffer() {
+  return state.exportSource === 'vocal' ? state.vocalBuffer : state.instBuffer;
+}
 
 /* ---------------- 播放 ---------------- */
 
@@ -160,26 +140,8 @@ function stopNode() {
 function currentBuffer() {
   if (!state.buffer) return null;
   if (state.source === 'orig') return state.buffer;
-  if (state.source === 'vocal') return vocalBuffer();
+  if (state.source === 'vocal') return state.vocalBuffer;
   return state.instBuffer || state.buffer;
-}
-
-/** 被抽掉的那部分 = 原曲 − 伴奏（伴奏可能做过等响增益，先除回去） */
-function vocalBuffer() {
-  if (state.vocalBuffer) return state.vocalBuffer;
-  if (!state.result || !state.buffer) return null;
-  const n = Math.min(state.buffer.length, state.result.l.length);
-  const gain = state.result.gain || 1;
-  const origL = state.buffer.getChannelData(0);
-  const origR = state.buffer.numberOfChannels > 1 ? state.buffer.getChannelData(1) : origL;
-  const l = new Float32Array(n);
-  const r = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    l[i] = origL[i] - state.result.l[i] / gain;
-    r[i] = origR[i] - state.result.r[i] / gain;
-  }
-  state.vocalBuffer = makeBuffer(l, r, state.buffer.sampleRate);
-  return state.vocalBuffer;
 }
 
 function paintPlayer() {
@@ -203,77 +165,10 @@ function paintPlayer() {
 function paintProgress() {
   const root = document.getElementById('view');
   const seek = root?.querySelector('#vrSeek');
-  // 用户正拖着进度条：别用播放位置把手柄抢回去
   if (!seek || seek.dataset.dragging === '1') return;
   const time = root.querySelector('#vrTime');
   if (time) time.textContent = `${fmtTime(state.position)} / ${fmtTime(audioDuration())}`;
   seek.value = String(Math.round((state.position / Math.max(0.001, audioDuration())) * 1000));
-}
-
-/* ---------------- 进度（快速 / 精细 / AI 共用一条） ---------------- */
-
-function aiPercent() {
-  const a = state.ai;
-  const part = Math.max(1, a.part || 1);
-  const parts = Math.max(1, a.parts || 1);
-  const within = (v) => Math.max(0, Math.min(1, v || 0));
-  if (a.stage === 'download') return 0.35 * ((part - 1) + (a.total ? a.loaded / a.total : 0)) / parts;
-  if (a.stage === 'load') return 0.35 + 0.1 * (part / parts);
-  if (a.stage === 'demix') return 0.45 + 0.5 * ((part - 1) + within(a.fraction)) / parts;
-  if (a.stage === 'write') return 0.95 + 0.03 * within(a.fraction);
-  if (a.stage === 'decode') return 0.98;
-  if (a.stage === 'clean') return 0.98 + 0.015 * within(a.cleanProgress);
-  return 0;
-}
-
-function aiProgressText() {
-  const a = state.ai;
-  const which = a.modelShort ? `${a.modelShort} · ` : '';
-  const partText = a.parts > 1 ? `（模型 ${a.part}/${a.parts}）` : '';
-  if (a.stage === 'download') {
-    const p = a.total ? Math.round((a.loaded / a.total) * 100) : 0;
-    const head = a.cached ? '读取缓存的模型' : a.localName ? '读取本地模型' : '下载模型';
-    return `${which}${head}… ${p}%${a.total ? `（${humanSize(a.loaded)} / ${humanSize(a.total)}）` : ''}${partText}`;
-  }
-  if (a.stage === 'load') return `${which}加载模型… 第一次会慢一点${partText}`;
-  if (a.stage === 'demix') {
-    return `${which}分离中… ${Math.round((a.fraction || 0) * 100)}%`
-      + `${a.totalChunks ? `（第 ${a.chunk}/${a.totalChunks} 段）` : ''}${partText}`;
-  }
-  if (a.stage === 'write') return `${which}写出音轨…`;
-  if (a.stage === 'decode') return `${which}解码结果…`;
-  if (a.stage === 'clean') return `清理人声残留… ${Math.round((a.cleanProgress || 0) * 100)}%`;
-  return 'AI 分离…';
-}
-
-function paintWork() {
-  const bar = document.querySelector('#vrProgressBar i');
-  const text = document.querySelector('#vrProgressText');
-  const ai = state.method === 'ai';
-  const ratio = ai ? aiPercent() : state.progress;
-  if (bar) bar.style.width = `${Math.round(Math.max(0, Math.min(1, ratio)) * 100)}%`;
-  if (text) text.textContent = ai ? aiProgressText() : (state.workText || '分离中…');
-}
-
-function updateAiProgress(p) {
-  const a = state.ai;
-  if (p.modelShort) a.modelShort = p.modelShort;
-  if (p.part) a.part = p.part;
-  if (p.parts) a.parts = p.parts;
-  if (p.stage === 'download') {
-    a.stage = 'download';
-    a.loaded = Number(p.loaded) || 0;
-    a.total = Number(p.total) || a.total;
-    a.cached = !!p.cached;
-  } else if (p.stage === 'ready') {
-    a.stage = 'ready';
-  } else if (p.stage) {
-    a.stage = p.stage;
-    if (Number.isFinite(p.fraction)) a.fraction = p.fraction;
-    if (p.chunk) a.chunk = p.chunk;
-    if (p.totalChunks) a.totalChunks = p.totalChunks;
-  }
-  paintWork();
 }
 
 function tick() {
@@ -290,11 +185,11 @@ function tick() {
 }
 
 async function play() {
-  if (!state.buffer || !state.result) return;
+  if (!state.buffer) return;
   const buf = currentBuffer();
   if (!buf) return;
   const c = ensureCtx();
-  try { if (c.state === 'suspended') await c.resume(); } catch { /* 用户手势之外，交给下一次点击 */ }
+  try { if (c.state === 'suspended') await c.resume(); } catch { /* 等下一次点击 */ }
   stopNode();
   const offset = Math.min(Math.max(0, state.position), Math.max(0, buf.duration - 0.03));
   const node = c.createBufferSource();
@@ -342,65 +237,73 @@ function seekTo(ratio) {
   if (was) play();
 }
 
-/* ---------------- 分离 ---------------- */
+/* ---------------- 进度 ---------------- */
 
-async function run({ quiet = false } = {}) {
-  if (!state.buffer || state.status === 'working') return;
-  if (state.method === 'ai') { await runAI({ quiet }); return; }
-  const token = ++runToken;
-  const buffer = state.buffer;
-  const method = state.method;
-  const strength = state.strength;
-  const bassHz = state.bassHz;
-  const autoGain = state.autoGain;
-
-  pause();
-  state.status = 'working';
-  state.progress = 0;
-  state.error = '';
-  state.workText = '';
-  repaintView();
-
-  const t0 = performance.now();
-  try {
-    const l = buffer.getChannelData(0);
-    const r = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : l;
-    const res = await separate(l, r, {
-      method, strength, bassHz, autoGain, sampleRate: buffer.sampleRate,
-      onProgress: (p) => {
-        if (token !== runToken) return;
-        state.progress = p;
-        state.workText = `${method === 'spectral' ? '精细分离' : '快速分离'}中… ${Math.round(p * 100)}%`
-          + ` · 已用 ${((performance.now() - t0) / 1000).toFixed(1)}s`;
-        paintWork();
-      },
-    });
-    if (token !== runToken) return;
-
-    state.result = { ...res, strength, bassHz, autoGain };
-    state.instBuffer = makeBuffer(res.l, res.r, buffer.sampleRate);
-    state.vocalBuffer = null;
-    state.position = Math.min(state.position, buffer.duration);
-    state.status = 'ready';
-    repaintView();
-    if (!quiet) {
-      const secs = (res.ms / 1000).toFixed(res.ms < 950 ? 2 : 1);
-      Toast.ok(`分离完成 · ${methodLabel(method)} · ${secs}s`);
-    }
-  } catch (err) {
-    if (token !== runToken) return;
-    state.status = 'ready';
-    state.error = String(err?.message || err);
-    repaintView();
-    Toast.err(`分离失败：${state.error}`);
-  }
+function aiPercent() {
+  const a = state.ai;
+  const part = Math.max(1, a.part || 1);
+  const parts = Math.max(1, a.parts || 1);
+  const within = (v) => Math.max(0, Math.min(1, v || 0));
+  if (a.stage === 'download') return 0.35 * ((part - 1) + (a.total ? a.loaded / a.total : 0)) / parts;
+  if (a.stage === 'load') return 0.35 + 0.1 * (part / parts);
+  if (a.stage === 'demix') return 0.45 + 0.5 * ((part - 1) + within(a.fraction)) / parts;
+  if (a.stage === 'write') return 0.95 + 0.03 * within(a.fraction);
+  if (a.stage === 'decode') return 0.98;
+  if (a.stage === 'clean') return 0.98 + 0.015 * within(a.cleanProgress);
+  return 0;
 }
 
-/* ---------------- AI 分轨 ---------------- */
+function aiProgressText() {
+  const a = state.ai;
+  const which = a.modelShort ? `${a.modelShort} · ` : '';
+  const partText = a.parts > 1 ? `（模型 ${a.part}/${a.parts}）` : '';
+  if (a.stage === 'download') {
+    const p = a.total ? Math.round((a.loaded / a.total) * 100) : 0;
+    const head = a.cached ? '读取缓存的模型' : a.localName ? '读取本地模型' : '下载模型';
+    return `${which}${head}… ${p}%${a.total ? `（${humanSize(a.loaded)} / ${humanSize(a.total)}）` : ''}${partText}`;
+  }
+  if (a.stage === 'load') return `${which}加载模型… 第一次会慢一点${partText}`;
+  if (a.stage === 'demix') {
+    return `${which}分离中… ${Math.round((a.fraction || 0) * 100)}%`
+      + `${a.totalChunks ? `（第 ${a.chunk}/${a.totalChunks} 段）` : ''}${partText}`;
+  }
+  if (a.stage === 'write') return `${which}写出音轨…`;
+  if (a.stage === 'decode') return `${which}解码结果…`;
+  if (a.stage === 'clean') return `清理人声残留… ${Math.round((a.cleanProgress || 0) * 100)}%`;
+  return 'AI 分离…';
+}
 
-let cleanSeq = 0;
+function paintWork() {
+  const bar = document.querySelector('#vrProgressBar i');
+  const text = document.querySelector('#vrProgressText');
+  const ratio = aiPercent();
+  if (bar) bar.style.width = `${Math.round(Math.max(0, Math.min(1, ratio)) * 100)}%`;
+  if (text) text.textContent = aiProgressText();
+}
 
-/** 用双模型里的伴奏当参照，清掉人声轨里的乐器残留（可以反复调强度） */
+function updateAiProgress(p) {
+  const a = state.ai;
+  if (p.modelShort) a.modelShort = p.modelShort;
+  if (p.part) a.part = p.part;
+  if (p.parts) a.parts = p.parts;
+  if (p.stage === 'download') {
+    a.stage = 'download';
+    a.loaded = Number(p.loaded) || 0;
+    a.total = Number(p.total) || a.total;
+    a.cached = !!p.cached;
+  } else if (p.stage === 'ready') {
+    a.stage = 'ready';
+  } else if (p.stage) {
+    a.stage = p.stage;
+    if (Number.isFinite(p.fraction)) a.fraction = p.fraction;
+    if (p.chunk) a.chunk = p.chunk;
+    if (p.totalChunks) a.totalChunks = p.totalChunks;
+  }
+  paintWork();
+}
+
+/* ---------------- 人声残留清理 ---------------- */
+
 async function applyClean() {
   const rawV = state.ai.rawVocal;
   const rawI = state.ai.rawInst;
@@ -453,6 +356,8 @@ async function applyClean() {
   }
 }
 
+/* ---------------- AI 分轨 ---------------- */
+
 async function runAI({ quiet = false } = {}) {
   if (!state.buffer || !state.file || state.status === 'working') return;
   const token = ++runToken;
@@ -464,7 +369,6 @@ async function runAI({ quiet = false } = {}) {
   pause();
   state.status = 'working';
   state.error = '';
-  state.workText = '';
   state.ai = {
     ...state.ai,
     stage: 'download',
@@ -483,7 +387,6 @@ async function runAI({ quiet = false } = {}) {
 
   const t0 = performance.now();
   try {
-    // 先把要用的模型都备好（双模型会依次下两份）
     for (let i = 0; i < models.length; i++) {
       if (token !== runToken) return;
       const name = models[i];
@@ -494,7 +397,7 @@ async function runAI({ quiet = false } = {}) {
       });
       await ensureModel({
         model: name,
-        localFile: mode === 'dual' ? null : localFile,
+        localFile,
         onProgress: (p) => {
           if (token === runToken) updateAiProgress({ ...p, part: i + 1, parts: models.length });
         },
@@ -518,14 +421,13 @@ async function runAI({ quiet = false } = {}) {
     const l = res.instrumental.getChannelData(0);
     const r = res.instrumental.numberOfChannels > 1 ? res.instrumental.getChannelData(1) : l;
     state.result = {
-      l, r, gain: 1, method: 'ai',
+      l, r, method: 'ai',
       model: mode === 'dual' ? '双模型' : AI_MODELS[mode].name,
       aiMode: mode, modelKey: modelKey(),
-      ms: res.ms, strength: 1, bassHz: 0, autoGain: false,
+      ms: res.ms,
     };
     state.instBuffer = res.instrumental;
     if (mode === 'dual') {
-      // 双模型有「伴奏参照」，人声默认过一遍残留清理
       state.ai.rawInst = res.instrumental;
       state.ai.rawVocal = res.vocals;
       state.vocalBuffer = res.vocals;
@@ -543,7 +445,7 @@ async function runAI({ quiet = false } = {}) {
     state.position = Math.min(state.position, state.buffer.duration);
     repaintView();
     if (!quiet) {
-      Toast.ok(`AI 分轨完成 · ${modeDef.label.replace(/（.*?）/g, '')} · ${(res.ms / 1000).toFixed(1)}s`);
+      Toast.ok(`分离完成 · ${modeDef.label.replace(/（.*?）/g, '')} · ${(res.ms / 1000).toFixed(1)}s`);
     }
   } catch (err) {
     if (token !== runToken) return;
@@ -552,7 +454,7 @@ async function runAI({ quiet = false } = {}) {
     state.ai.error = String(err?.message || err);
     state.error = state.ai.error;
     repaintView();
-    Toast.err(`AI 分轨失败：${state.ai.error}`);
+    Toast.err(`分离失败：${state.ai.error}`);
   }
 }
 
@@ -568,7 +470,6 @@ async function loadFile(file) {
   state.status = 'loading';
   state.file = file;
   state.buffer = null;
-  state.info = null;
   state.result = null;
   state.instBuffer = null;
   state.vocalBuffer = null;
@@ -589,17 +490,11 @@ async function loadFile(file) {
     }
     if (!buffer.numberOfChannels || buffer.length < 1000) throw new Error('这个文件里没有可用的音频。');
     state.buffer = buffer;
-    const left = buffer.getChannelData(0);
-    const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
-    state.info = analyze(left, right);
     state.status = 'ready';
     repaintView();
     if (buffer.duration >= LONG_SECONDS) {
-      Toast.show(`这首 ${fmtTime(buffer.duration)}，精细模式会慢一些；赶时间就切「快速」。`);
+      Toast.show(`这首 ${fmtTime(buffer.duration)}，双模型会比较久；赶时间可以先用「伴奏优先」。`);
     }
-    // AI 模式不自动跑：下载/推理都很重，得让用户自己按
-    if (state.method === 'ai') { repaintView(); return; }
-    await run();
   } catch (err) {
     state.status = 'error';
     state.error = String(err?.message || err);
@@ -622,9 +517,9 @@ function dropZone(compact = false) {
 
 function stepsHTML() {
   return `<div class="vr-steps">
-    <div class="vr-step"><span class="vr-step__no mono">01</span><b>解码到内存</b><span class="faint">浏览器自己解，文件不上传</span></div>
-    <div class="vr-step"><span class="vr-step__no mono">02</span><b>抽掉正中间</b><span class="faint">M/S 中置抵消，伴奏留在两侧</span></div>
-    <div class="vr-step"><span class="vr-step__no mono">03</span><b>试听 / 导出</b><span class="faint">原曲、伴奏、人声残留随时切</span></div>
+    <div class="vr-step"><span class="vr-step__no mono">01</span><b>放入音乐</b><span class="faint">解码到内存，文件不上传</span></div>
+    <div class="vr-step"><span class="vr-step__no mono">02</span><b>AI 分离</b><span class="faint">伴奏 / 人声 / 双模型</span></div>
+    <div class="vr-step"><span class="vr-step__no mono">03</span><b>试听 / 导出</b><span class="faint">纯音乐、人声，WAV / MP3</span></div>
   </div>`;
 }
 
@@ -633,17 +528,14 @@ function noteHTML() {
     <summary>它做不到什么（先说清楚，免得白等）</summary>
     <div class="tool-note__body">
       <p class="faint" style="font-size:var(--fs-2xs);line-height:1.9;margin:0">
-        <b>M/S 模式只对立体声有效。</b>原理是把左右声道里「一模一样」的部分压掉 —— 主唱通常摆在正中间，
-        所以会一起消失。左右完全相同（单声道）的文件没有人声可以抵消，结果只会接近静音。<br>
-        <b>M/S 会削掉正中间的乐器。</b>底鼓、贝斯、军鼓、部分钢琴经常也在正中；
-        「低频保护」只把低频补回来，中频的军鼓救不了。<br>
-        <b>M/S 的极限就在这里。</b>混响、双轨人声、稍微偏一点的人声都会留在伴奏里，
-        再怎么拉滑杆也拿不掉 —— 要更干净就切「AI 分轨」。它按 UVR 的思路配了两份 MDX-Net：
-        伴奏模型（Inst HQ 3）和人声模型（Kim Vocal 2）。只跑伴奏模型时，人声是它的残差，
-        可能带一点音乐；要干净人声就选「人声优先」或「双模型」（两份模型各跑一遍，慢一倍）。
-        模型约 64MB/份（第一次从本站下载），音频不上传；首次分离要几分钟，手机可能吃力。
-        模型权重来自 UVR 社区，商用请自行确认授权。<br>
-        <b>不上传。</b>解码、计算、导出都在这台设备的浏览器里完成，关掉页面就没了。
+        <b>不是 Demucs 那种顶级分离。</b>两份 MDX-Net 在浏览器里跑，双模型已经比单模型干净很多，
+        但复杂混音、极端混响、合唱重叠仍可能有残留。<br>
+        <b>伴奏优先 / 人声优先只跑一份模型。</b>另一条轨是它的残差：伴奏优先的人声可能带音乐，
+        人声优先的伴奏可能带人声。要两条都干净就选双模型。<br>
+        <b>人声残留清理是 DSP。</b>它只减掉和人声轨里与伴奏相干的部分；完全不相干的残留无能为力。
+        默认 100%，觉得人声变薄就调低。<br>
+        <b>慢。</b>双模型要两份模型、各跑一遍；首次还要下载约 128MB。手机可能吃力。<br>
+        <b>不上传。</b>解码、推理、导出都在这台设备的浏览器里完成。
       </p>
     </div>
   </details>`;
@@ -651,34 +543,20 @@ function noteHTML() {
 
 function fileHTML() {
   const b = state.buffer;
-  const info = state.info || {};
-  const warn = info.mono
-    ? `<p class="vr-warn">左右声道几乎一样（相关 ${info.correlation.toFixed(3)}）。${
-      state.method === 'ai'
-        ? 'AI 分轨仍可尝试；快速 / 精细模式没有人声可抵消，结果会接近静音。'
-        : '快速 / 精细模式没有人声可抵消，结果会接近静音；可以切「AI 分轨」试试。'
-    }</p>`
-    : '';
   return `<div class="vr-file">
     <div class="vr-file__main">
       <b class="clamp-1">${esc(state.file?.name || '')}</b>
       <span class="mono faint">${humanSize(state.file?.size || 0)} · ${fmtTime(b.duration)} · ${b.sampleRate} Hz · ${b.numberOfChannels}ch</span>
     </div>
-    <div class="vr-stats mono">
-      <span><em>中置</em>${pct(info.centerRatio || 0)}</span>
-      <span><em>两侧</em>${pct(info.width || 0)}</span>
-      <span><em>相关</em>${Number(info.correlation || 0).toFixed(2)}</span>
-    </div>
-  </div>${warn}`;
+  </div>`;
 }
 
 function progressBlock() {
   if (state.status !== 'working') return '';
-  const ratio = state.method === 'ai' ? aiPercent() : state.progress;
-  const text = state.method === 'ai' ? aiProgressText() : (state.workText || '分离中…');
+  const ratio = aiPercent();
   return `<div class="vr-progress" id="vrProgress">
     <span class="vr-progress__bar" id="vrProgressBar"><i style="width:${Math.round(ratio * 100)}%"></i></span>
-    <span class="mono faint" id="vrProgressText">${esc(text)}</span>
+    <span class="mono faint" id="vrProgressText">${esc(aiProgressText())}</span>
   </div>`;
 }
 
@@ -687,7 +565,7 @@ function aiControlsHTML(working, stale) {
   const modeDef = aiModeOf(a.mode);
   const defs = modeDef.models.map((m) => AI_MODELS[m]);
   const gpu = typeof navigator !== 'undefined' && !!navigator.gpu;
-  const runLabel = working ? '分离中…' : state.result && !stale ? '重新 AI 分离' : '开始 AI 分离';
+  const runLabel = working ? '分离中…' : state.result && !stale ? '重新分离' : '开始分离';
   const totalBytes = defs.reduce((n, d) => n + d.bytes, 0);
   const loadedAll = modeDef.models.every((m) => aiReady(m));
   const second = a.localName ? `本地：${a.localName}` : `${defs.map((d) => d.name).join(' + ')}${loadedAll ? ' · 已加载' : ''}`;
@@ -707,7 +585,7 @@ function aiControlsHTML(working, stale) {
       <span class="mono faint">${humanSize(totalBytes)} · MDX-Net · 本地推理</span>
       <span class="mono faint">${gpu ? 'WebGPU 可用' : 'WASM（较慢）'}</span>
     </div>
-    <p class="mono faint vr-hint">第一次用会从本站下载模型（单模型约 64MB，双模型约 128MB；只下一次，之后存在浏览器缓存里）。模型在你的设备上跑，音频不上传；分离要几分钟到几十分钟，看设备，慢是正常的。</p>
+    <p class="mono faint vr-hint">第一次用会从本站下载模型（单模型约 64MB，双模型约 128MB；只下一次，之后存在浏览器缓存里）。模型在你的设备上跑，音频不上传；分离要几分钟到几十分钟，看设备。</p>
     ${gpu ? '' : '<p class="vr-warn">这个浏览器没有 WebGPU，只能用单线程 WASM：3 分钟的歌可能要几十分钟。换 Chrome / Edge（WebGPU）会快好几倍。</p>'}
     <div class="tool-actions">
       ${a.mode === 'dual'
@@ -719,78 +597,34 @@ function aiControlsHTML(working, stale) {
       <button class="btn btn--signal" id="vrRun" ${working ? 'disabled' : ''}>${runLabel}</button>
     </div>
     ${progressBlock()}
-    ${stale ? '<p class="vr-stale">换了模型或输出方式，点「重新 AI 分离」才会生效。</p>' : ''}
+    ${stale ? '<p class="vr-stale">换了模型或输出方式，点「重新分离」才会生效。</p>' : ''}
     ${a.error || state.error ? `<p class="vr-error">${esc(a.error || state.error)}</p>` : ''}
   </div>`;
 }
 
 function controlsHTML() {
-  const working = state.status === 'working';
-  const stale = isStale();
-  const ai = state.method === 'ai';
-  return `<div class="tool-opts tool-opts--wrap">
-      <span class="k-label">做法</span>
-      <button class="chip${state.method === 'fast' ? ' is-on' : ''}" data-method="fast" ${working ? 'disabled' : ''}>快速 · 相位抵消</button>
-      <button class="chip${state.method === 'spectral' ? ' is-on' : ''}" data-method="spectral" ${working ? 'disabled' : ''}>精细 · 频域压制</button>
-      <button class="chip${ai ? ' is-on' : ''}" data-method="ai" ${working ? 'disabled' : ''}>AI 分轨 · 模型</button>
-    </div>
-    <p class="mono faint vr-hint">${
-      ai
-        ? 'M/S 只搬得走正中间的声音；混响、双轨、偏一点的人声都会留下。AI 分轨里「双模型」会用伴奏当参照清理人声残留；「人声优先」快但不清理。'
-        : state.method === 'spectral'
-          ? '逐频点只压中置成分，更干净，代价是要算几秒（约每 10 秒音频 1 秒）。'
-          : '整段中置一起压，几乎瞬时；裙边会漏一点人声，适合先听个大概。'
-    }</p>
-
-    ${ai ? aiControlsHTML(working, stale) : `
-      <div class="vr-sliders">
-        <label class="vr-slider">
-          <span class="vr-slider__head"><span class="k-label">人声抑制</span><em class="mono" id="vrStrengthVal">${pct(state.strength)}</em></span>
-          <input type="range" id="vrStrength" min="0" max="100" step="5" value="${Math.round(state.strength * 100)}" ${working ? 'disabled' : ''} />
-          <span class="faint">100% = 把中置压到只剩低频；调低会故意留一点人声，听起来没那么空。</span>
-        </label>
-        <label class="vr-slider">
-          <span class="vr-slider__head"><span class="k-label">低频保护</span><em class="mono" id="vrBassVal">${state.bassHz} Hz</em></span>
-          <input type="range" id="vrBass" min="0" max="400" step="10" value="${state.bassHz}" ${working ? 'disabled' : ''} />
-          <span class="faint">这段频率以下原样保留，贝斯和底鼓不会跟着人声一起消失。0 = 不保护。</span>
-        </label>
-      </div>
-
-      <div class="tool-opts">
-        <label class="tool-opt"><input type="checkbox" id="vrAutoGain" ${state.autoGain ? 'checked' : ''} ${working ? 'disabled' : ''} /> 自动增益（对齐原曲音量）</label>
-        <span class="grow"></span>
-        <button class="btn btn--signal" id="vrRun" ${working ? 'disabled' : ''}>${working ? '分离中…' : state.result || stale ? '重新分离' : '开始分离'}</button>
-      </div>
-      ${progressBlock()}
-      ${stale ? '<p class="vr-stale">参数变了，点「重新分离」才会生效。</p>' : ''}
-      ${state.error ? `<p class="vr-error">${esc(state.error)}</p>` : ''}
-    `}`;
+  return aiControlsHTML(state.status === 'working', isStale());
 }
 
 function playerHTML() {
   const r = state.result;
   if (!r) return '';
-  const ai = r.method === 'ai';
+  const mode = aiModeOf(r.aiMode);
   const stale = isStale();
-  const gainDb = !ai && Math.abs(r.gain - 1) > 0.01 ? `${(20 * Math.log10(r.gain)).toFixed(1)} dB` : '';
-  const wavBytes = 44 + state.instBuffer.length * 2 * 2;
-  const mode = ai ? aiModeOf(r.aiMode) : null;
-  const vocalLabel = ai
-    ? (r.aiMode === 'inst' ? '人声（残差）' : r.aiMode === 'dual' && state.ai.clean > 0 ? '人声（已清理）' : '人声')
-    : '人声残留';
-  const instLabel = ai && r.aiMode === 'vocal' ? '伴奏（残差）' : '纯伴奏';
+  const buf = exportBuffer();
+  const wavBytes = buf ? 44 + buf.length * 2 * 2 : 0;
+  const vocalLabel = r.aiMode === 'inst' ? '人声（残差）' : r.aiMode === 'dual' && state.ai.clean > 0 ? '人声（已清理）' : '人声';
+  const instLabel = r.aiMode === 'vocal' ? '伴奏（残差）' : '纯音乐';
   const srcTag = { orig: '原曲', inst: instLabel, vocal: vocalLabel }[state.source] || instLabel;
-  const cleanTag = ai && r.aiMode === 'dual' && state.ai.clean > 0 ? ` · 去残留 ${Math.round(state.ai.clean * 100)}%` : '';
-  const head = ai
-    ? `AI · ${esc(mode?.short || r.model || 'MDX-Net')} · ${(r.ms / 1000).toFixed(1)}s${cleanTag}`
-    : `${methodLabel(r.method)} · ${(r.ms / 1000).toFixed(r.ms < 950 ? 2 : 1)}s${gainDb ? ` · 增益 ${gainDb}` : ''}`;
+  const cleanTag = r.aiMode === 'dual' && state.ai.clean > 0 ? ` · 去残留 ${Math.round(state.ai.clean * 100)}%` : '';
+  const head = `AI · ${esc(mode?.short || r.model || 'MDX-Net')} · ${(r.ms / 1000).toFixed(1)}s${cleanTag}`;
   return `<div class="panel" data-reveal>
     <div class="panel__head">
       <span class="panel__title">03 / 试听与导出</span>
       <span class="mono faint">${head}${stale ? ' · 参数已改' : ''}</span>
     </div>
     <div class="panel__body grid" style="gap:var(--sp-4)">
-      <canvas class="vr-wave" id="vrWave" height="96" aria-label="原曲与伴奏的波形对比"></canvas>
+      <canvas class="vr-wave" id="vrWave" height="96" aria-label="原曲与纯音乐的波形对比"></canvas>
       <div class="vr-player">
         <button class="vr-play" id="vrPlay" aria-label="${state.playing ? '暂停' : '播放'}">${state.playing ? '❚❚' : '▶'}</button>
         <div class="vr-player__main">
@@ -807,6 +641,10 @@ function playerHTML() {
         </div>
       </div>
       <div class="tool-actions">
+        <select class="tool-select" id="vrExport" style="flex:0 0 132px" aria-label="导出哪条轨">
+          <option value="inst"${state.exportSource === 'inst' ? ' selected' : ''}>纯音乐</option>
+          <option value="vocal"${state.exportSource === 'vocal' ? ' selected' : ''}>人声</option>
+        </select>
         <button class="btn btn--signal" id="vrWav" ${state.status === 'working' ? 'disabled' : ''}>导出 WAV</button>
         <button class="btn" id="vrMp3" ${state.status === 'working' || state.mp3Busy ? 'disabled' : ''}>${state.mp3Busy ? '编码中…' : '导出 MP3'}</button>
         <select class="tool-select" id="vrKbps" style="flex:0 0 120px" aria-label="MP3 码率">
@@ -815,7 +653,7 @@ function playerHTML() {
           <option value="320">320 kbps</option>
         </select>
         <span class="grow"></span>
-        <span class="mono faint">WAV 约 ${humanSize(wavBytes)}</span>
+        <span class="mono faint">${buf ? `WAV 约 ${humanSize(wavBytes)}` : ''}</span>
       </div>
       <p class="mono faint vr-hint">结果只活在这个页面里，刷新就没了。导出的文件在浏览器下载目录。</p>
     </div>
@@ -866,7 +704,7 @@ function bodyHTML() {
     <div class="panel" data-reveal>
       <div class="panel__head">
         <span class="panel__title">02 / 怎么分</span>
-        <span class="mono faint">${state.method === 'ai' ? 'MDX-Net · 浏览器本地推理' : 'M/S 中置处理 · 不靠模型'}</span>
+        <span class="mono faint">MDX-Net · 浏览器本地推理</span>
       </div>
       <div class="panel__body grid" style="gap:var(--sp-3)">
         ${controlsHTML()}
@@ -880,11 +718,15 @@ function bodyHTML() {
 
 /* ---------------- 波形 ---------------- */
 
-/**
- * 每个像素列取 (L+R)/2 的峰值。
- * 长音频有上千万个采样，逐点扫会把重绘拖到几百毫秒；每列最多抽 32 个点就够了，
- * 波形看的是形状，不是精确峰值。
- */
+function cssColor(name, fallback) {
+  const probe = document.createElement('span');
+  probe.style.cssText = `color:var(${name});position:absolute;visibility:hidden;pointer-events:none`;
+  document.body.append(probe);
+  const c = getComputedStyle(probe).color;
+  probe.remove();
+  return c || fallback;
+}
+
 function envelope(l, r, cols) {
   const out = new Float32Array(cols);
   const n = Math.min(l.length, r ? r.length : l.length);
@@ -903,16 +745,6 @@ function envelope(l, r, cols) {
   return out;
 }
 
-/** 把 CSS 变量解析成 canvas 认得的颜色（--fg-faint 是 var(--ink-40)，直接塞给 fillStyle 无效） */
-function cssColor(name, fallback) {
-  const probe = document.createElement('span');
-  probe.style.cssText = `color:var(${name});position:absolute;visibility:hidden;pointer-events:none`;
-  document.body.append(probe);
-  const c = getComputedStyle(probe).color;
-  probe.remove();
-  return c || fallback;
-}
-
 function drawWave(canvas) {
   if (!canvas || !state.buffer || !state.result) return;
   const w = Math.max(240, canvas.clientWidth || 640);
@@ -928,7 +760,6 @@ function drawWave(canvas) {
   const faint = cssColor('--fg-faint', '#8a8a8a');
   const signal = cssColor('--signal', '#e5be00');
   const grid = getComputedStyle(document.documentElement).getPropertyValue('--grid-line').trim() || 'rgba(0,0,0,.1)';
-
   const buf = state.buffer;
   const origL = buf.getChannelData(0);
   const origR = buf.numberOfChannels > 1 ? buf.getChannelData(1) : origL;
@@ -953,27 +784,26 @@ function drawWave(canvas) {
 
   lane(top, 0, h / 2, faint);
   lane(bottom, h / 2, h / 2, signal);
-
   g.font = '9px ui-monospace, monospace';
   g.fillStyle = faint;
   g.fillText('原曲', 6, 12);
   g.fillStyle = signal;
-  g.fillText('伴奏', 6, h / 2 + 12);
+  g.fillText('纯音乐', 6, h / 2 + 12);
 }
 
 /* ---------------- 视图接口 ---------------- */
 
 export default {
   id: 'vocal-remove',
-  title: '去人声',
+  title: '分离纯音乐/人声',
 
   render() {
     return `${viewhead({
-      title: 'VOCAL REMOVER',
-      sub: '放进一首歌，把人声抽走，留下伴奏。M/S 秒出，AI 分轨更干净；全程在浏览器里跑，文件不上传。',
-      idx: 'TOOLS / VOCAL',
+      title: 'PURE MUSIC / VOCALS',
+      sub: '放进一首歌，分出纯音乐和人声两条轨。AI 模型在浏览器里跑，文件不上传；双模型会让两条轨都更干净。',
+      idx: 'TOOLS / STEMS',
       meta: [
-        { label: 'METHOD', value: 'M/S + AI' },
+        { label: 'METHOD', value: 'MDX-Net' },
         { label: 'UPLOAD', value: 'NONE' },
         { label: 'RUNTIME', value: 'BROWSER' },
       ],
@@ -992,9 +822,8 @@ export default {
       paintPlayer();
       requestAnimationFrame(() => drawWave(root.querySelector('#vrWave')));
     };
-    repaintView = repaint;      // loadFile / run 在 mount 外，靠它重绘
+    repaintView = repaint;
 
-    /* 拖放 / 选择文件（每次重绘后重新绑定，旧节点会被丢掉） */
     function bindDrop() {
       const zone = root.querySelector('#vrDrop');
       if (!zone) return;
@@ -1018,26 +847,12 @@ export default {
       });
     }
 
-    /* ---- 点击 ---- */
     root.addEventListener('click', async (e) => {
-      const method = e.target.closest('[data-method]');
-      if (method && !method.disabled) {
-        const m = method.dataset.method;
-        if (m === state.method) return;
-        state.method = m;
-        state.ai.error = '';
-        // AI 不自动跑：下载模型 / 推理都很重，得让用户自己按
-        if (m === 'fast') run({ quiet: true });
-        else repaint();
-        return;
-      }
-
       const aim = e.target.closest('[data-aimode]');
       if (aim && !aim.disabled) {
         const m = aim.dataset.aimode;
         if (m === state.ai.mode) return;
         state.ai.mode = m;
-        // 本地模型是按模型架构选的；切到另一种输出就不要再拿它凑数
         if (state.ai.localFile && state.ai.localFor !== m) {
           state.ai.localFile = null;
           state.ai.localName = '';
@@ -1074,25 +889,27 @@ export default {
         return;
       }
 
-      if (e.target.closest('#vrRun')) { run(); return; }
+      if (e.target.closest('#vrRun')) { runAI(); return; }
       if (e.target.closest('#vrPlay')) { await togglePlay(); return; }
 
       if (e.target.closest('#vrWav')) {
-        if (!state.instBuffer || state.status === 'working') return;
-        const blob = toWav(state.instBuffer);
+        const buf = exportBuffer();
+        if (!buf || state.status === 'working') return;
+        const blob = toWav(buf);
         saveBlob(blob, outName('wav'));
         Toast.ok(`WAV 已导出（${humanSize(blob.size)}）`);
         return;
       }
 
       if (e.target.closest('#vrMp3')) {
-        if (!state.instBuffer || state.mp3Busy || state.status === 'working') return;
+        const buf = exportBuffer();
+        if (!buf || state.mp3Busy || state.status === 'working') return;
         const kbps = Number(root.querySelector('#vrKbps')?.value || 192);
         state.mp3Busy = true;
         const btn = e.target.closest('#vrMp3');
         if (btn) { btn.disabled = true; btn.textContent = '编码中…'; }
         try {
-          const blob = await encodeMp3(state.instBuffer, kbps);
+          const blob = await encodeMp3(buf, kbps);
           saveBlob(blob, outName('mp3'));
           Toast.ok(`MP3 已导出（${humanSize(blob.size)} · ${kbps}kbps）`);
         } catch (err) {
@@ -1104,17 +921,8 @@ export default {
       }
     });
 
-    /* ---- 滑杆：拖动时只改数字，松手才重算 ---- */
     root.addEventListener('input', (e) => {
-      if (e.target.id === 'vrStrength') {
-        state.strength = Number(e.target.value) / 100;
-        const v = root.querySelector('#vrStrengthVal');
-        if (v) v.textContent = pct(state.strength);
-      } else if (e.target.id === 'vrBass') {
-        state.bassHz = Number(e.target.value);
-        const v = root.querySelector('#vrBassVal');
-        if (v) v.textContent = `${state.bassHz} Hz`;
-      } else if (e.target.id === 'vrClean') {
+      if (e.target.id === 'vrClean') {
         state.ai.clean = Number(e.target.value) / 100;
         const v = root.querySelector('#vrCleanVal');
         if (v) v.textContent = pct(state.ai.clean);
@@ -1140,23 +948,22 @@ export default {
         Toast.ok(`已选择本地模型：${f.name}`);
         return;
       }
-      if (e.target.id === 'vrStrength' || e.target.id === 'vrBass') {
-        if (state.method === 'fast') run({ quiet: true });
-        else repaint();
-      } else if (e.target.id === 'vrAutoGain') {
-        state.autoGain = !!e.target.checked;
-        if (state.method === 'fast') run({ quiet: true });
-        else repaint();
-      } else if (e.target.id === 'vrClean') {
+      if (e.target.id === 'vrClean') {
         state.ai.clean = Number(e.target.value) / 100;
         if (state.ai.rawVocal && state.ai.mode === 'dual') applyClean();
-      } else if (e.target.id === 'vrSeek') {
+        return;
+      }
+      if (e.target.id === 'vrExport') {
+        state.exportSource = e.target.value === 'vocal' ? 'vocal' : 'inst';
+        repaint();
+        return;
+      }
+      if (e.target.id === 'vrSeek') {
         delete e.target.dataset.dragging;
         seekTo(Number(e.target.value) / 1000);
       }
     });
 
-    /* ---- 波形随窗口走（盯容器，画布是重绘时才出现的） ---- */
     try {
       ro = new ResizeObserver(() => {
         const c = root.querySelector('#vrWave');
@@ -1164,7 +971,7 @@ export default {
       });
       const box = body();
       if (box) ro.observe(box);
-    } catch { /* 旧浏览器没有 ResizeObserver，波形只是不跟随缩放 */ }
+    } catch { /* 旧浏览器没有 ResizeObserver */ }
 
     bindDrop();
     paintPlayer();
@@ -1176,10 +983,9 @@ export default {
       ro = null;
       repaintView = () => {};
       runToken++;
-      // 分离到一半被路由带走了：别让状态卡在 working，下次进来还能按
       if (state.status === 'working') {
         state.status = state.buffer ? 'ready' : 'idle';
-        state.progress = 0;
+        state.ai.stage = state.ai.rawVocal ? 'ready' : 'idle';
       }
     };
   },

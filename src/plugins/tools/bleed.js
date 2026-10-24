@@ -20,7 +20,7 @@
  * 纯函数（只依赖 vocal.js 的 FFT），Node / 浏览器都能跑。
  */
 
-import { fft } from './vocal.js';
+import { fft } from './fft.js';
 
 const FFT_N = 2048;
 const HOP = FFT_N / 4;

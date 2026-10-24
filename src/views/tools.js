@@ -9,13 +9,13 @@
  *   ② 图片压缩  批量缩放 + 质量 + 换格式，实时看前后体积
  *   ③ 文本工具  JSON 格式化/压缩、Base64、URL 编解码、行处理、文本统计、文件 SHA-256
  *   ④ 提取音频  视频里的音轨 → WAV / MP3（独立页签 ?tab=audio）
- *   ⑤ 去人声    一边听一边抽掉中置人声，留伴奏 → WAV / MP3（独立页签 ?tab=vocal）
+ *   ⑤ 分离纯音乐/人声  AI 模型分出伴奏与人声 → WAV / MP3（独立页签 ?tab=vocal）
  *
  * 做不到的也写在界面上：pdf/xlsx/pptx 解析（复杂度不划算）；AI 分轨的模型权重按需加载（见 vocal 页签）。
  */
 
 import { $, $$, esc, ICON } from '../util/dom.js';
-// TOOLS 板块的页签：Tier List（?tab=tier）、提取音频（?tab=audio）、去人声（?tab=vocal）
+// TOOLS 板块的页签：Tier List（?tab=tier）、提取音频（?tab=audio）、分离纯音乐/人声（?tab=vocal）
 import tierlist from './tierlist.js';
 import audioExtract from './audio-extract.js';
 import vocalRemove from './vocal-remove.js';
@@ -287,7 +287,7 @@ export default {
       ${toolsTabs('hub')}
       ${viewhead({
         title: 'TOOLBOX',
-        sub: '三个在浏览器里跑的小工具：格式转换、图片压缩、文本处理；再加上「提取音频」与「去人声」两个独立页签。文件不上传、不落盘，关掉页面就没了 —— 因为没有后端，所以也不需要把文件交给谁。',
+        sub: '三个在浏览器里跑的小工具：格式转换、图片压缩、文本处理；再加上「提取音频」与「分离纯音乐/人声」两个独立页签。文件不上传、不落盘，关掉页面就没了 —— 因为没有后端，所以也不需要把文件交给谁。',
         idx: 'MODULE / 06',
         meta: [
           { label: 'TOOLS', value: String(TABS.length).padStart(2, '0') },

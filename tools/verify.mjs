@@ -3361,59 +3361,21 @@ async function main() {
       && toolsUI?.guard?.noMp3Encoding === true,
     JSON.stringify(toolsUI?.guard));
 
-  /* ---------------- 去人声（#/tools?tab=vocal） ---------------- */
-  // 数值侧：造一对「中置 440 + 两侧 660 + 正中 80」的声道，验证
-  //   强度 0 原样返回、强度 1 低频不保护时等于 (L−R)/2、
-  //   带低频保护时 440 被压、660 与 80 基本不动。
-  // 界面侧：真的合成一个 WAV 丢进拖放区，等它自己解码 → 分离 → 出现播放台。
+  /* ---------------- 分离纯音乐/人声（#/tools?tab=vocal） ---------------- */
+  // 只验 UI：载入一个合成 WAV，确认页签 / 文件卡 / AI 控制出现，
+  // 并且没有「没点按钮就自己跑模型」这种事（模型推理留给人工 / 真实设备）。
   await visit('#/tools?tab=vocal');
   const vocalUI = await evaluate(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    const V = await import('/src/plugins/tools/vocal.js');
     const rate = 44100;
-    const n = rate * 2;
-    const l = new Float32Array(n);
-    const r = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const t = i / rate;
-      const center = 0.3 * Math.sin(2 * Math.PI * 440 * t);
-      const side = 0.2 * Math.sin(2 * Math.PI * 660 * t);
-      const bass = 0.2 * Math.sin(2 * Math.PI * 80 * t);
-      l[i] = center + side + bass;
-      r[i] = center - side + bass;
-    }
-    const proj = (d, f) => {
-      const a0 = Math.floor(0.2 * rate), b0 = Math.floor(1.8 * rate);
-      let sr = 0, si = 0;
-      for (let i = a0; i < b0; i++) {
-        const t = i / rate;
-        sr += d[i] * Math.cos(2 * Math.PI * f * t);
-        si += d[i] * Math.sin(2 * Math.PI * f * t);
-      }
-      return (2 * Math.sqrt(sr * sr + si * si)) / (b0 - a0);
-    };
-    const out = {};
-    out.analyze = V.analyze(l, r);
-    const zero = V.removeCenterFast(l, r, { strength: 0, bassHz: 150, sampleRate: rate });
-    let err0 = 0;
-    for (let i = 0; i < n; i++) err0 = Math.max(err0, Math.abs(zero.l[i] - l[i]), Math.abs(zero.r[i] - r[i]));
-    const full = V.removeCenterFast(l, r, { strength: 1, bassHz: 0, sampleRate: rate });
-    let err1 = 0;
-    for (let i = 0; i < n; i++) err1 = Math.max(err1, Math.abs(full.l[i] - (l[i] - r[i]) / 2));
-    const fast = V.removeCenterFast(l, r, { strength: 1, bassHz: 150, sampleRate: rate });
-    out.fast = { err0: err0, err1: err1, a440: proj(fast.l, 440), a660: proj(fast.l, 660), a80: proj(fast.l, 80) };
-    const spec = await V.removeCenterSpectral(l, r, { strength: 1, bassHz: 150, sampleRate: rate, yieldToUI: false });
-    out.spectral = { a440: proj(spec.l, 440), a660: proj(spec.l, 660), a80: proj(spec.l, 80) };
-    out.ui = {
-      tabs: [...document.querySelectorAll('.mr-tab')].map((a) => a.textContent.trim()).join(','),
-      active: document.querySelector('.mr-tab.is-on') ? document.querySelector('.mr-tab.is-on').textContent.trim() : '',
-      drop: !!document.querySelector('#vrDrop'),
-      note: !!document.querySelector('.vr-note'),
-      text: document.querySelector('#vrBody') ? document.querySelector('#vrBody').innerText.length : 0,
-    };
-
-    // 合成 1.5 秒立体声 WAV → 丢进拖放区 → 等结果出现
     const len = Math.floor(rate * 1.5);
+    const l = new Float32Array(len);
+    const r = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+      const t = i / rate;
+      l[i] = 0.25 * Math.sin(2 * Math.PI * 440 * t) + 0.1 * Math.sin(2 * Math.PI * 660 * t);
+      r[i] = 0.25 * Math.sin(2 * Math.PI * 440 * t) - 0.1 * Math.sin(2 * Math.PI * 660 * t);
+    }
     const bytes = 44 + len * 4;
     const ab = new ArrayBuffer(bytes);
     const v = new DataView(ab);
@@ -3435,22 +3397,24 @@ async function main() {
     document.querySelector('#vrDrop').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
     for (let i = 0; i < 100; i++) {
       await wait(120);
-      if (document.querySelector('#vrWav') || document.querySelector('.vr-error')) break;
+      if (document.querySelector('.vr-file') || document.querySelector('.vr-error')) break;
     }
+    const out = {};
+    out.ui = {
+      tabs: [...document.querySelectorAll('.mr-tab')].map((a) => a.textContent.trim()).join(','),
+      active: document.querySelector('.mr-tab.is-on') ? document.querySelector('.mr-tab.is-on').textContent.trim() : '',
+      drop: !!document.querySelector('#vrDrop'),
+      note: !!document.querySelector('.vr-note'),
+      text: document.querySelector('#vrBody') ? document.querySelector('#vrBody').innerText.length : 0,
+    };
     out.flow = {
       error: document.querySelector('.vr-error') ? document.querySelector('.vr-error').textContent.trim() : '',
+      file: document.querySelector('.vr-file') ? document.querySelector('.vr-file').innerText.replace(/\\s+/g, ' ') : '',
+      run: document.querySelector('#vrRun') ? document.querySelector('#vrRun').textContent.trim() : '',
       player: !!document.querySelector('#vrPlay'),
       wave: !!document.querySelector('#vrWave'),
-      time: document.querySelector('#vrTime') ? document.querySelector('#vrTime').textContent.trim() : '',
-      ab: [...document.querySelectorAll('.vr-player .chip')].map((b) => b.textContent.trim()).join(','),
-      run: document.querySelector('#vrRun') ? document.querySelector('#vrRun').textContent.trim() : '',
-      file: document.querySelector('.vr-file') ? document.querySelector('.vr-file').innerText.replace(/\\s+/g, ' ') : '',
-      exports: !!document.querySelector('#vrWav') && !!document.querySelector('#vrMp3'),
+      exports: !!document.querySelector('#vrWav'),
     };
-
-    // AI 分轨入口：只验 UI，不跑 64MB 模型（推理留给人工 / 真实设备）
-    document.querySelector('[data-method="ai"]').click();
-    await wait(220);
     out.aiUI = {
       panel: !!document.querySelector('.vr-ai'),
       file: !!document.querySelector('#vrModelFile'),
@@ -3466,41 +3430,26 @@ async function main() {
       cleanVal: document.querySelector('#vrCleanVal') ? document.querySelector('#vrCleanVal').textContent.trim() : '',
     };
     document.querySelector('[data-aimode="inst"]').click();
-    await wait(120);
-    document.querySelector('[data-method="spectral"]').click();
-    await wait(220);
-    out.aiBack = document.querySelectorAll('.vr-slider').length;
+    await wait(100);
     return out;
   })()`);
-  record('工具台：去人声的 M/S 数值正确（中置被压、两侧与低频保留）',
-    vocalUI?.analyze?.mono === false
-      && vocalUI?.analyze?.centerRatio > 0.5 && vocalUI?.analyze?.width > 0.2
-      && vocalUI?.fast?.err0 < 0.001 && vocalUI?.fast?.err1 < 0.001
-      && vocalUI?.fast?.a440 < 0.02 && vocalUI?.fast?.a660 > 0.18 && vocalUI?.fast?.a80 > 0.17
-      && vocalUI?.spectral?.a440 < 0.005 && vocalUI?.spectral?.a660 > 0.19 && vocalUI?.spectral?.a80 > 0.19,
-    JSON.stringify({ analyze: vocalUI?.analyze, fast: vocalUI?.fast, spectral: vocalUI?.spectral }));
-  record('工具台：去人声页签能载入音频、分离并走到试听',
-    /工具台,.*Tier List.*提取音频.*去人声/.test(vocalUI?.ui?.tabs || '')
-      && vocalUI?.ui?.active === '去人声' && vocalUI?.ui?.drop === true
-      && vocalUI?.ui?.note === true && (vocalUI?.ui?.text || 0) > 120
-      && vocalUI?.flow?.error === '' && vocalUI?.flow?.player === true
-      && vocalUI?.flow?.wave === true
-      && vocalUI?.flow?.ab === '原曲,纯伴奏,人声残留'
-      && vocalUI?.flow?.run === '重新分离'
-      && /2ch/.test(vocalUI?.flow?.file || '')
-      && vocalUI?.flow?.exports === true,
+  record('工具台：分离纯音乐/人声页签载入音频并出现 AI 控制（不自动跑）',
+    /工具台,.*Tier List.*提取音频.*分离纯音乐\/人声/.test(vocalUI?.ui?.tabs || '')
+      && vocalUI?.ui?.active === '分离纯音乐/人声'
+      && vocalUI?.ui?.drop === true && vocalUI?.ui?.note === true && (vocalUI?.ui?.text || 0) > 120
+      && vocalUI?.flow?.error === '' && /2ch/.test(vocalUI?.flow?.file || '')
+      && vocalUI?.flow?.run === '开始分离'
+      && vocalUI?.flow?.player === false && vocalUI?.flow?.wave === false,
     JSON.stringify({ ui: vocalUI?.ui, flow: vocalUI?.flow }));
-  record('工具台：AI 分轨入口就位（三种输出 / 本地模型 / 不预跑）',
+  record('工具台：AI 分轨入口（三种输出 / 双模型清理 / 本地模型）',
     vocalUI?.aiUI?.panel === true && vocalUI?.aiUI?.file === true
       && vocalUI?.aiUI?.sliders === 0
       && vocalUI?.aiUI?.modes === 'inst,vocal,dual'
-      && /开始 AI 分离/.test(vocalUI?.aiUI?.run || '')
+      && /开始分离/.test(vocalUI?.aiUI?.run || '')
       && /UVR-MDX-NET/.test(vocalUI?.aiUI?.model || '')
       && vocalUI?.aiDual?.clean === true
-      && /100%/.test(vocalUI?.aiDual?.cleanVal || '')
-      && vocalUI?.aiBack === 2,
+      && /100%/.test(vocalUI?.aiDual?.cleanVal || ''),
     JSON.stringify({ ui: vocalUI?.aiUI, dual: vocalUI?.aiDual }));
-
   // 人声残留清理：用 660Hz 当伴奏参考，440Hz 当人声；脏人声里的 660 要被减掉，440 要保留
   const bleedUI = await evaluate(`(async () => {
     const { cancelBleed } = await import('/src/plugins/tools/bleed.js');
