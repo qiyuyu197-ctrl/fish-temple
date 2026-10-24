@@ -1150,7 +1150,8 @@ src/views/mine.js            画面与交互：HUD、棋盘、动效、键盘、
 **AI 分轨（`ai-separator.js`）是怎么做的**：
 
 - **模型**：UVR 社区的 `UVR-MDX-NET-Inst_HQ_3`（66,759,214 字节，约 64MiB），
-  **不进仓库**，发布在 GitHub Release（tag `model-v1`）。浏览器请求同源
+  **不进仓库**，发布在 GitHub Release
+  <https://github.com/qiyuyu197-ctrl/fish-temple/releases/tag/model-v1>（tag `model-v1`）。浏览器请求同源
   `/model/UVR-MDX-NET-Inst_HQ_3.onnx`：本地 / 自托管由 `server.mjs` 直接发本地文件或代理到
   Release，Netlify 由 `netlify.toml` 的 `[[redirects]]` 代理；首次下载后存进 CacheStorage，
   之后同一浏览器不再下载。也可以点「选择本地模型」直接选 `.onnx`。
