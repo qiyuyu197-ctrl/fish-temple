@@ -7,8 +7,9 @@
  * 两种做法：
  *   · 快速 / 精细 —— M/S 中置抵消（所有卡拉 OK 机都是这个做法），免费、瞬时；
  *     缺点也写清楚：混响、双轨、偏一点的人声拿不掉。
- *   · AI 分轨 —— UVR 的 MDX-Net 模型（64MB，随站点一起发）在浏览器里用
- *     ONNX Runtime Web 推理。第一次慢，但干净得多；模型按需加载，音频不上传。
+ *   · AI 分轨 —— 按 UVR 的思路配两份 MDX-Net（伴奏模型 + 人声模型），
+ *     在浏览器里用 ONNX Runtime Web 推理。只跑伴奏模型时人声是残差；
+ *     「人声优先 / 双模型」用人声模型拿干净的纯人声。第一次慢，模型按需加载。
  *
  * 页面分三段：
  *   01 音源    解码 + 看一眼左右声道（相关系数 / 中置占比）
@@ -26,7 +27,9 @@ import { viewhead } from '../ui/bits.js';
 import { toolsTabs } from '../ui/tools-tabs.js';
 import { decodeAudio, toWav, encodeMp3, audioCtx, fmtTime } from '../plugins/tools/audio.js';
 import { analyze, separate } from '../plugins/tools/vocal.js';
-import { AI_MODEL, ensureModel, separateFile as separateWithAI, aiReady } from '../plugins/tools/ai-separator.js';
+import {
+  AI_MODELS, AI_MODES, ensureModel, separateFile as separateWithAI, separateDual, aiReady,
+} from '../plugins/tools/ai-separator.js';
 import { humanSize } from '../plugins/tools/index.js';
 
 const MAX_SECONDS = 10 * 60;         // 10 分钟以上就不要在浏览器里玩了（解码后的内存是每秒 384KB）
@@ -48,14 +51,19 @@ const state = {
 
   // AI 分轨：模型按需下载 / 本地文件可选，进度单独记
   ai: {
+    mode: 'inst',        // inst | vocal | dual
     stage: 'idle',       // idle | download | load | demix | write | decode | ready | error
     loaded: 0,
-    total: AI_MODEL.bytes,
+    total: AI_MODELS.inst.bytes,
     fraction: 0,
+    part: 1,
+    parts: 1,
+    modelShort: '',
     chunk: 0,
     totalChunks: 0,
     localFile: null,
     localName: '',
+    localFor: '',        // 本地模型对应 inst / vocal
     cached: false,
     error: '',
     ms: 0,
@@ -113,17 +121,20 @@ function audioDuration() {
 
 const methodLabel = (m) => (m === 'ai' ? 'AI · MDX-Net' : m === 'spectral' ? '精细（频域）' : '快速（相位）');
 
-const modelKey = () => (state.ai.localFile ? state.ai.localName : 'builtin');
+const modelKey = () => `${state.ai.mode}:${state.ai.localFile ? state.ai.localName : 'builtin'}`;
 
 function isStale() {
   const r = state.result;
   if (!r) return false;
   if (r.method === 'ai' || state.method === 'ai') {
-    return r.method !== state.method || (r.method === 'ai' && r.modelKey !== modelKey());
+    return r.method !== state.method
+      || (r.method === 'ai' && (r.aiMode !== state.ai.mode || r.modelKey !== modelKey()));
   }
   return r.method !== state.method || r.strength !== state.strength
     || r.bassHz !== state.bassHz || r.autoGain !== state.autoGain;
 }
+
+const aiModeOf = (id) => AI_MODES[id] || AI_MODES.dual;
 
 /* ---------------- 播放 ---------------- */
 
@@ -198,28 +209,33 @@ function paintProgress() {
 
 function aiPercent() {
   const a = state.ai;
-  if (a.stage === 'download') return a.total ? 0.4 * (a.loaded / a.total) : 0;
-  if (a.stage === 'load') return 0.45;
-  if (a.stage === 'demix') return 0.45 + 0.5 * Math.max(0, Math.min(1, a.fraction || 0));
-  if (a.stage === 'write') return 0.95 + 0.03 * (a.fraction || 0);
+  const part = Math.max(1, a.part || 1);
+  const parts = Math.max(1, a.parts || 1);
+  const within = (v) => Math.max(0, Math.min(1, v || 0));
+  if (a.stage === 'download') return 0.35 * ((part - 1) + (a.total ? a.loaded / a.total : 0)) / parts;
+  if (a.stage === 'load') return 0.35 + 0.1 * (part / parts);
+  if (a.stage === 'demix') return 0.45 + 0.5 * ((part - 1) + within(a.fraction)) / parts;
+  if (a.stage === 'write') return 0.95 + 0.03 * within(a.fraction);
   if (a.stage === 'decode') return 0.99;
   return 0;
 }
 
 function aiProgressText() {
   const a = state.ai;
+  const which = a.modelShort ? `${a.modelShort} · ` : '';
+  const partText = a.parts > 1 ? `（模型 ${a.part}/${a.parts}）` : '';
   if (a.stage === 'download') {
     const p = a.total ? Math.round((a.loaded / a.total) * 100) : 0;
     const head = a.cached ? '读取缓存的模型' : a.localName ? '读取本地模型' : '下载模型';
-    return `${head}… ${p}%${a.total ? `（${humanSize(a.loaded)} / ${humanSize(a.total)}）` : ''}`;
+    return `${which}${head}… ${p}%${a.total ? `（${humanSize(a.loaded)} / ${humanSize(a.total)}）` : ''}${partText}`;
   }
-  if (a.stage === 'load') return '加载模型… 第一次会慢一点';
+  if (a.stage === 'load') return `${which}加载模型… 第一次会慢一点${partText}`;
   if (a.stage === 'demix') {
-    return `AI 分离中… ${Math.round((a.fraction || 0) * 100)}%`
-      + `${a.totalChunks ? `（第 ${a.chunk}/${a.totalChunks} 段）` : ''}`;
+    return `${which}分离中… ${Math.round((a.fraction || 0) * 100)}%`
+      + `${a.totalChunks ? `（第 ${a.chunk}/${a.totalChunks} 段）` : ''}${partText}`;
   }
-  if (a.stage === 'write') return '写出音轨…';
-  if (a.stage === 'decode') return '解码结果…';
+  if (a.stage === 'write') return `${which}写出音轨…`;
+  if (a.stage === 'decode') return `${which}解码结果…`;
   return 'AI 分离…';
 }
 
@@ -234,6 +250,9 @@ function paintWork() {
 
 function updateAiProgress(p) {
   const a = state.ai;
+  if (p.modelShort) a.modelShort = p.modelShort;
+  if (p.part) a.part = p.part;
+  if (p.parts) a.parts = p.parts;
   if (p.stage === 'download') {
     a.stage = 'download';
     a.loaded = Number(p.loaded) || 0;
@@ -375,6 +394,11 @@ async function run({ quiet = false } = {}) {
 async function runAI({ quiet = false } = {}) {
   if (!state.buffer || !state.file || state.status === 'working') return;
   const token = ++runToken;
+  const mode = state.ai.mode;
+  const modeDef = aiModeOf(mode);
+  const models = modeDef.models;
+  const localFile = mode === 'dual' || state.ai.localFor !== mode ? null : state.ai.localFile;
+
   pause();
   state.status = 'working';
   state.error = '';
@@ -383,8 +407,11 @@ async function runAI({ quiet = false } = {}) {
     ...state.ai,
     stage: 'download',
     loaded: 0,
-    total: state.ai.localFile ? state.ai.localFile.size : AI_MODEL.bytes,
+    total: localFile ? localFile.size : AI_MODELS[models[0]].bytes,
     fraction: 0,
+    part: 1,
+    parts: models.length,
+    modelShort: AI_MODELS[models[0]].short,
     chunk: 0,
     totalChunks: 0,
     cached: false,
@@ -394,31 +421,57 @@ async function runAI({ quiet = false } = {}) {
 
   const t0 = performance.now();
   try {
-    await ensureModel({
-      localFile: state.ai.localFile,
-      onProgress: (p) => { if (token === runToken) updateAiProgress(p); },
-    });
+    // 先把要用的模型都备好（双模型会依次下两份）
+    for (let i = 0; i < models.length; i++) {
+      if (token !== runToken) return;
+      const name = models[i];
+      state.ai.part = i + 1;
+      state.ai.parts = models.length;
+      updateAiProgress({
+        stage: 'download', modelShort: AI_MODELS[name].short, part: i + 1, parts: models.length,
+      });
+      await ensureModel({
+        model: name,
+        localFile: mode === 'dual' ? null : localFile,
+        onProgress: (p) => {
+          if (token === runToken) updateAiProgress({ ...p, part: i + 1, parts: models.length });
+        },
+      });
+    }
     if (token !== runToken) return;
 
-    const res = await separateWithAI(state.file, {
-      onProgress: (p) => { if (token === runToken) updateAiProgress(p); },
-    });
+    let res;
+    if (mode === 'dual') {
+      res = await separateDual(state.file, {
+        onProgress: (p) => { if (token === runToken) updateAiProgress(p); },
+      });
+    } else {
+      res = await separateWithAI(state.file, {
+        model: mode,
+        onProgress: (p) => { if (token === runToken) updateAiProgress({ ...p, part: 1, parts: 1 }); },
+      });
+    }
     if (token !== runToken) return;
 
     const l = res.instrumental.getChannelData(0);
     const r = res.instrumental.numberOfChannels > 1 ? res.instrumental.getChannelData(1) : l;
     state.result = {
-      l, r, gain: 1, method: 'ai', model: AI_MODEL.name, modelKey: modelKey(),
+      l, r, gain: 1, method: 'ai',
+      model: mode === 'dual' ? '双模型' : AI_MODELS[mode].name,
+      aiMode: mode, modelKey: modelKey(),
       ms: res.ms, strength: 1, bassHz: 0, autoGain: false,
     };
     state.instBuffer = res.instrumental;
     state.vocalBuffer = res.vocals;
+    state.source = mode === 'vocal' ? 'vocal' : 'inst';
     state.ai.stage = 'ready';
     state.ai.ms = res.ms;
     state.status = 'ready';
     state.position = Math.min(state.position, state.buffer.duration);
     repaintView();
-    if (!quiet) Toast.ok(`AI 分轨完成 · ${(res.ms / 1000).toFixed(1)}s`);
+    if (!quiet) {
+      Toast.ok(`AI 分轨完成 · ${modeDef.label.replace(/（.*?）/g, '')} · ${(res.ms / 1000).toFixed(1)}s`);
+    }
   } catch (err) {
     if (token !== runToken) return;
     state.status = 'ready';
@@ -509,8 +562,10 @@ function noteHTML() {
         <b>M/S 会削掉正中间的乐器。</b>底鼓、贝斯、军鼓、部分钢琴经常也在正中；
         「低频保护」只把低频补回来，中频的军鼓救不了。<br>
         <b>M/S 的极限就在这里。</b>混响、双轨人声、稍微偏一点的人声都会留在伴奏里，
-        再怎么拉滑杆也拿不掉 —— 要更干净就切「AI 分轨」。它用 UVR 的 MDX-Net 模型在本机推理，
-        模型约 64MB（第一次从本站下载），音频不上传；首次分离要几分钟，手机可能吃力。
+        再怎么拉滑杆也拿不掉 —— 要更干净就切「AI 分轨」。它按 UVR 的思路配了两份 MDX-Net：
+        伴奏模型（Inst HQ 3）和人声模型（Kim Vocal 2）。只跑伴奏模型时，人声是它的残差，
+        可能带一点音乐；要干净人声就选「人声优先」或「双模型」（两份模型各跑一遍，慢一倍）。
+        模型约 64MB/份（第一次从本站下载），音频不上传；首次分离要几分钟，手机可能吃力。
         模型权重来自 UVR 社区，商用请自行确认授权。<br>
         <b>不上传。</b>解码、计算、导出都在这台设备的浏览器里完成，关掉页面就没了。
       </p>
@@ -553,25 +608,37 @@ function progressBlock() {
 
 function aiControlsHTML(working, stale) {
   const a = state.ai;
+  const modeDef = aiModeOf(a.mode);
+  const defs = modeDef.models.map((m) => AI_MODELS[m]);
   const gpu = typeof navigator !== 'undefined' && !!navigator.gpu;
-  const runLabel = working ? '分离中…' : state.result ? '重新 AI 分离' : '开始 AI 分离';
+  const runLabel = working ? '分离中…' : state.result && !stale ? '重新 AI 分离' : '开始 AI 分离';
+  const totalBytes = defs.reduce((n, d) => n + d.bytes, 0);
+  const loadedAll = modeDef.models.every((m) => aiReady(m));
+  const second = a.localName ? `本地：${a.localName}` : `${defs.map((d) => d.name).join(' + ')}${loadedAll ? ' · 已加载' : ''}`;
   return `<div class="vr-ai">
+    <div class="tool-opts tool-opts--wrap">
+      <span class="k-label">输出</span>
+      ${Object.values(AI_MODES).map((m) => `<button class="chip${a.mode === m.id ? ' is-on' : ''}" data-aimode="${m.id}" ${working ? 'disabled' : ''}>${m.label}</button>`).join('')}
+    </div>
+    <p class="mono faint vr-hint">${modeDef.hint}</p>
     <div class="vr-ai__head">
-      <b>${esc(AI_MODEL.name)}</b>
-      <span class="mono faint">${humanSize(AI_MODEL.bytes)} · MDX-Net · 本地推理</span>
+      <b>${esc(defs.map((d) => d.name).join(' + '))}</b>
+      <span class="mono faint">${humanSize(totalBytes)} · MDX-Net · 本地推理</span>
       <span class="mono faint">${gpu ? 'WebGPU 可用' : 'WASM（较慢）'}</span>
     </div>
-    <p class="mono faint vr-hint">第一次用会从本站下载模型（只下一次，之后存在浏览器缓存里）。模型在你的设备上跑，音频不上传；分离要几分钟到几十分钟，看设备，慢是正常的。</p>
+    <p class="mono faint vr-hint">第一次用会从本站下载模型（单模型约 64MB，双模型约 128MB；只下一次，之后存在浏览器缓存里）。模型在你的设备上跑，音频不上传；分离要几分钟到几十分钟，看设备，慢是正常的。</p>
     ${gpu ? '' : '<p class="vr-warn">这个浏览器没有 WebGPU，只能用单线程 WASM：3 分钟的歌可能要几十分钟。换 Chrome / Edge（WebGPU）会快好几倍。</p>'}
     <div class="tool-actions">
-      <label class="btn btn--sm">选择本地模型<input type="file" id="vrModelFile" accept=".onnx,application/octet-stream" hidden ${working ? 'disabled' : ''} /></label>
-      ${a.localName ? `<button class="btn btn--sm" id="vrModelClear" ${working ? 'disabled' : ''}>用回站内模型</button>` : ''}
-      <span class="mono faint" id="vrModelName">${esc(a.localName ? `本地：${a.localName}` : aiReady() ? '站内模型 · 已加载' : '站内模型')}</span>
+      ${a.mode === 'dual'
+        ? '<span class="mono faint">双模型使用站内两份模型；要用本地模型请切「伴奏优先 / 人声优先」</span>'
+        : `<label class="btn btn--sm">选择本地模型<input type="file" id="vrModelFile" accept=".onnx,application/octet-stream" hidden ${working ? 'disabled' : ''} /></label>
+           ${a.localName ? `<button class="btn btn--sm" id="vrModelClear" ${working ? 'disabled' : ''}>用回站内模型</button>` : ''}
+           <span class="mono faint" id="vrModelName">${esc(second)}</span>`}
       <span class="grow"></span>
       <button class="btn btn--signal" id="vrRun" ${working ? 'disabled' : ''}>${runLabel}</button>
     </div>
     ${progressBlock()}
-    ${stale ? '<p class="vr-stale">换了模型或做法，点「重新 AI 分离」才会生效。</p>' : ''}
+    ${stale ? '<p class="vr-stale">换了模型或输出方式，点「重新 AI 分离」才会生效。</p>' : ''}
     ${a.error || state.error ? `<p class="vr-error">${esc(a.error || state.error)}</p>` : ''}
   </div>`;
 }
@@ -588,7 +655,7 @@ function controlsHTML() {
     </div>
     <p class="mono faint vr-hint">${
       ai
-        ? 'M/S 只搬得走正中间的声音；混响、双轨、偏一点的人声都会留下。AI 分轨用 MDX-Net 模型，干净得多，代价是首次下载模型 + 慢。'
+        ? 'M/S 只搬得走正中间的声音；混响、双轨、偏一点的人声都会留下。AI 分轨里「伴奏优先」的人声仍是残差（可能带音乐）；要干净人声选「人声优先」或「双模型」。'
         : state.method === 'spectral'
           ? '逐频点只压中置成分，更干净，代价是要算几秒（约每 10 秒音频 1 秒）。'
           : '整段中置一起压，几乎瞬时；裙边会漏一点人声，适合先听个大概。'
@@ -626,10 +693,12 @@ function playerHTML() {
   const stale = isStale();
   const gainDb = !ai && Math.abs(r.gain - 1) > 0.01 ? `${(20 * Math.log10(r.gain)).toFixed(1)} dB` : '';
   const wavBytes = 44 + state.instBuffer.length * 2 * 2;
-  const vocalLabel = ai ? '人声' : '人声残留';
-  const srcTag = { orig: '原曲', inst: '纯伴奏', vocal: vocalLabel }[state.source] || '纯伴奏';
+  const mode = ai ? aiModeOf(r.aiMode) : null;
+  const vocalLabel = ai ? (r.aiMode === 'inst' ? '人声（残差）' : '人声') : '人声残留';
+  const instLabel = ai && r.aiMode === 'vocal' ? '伴奏（残差）' : '纯伴奏';
+  const srcTag = { orig: '原曲', inst: instLabel, vocal: vocalLabel }[state.source] || instLabel;
   const head = ai
-    ? `AI · ${esc(r.model || AI_MODEL.name)} · ${(r.ms / 1000).toFixed(1)}s`
+    ? `AI · ${esc(mode?.short || r.model || 'MDX-Net')} · ${(r.ms / 1000).toFixed(1)}s`
     : `${methodLabel(r.method)} · ${(r.ms / 1000).toFixed(r.ms < 950 ? 2 : 1)}s${gainDb ? ` · 增益 ${gainDb}` : ''}`;
   return `<div class="panel" data-reveal>
     <div class="panel__head">
@@ -649,7 +718,7 @@ function playerHTML() {
         </div>
         <div class="vr-ab">
           <button class="chip${state.source === 'orig' ? ' is-on' : ''}" data-source="orig">原曲</button>
-          <button class="chip${state.source === 'inst' ? ' is-on' : ''}" data-source="inst">纯伴奏</button>
+          <button class="chip${state.source === 'inst' ? ' is-on' : ''}" data-source="inst">${instLabel}</button>
           <button class="chip${state.source === 'vocal' ? ' is-on' : ''}" data-source="vocal">${vocalLabel}</button>
         </div>
       </div>
@@ -879,9 +948,27 @@ export default {
         return;
       }
 
+      const aim = e.target.closest('[data-aimode]');
+      if (aim && !aim.disabled) {
+        const m = aim.dataset.aimode;
+        if (m === state.ai.mode) return;
+        state.ai.mode = m;
+        // 本地模型是按模型架构选的；切到另一种输出就不要再拿它凑数
+        if (state.ai.localFile && state.ai.localFor !== m) {
+          state.ai.localFile = null;
+          state.ai.localName = '';
+          state.ai.localFor = '';
+        }
+        state.ai.error = '';
+        state.ai.stage = 'idle';
+        repaint();
+        return;
+      }
+
       if (e.target.closest('#vrModelClear')) {
         state.ai.localFile = null;
         state.ai.localName = '';
+        state.ai.localFor = '';
         state.ai.stage = 'idle';
         state.ai.error = '';
         repaint();
@@ -954,6 +1041,7 @@ export default {
         if (!f) return;
         state.ai.localFile = f;
         state.ai.localName = f.name;
+        state.ai.localFor = state.ai.mode;
         state.ai.stage = 'idle';
         state.ai.error = '';
         e.target.value = '';

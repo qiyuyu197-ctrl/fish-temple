@@ -72,6 +72,12 @@
   status = 200
   force = true
 
+[[redirects]]
+  from = "/model/Kim_Vocal_2.onnx"
+  to = "https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/model-v1/Kim_Vocal_2.onnx"
+  status = 200
+  force = true
+
 [[headers]]
   # AI 模型（~64MB）与 ONNX Runtime 的 wasm：内容不变，长缓存。
   # 文件名带模型/版本号，换模型就换文件名，所以可以放心 immutable。

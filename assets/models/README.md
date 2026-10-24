@@ -1,25 +1,35 @@
 # AI 分轨模型
 
-模型**不在仓库里**（约 64MB），发布在 GitHub Release：
+模型**不在仓库里**（每份约 64MB），发布在 GitHub Release：
 
 - Release：<https://github.com/qiyuyu197-ctrl/fish-temple/releases/tag/model-v1>
-- 资产：`UVR-MDX-NET-Inst_HQ_3.onnx`
-- 直链：<https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/model-v1/UVR-MDX-NET-Inst_HQ_3.onnx>
-- 大小：66,759,214 字节（约 64MiB）
-- 用途：去人声页签的「AI 分轨」——把一首歌分成「人声」与「伴奏」两轨。
+
+| 文件 | 用途 | 大小 |
+| --- | --- | --- |
+| `UVR-MDX-NET-Inst_HQ_3.onnx` | 伴奏专精（「伴奏优先」/「双模型」的伴奏轨） | 66,759,214 字节 |
+| `Kim_Vocal_2.onnx` | 人声专精（「人声优先」/「双模型」的人声轨） | 66,759,214 字节 |
+
+直链：
+
+- <https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/model-v1/UVR-MDX-NET-Inst_HQ_3.onnx>
+- <https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/model-v1/Kim_Vocal_2.onnx>
+
+为什么是两份：伴奏模型「剩下」的人声会带一点音乐；要干净人声就用人声模型，
+「双模型」模式让伴奏和人声各走自己的专精模型（慢一倍）。
 
 ## 本地 / 自托管怎么拿到文件
 
 ```bash
-node tools/fetch-model.mjs
+node tools/fetch-model.mjs              # 默认两份都下
+node tools/fetch-model.mjs --model inst # 只下伴奏模型
 ```
 
-会下载到本目录，文件名 `UVR-MDX-NET-Inst_HQ_3.onnx`；`.gitignore` 已经忽略 `*.onnx`。
+会下载到本目录；`.gitignore` 已经忽略 `*.onnx`。
 本地 `server.mjs` 的 `/model/…` 会优先发这个文件；没有就代理到 Release → 镜像。
 
 ## 浏览器怎么加载
 
-页面请求同源 `/model/UVR-MDX-NET-Inst_HQ_3.onnx`：
+页面请求同源 `/model/<文件名>`：
 
 - 本地 / 自托管：`server.mjs` 直接发本地文件，或代理到 Release；
 - Netlify：`netlify.toml` 的 `[[redirects]]` 代理到 Release；

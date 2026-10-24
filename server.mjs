@@ -2656,7 +2656,7 @@ async function handleApi(req, res, url, opts = {}) {
  */
 
 const MODEL_DIR = path.join(ROOT, 'assets', 'models');
-const MODEL_NAMES = new Set(['UVR-MDX-NET-Inst_HQ_3.onnx']);
+const MODEL_NAMES = new Set(['UVR-MDX-NET-Inst_HQ_3.onnx', 'Kim_Vocal_2.onnx']);
 const MODEL_UPSTREAMS = [
   'https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/model-v1/',
   'https://hf-mirror.com/Blane187/all_public_uvr_models/resolve/main/',

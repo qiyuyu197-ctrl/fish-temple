@@ -1149,20 +1149,25 @@ src/views/mine.js            画面与交互：HUD、棋盘、动效、键盘、
 
 **AI 分轨（`ai-separator.js`）是怎么做的**：
 
-- **模型**：UVR 社区的 `UVR-MDX-NET-Inst_HQ_3`（66,759,214 字节，约 64MiB），
+- **模型**：按 UVR 的思路配两份 MDX-Net（各 66,759,214 字节，约 64MiB），
   **不进仓库**，发布在 GitHub Release
-  <https://github.com/qiyuyu197-ctrl/fish-temple/releases/tag/model-v1>（tag `model-v1`）。浏览器请求同源
-  `/model/UVR-MDX-NET-Inst_HQ_3.onnx`：本地 / 自托管由 `server.mjs` 直接发本地文件或代理到
+  <https://github.com/qiyuyu197-ctrl/fish-temple/releases/tag/model-v1>（tag `model-v1`）：
+  `UVR-MDX-NET-Inst_HQ_3`（伴奏专精）和 `Kim_Vocal_2`（人声专精）。
+  浏览器请求同源 `/model/<文件名>`：本地 / 自托管由 `server.mjs` 直接发本地文件或代理到
   Release，Netlify 由 `netlify.toml` 的 `[[redirects]]` 代理；首次下载后存进 CacheStorage，
   之后同一浏览器不再下载。也可以点「选择本地模型」直接选 `.onnx`。
   本地取文件：`node tools/fetch-model.mjs`（落到 `assets/models/`，已 gitignore）。
+- **三种输出**：`伴奏优先`（只跑 Inst，人声是残差，可能带音乐）、`人声优先`（只跑 Kim，
+  伴奏是残差）、`双模型`（伴奏取 Inst、人声取 Kim，各跑一遍，慢一倍但两条都干净）。
+  默认是 `伴奏优先`，想解决「纯人声带音乐」就切「人声优先 / 双模型」。
 - **运行时**：`assets/vendor/web-audio-separation`（MIT）+ `assets/vendor/onnxruntime-web`
   （MIT，1.29；只留 CPU / WebGPU 两个 wasm）。两者都是动态 import，不点 AI 不加载。
 - **推理**：库负责分段 STFT / 反变换，ORT 跑 MDX-Net；返回「人声 + 伴奏」两条 WAV，
   页面解码后进同一套播放器 / 波形 / 导出。全程在标签页里，音频不上传。
 - **速度**：看设备和 WebGPU。本机 3 秒素材：WebGPU（Intel 核显）约 15–17 秒，
-  单线程 WASM 约 100 秒 —— 折算 3 分钟的歌大约 8 分钟 / 50 分钟。没有 WebGPU 的浏览器
-  页面会明确警告；Chrome / Edge 一般会走 WebGPU。页面会显示「下载模型 / 加载 / 第几段」。
+  单线程 WASM 约 100 秒 —— 折算 3 分钟的歌大约 8 分钟 / 50 分钟；双模型再翻一倍。
+  没有 WebGPU 的浏览器页面会明确警告；Chrome / Edge 一般会走 WebGPU。
+  页面会显示「模型 x/2 · 下载 / 加载 / 第几段」。
 - **没有模型时**：`/model` 与 Release / 镜像都拿不到，页面会明说原因（以及
   `node tools/fetch-model.mjs` 的补救方式），不会假装在跑。
 - **授权**：模型权重来自 UVR 社区，个人使用为主；商用或再分发请自行确认原模型授权。
@@ -1958,9 +1963,10 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 | `test-markdown.mjs`（不在 `verify-all` 里，单独跑） | 33 / 33 | — | ✅ |
 
 > 2026-10-23 加了「去人声」的三项目检（M/S 数值、真流程、AI 入口），`verify.mjs` 从 219 项变成 222 项。
-> 当日在本机单独跑为 **220 / 222**：失败的两条是网易云网络相关用例
-> （搜索结果出现后的播放器槽位对齐 / 站内直放的真实时长 / 163cn.tv 短链展开超时之间轮换），
-> 随网络状况变化；去人声的三条与 AI 入口每次都过，本次改动也只碰 TOOLS 与静态资源。
+> 2026-10-24 又加了 Kim Vocal 2 的双模型（三种输出），仍是 222 项；本机 **221 / 222**
+> （另一轮 220 / 222）。失败的一条是网易云网络相关用例（搜索结果出现后的播放器槽位对齐 /
+> 站内直放的真实时长 / 163cn.tv 短链展开超时之间轮换），随网络状况变化；
+> 去人声的三条与 AI 入口每次都过，改动也只碰 TOOLS 与静态资源。
 
 #### 未通过的那一项
 

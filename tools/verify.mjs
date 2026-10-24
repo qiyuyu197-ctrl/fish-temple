@@ -3455,6 +3455,7 @@ async function main() {
       panel: !!document.querySelector('.vr-ai'),
       file: !!document.querySelector('#vrModelFile'),
       sliders: document.querySelectorAll('.vr-slider').length,
+      modes: [...document.querySelectorAll('[data-aimode]')].map((b) => b.dataset.aimode).join(','),
       run: document.querySelector('#vrRun') ? document.querySelector('#vrRun').textContent.trim() : '',
       model: document.querySelector('.vr-ai__head') ? document.querySelector('.vr-ai__head').innerText.replace(/\\s+/g, ' ') : '',
     };
@@ -3481,9 +3482,10 @@ async function main() {
       && /2ch/.test(vocalUI?.flow?.file || '')
       && vocalUI?.flow?.exports === true,
     JSON.stringify({ ui: vocalUI?.ui, flow: vocalUI?.flow }));
-  record('工具台：AI 分轨入口就位（站内模型 / 本地模型 / 不预跑）',
+  record('工具台：AI 分轨入口就位（三种输出 / 本地模型 / 不预跑）',
     vocalUI?.aiUI?.panel === true && vocalUI?.aiUI?.file === true
       && vocalUI?.aiUI?.sliders === 0
+      && vocalUI?.aiUI?.modes === 'inst,vocal,dual'
       && /开始 AI 分离/.test(vocalUI?.aiUI?.run || '')
       && /UVR-MDX-NET/.test(vocalUI?.aiUI?.model || '')
       && vocalUI?.aiBack === 2,
