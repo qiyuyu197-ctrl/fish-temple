@@ -3459,6 +3459,14 @@ async function main() {
       run: document.querySelector('#vrRun') ? document.querySelector('#vrRun').textContent.trim() : '',
       model: document.querySelector('.vr-ai__head') ? document.querySelector('.vr-ai__head').innerText.replace(/\\s+/g, ' ') : '',
     };
+    document.querySelector('[data-aimode="dual"]').click();
+    await wait(220);
+    out.aiDual = {
+      clean: !!document.querySelector('#vrClean'),
+      cleanVal: document.querySelector('#vrCleanVal') ? document.querySelector('#vrCleanVal').textContent.trim() : '',
+    };
+    document.querySelector('[data-aimode="inst"]').click();
+    await wait(120);
     document.querySelector('[data-method="spectral"]').click();
     await wait(220);
     out.aiBack = document.querySelectorAll('.vr-slider').length;
@@ -3488,8 +3496,46 @@ async function main() {
       && vocalUI?.aiUI?.modes === 'inst,vocal,dual'
       && /开始 AI 分离/.test(vocalUI?.aiUI?.run || '')
       && /UVR-MDX-NET/.test(vocalUI?.aiUI?.model || '')
+      && vocalUI?.aiDual?.clean === true
+      && /100%/.test(vocalUI?.aiDual?.cleanVal || '')
       && vocalUI?.aiBack === 2,
-    JSON.stringify(vocalUI?.aiUI));
+    JSON.stringify({ ui: vocalUI?.aiUI, dual: vocalUI?.aiDual }));
+
+  // 人声残留清理：用 660Hz 当伴奏参考，440Hz 当人声；脏人声里的 660 要被减掉，440 要保留
+  const bleedUI = await evaluate(`(async () => {
+    const { cancelBleed } = await import('/src/plugins/tools/bleed.js');
+    const rate = 44100;
+    const n = rate * 2;
+    const ref = new Float32Array(n);
+    const dirty = new Float32Array(n);
+    const pure = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      ref[i] = 0.5 * Math.sin(2 * Math.PI * 660 * t);
+      dirty[i] = 0.3 * Math.sin(2 * Math.PI * 440 * t) + 0.4 * Math.sin(2 * Math.PI * 660 * t);
+      pure[i] = 0.3 * Math.sin(2 * Math.PI * 440 * t);
+    }
+    const proj = (d, f) => {
+      const a = Math.floor(0.2 * rate), b = Math.floor(1.8 * rate);
+      let sr = 0, si = 0;
+      for (let i = a; i < b; i++) {
+        const t = i / rate;
+        sr += d[i] * Math.cos(2 * Math.PI * f * t);
+        si += d[i] * Math.sin(2 * Math.PI * f * t);
+      }
+      return (2 * Math.sqrt(sr * sr + si * si)) / (b - a);
+    };
+    const a = await cancelBleed([dirty], [ref], { strength: 1, yieldToUI: false });
+    const b = await cancelBleed([pure], [ref], { strength: 1, yieldToUI: false });
+    return {
+      dirty440: proj(a.l, 440), dirty660: proj(a.l, 660),
+      pure440: proj(b.l, 440), pure660: proj(b.l, 660),
+    };
+  })()`);
+  record('工具台：人声残留清理减掉相干伴奏、保留纯人声',
+    bleedUI?.dirty440 > 0.27 && bleedUI?.dirty440 < 0.33 && bleedUI?.dirty660 < 0.01
+      && bleedUI?.pure440 > 0.27 && bleedUI?.pure660 < 0.01,
+    JSON.stringify(bleedUI));
 
   // Markdown 渲染（post_overview 内含表格、提示块、代码块、目录）
   await visit('#/logs/post_overview');

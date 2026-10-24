@@ -27,6 +27,7 @@ import { viewhead } from '../ui/bits.js';
 import { toolsTabs } from '../ui/tools-tabs.js';
 import { decodeAudio, toWav, encodeMp3, audioCtx, fmtTime } from '../plugins/tools/audio.js';
 import { analyze, separate } from '../plugins/tools/vocal.js';
+import { cancelBleed } from '../plugins/tools/bleed.js';
 import {
   AI_MODELS, AI_MODES, ensureModel, separateFile as separateWithAI, separateDual, aiReady,
 } from '../plugins/tools/ai-separator.js';
@@ -64,6 +65,10 @@ const state = {
     localFile: null,
     localName: '',
     localFor: '',        // 本地模型对应 inst / vocal
+    clean: 1,            // 人声残留清理强度 0..1（仅双模型）
+    rawInst: null,       // 双模型原始伴奏，供清理重算
+    rawVocal: null,      // 双模型原始人声
+    cleanProgress: 0,
     cached: false,
     error: '',
     ms: 0,
@@ -216,7 +221,8 @@ function aiPercent() {
   if (a.stage === 'load') return 0.35 + 0.1 * (part / parts);
   if (a.stage === 'demix') return 0.45 + 0.5 * ((part - 1) + within(a.fraction)) / parts;
   if (a.stage === 'write') return 0.95 + 0.03 * within(a.fraction);
-  if (a.stage === 'decode') return 0.99;
+  if (a.stage === 'decode') return 0.98;
+  if (a.stage === 'clean') return 0.98 + 0.015 * within(a.cleanProgress);
   return 0;
 }
 
@@ -236,6 +242,7 @@ function aiProgressText() {
   }
   if (a.stage === 'write') return `${which}写出音轨…`;
   if (a.stage === 'decode') return `${which}解码结果…`;
+  if (a.stage === 'clean') return `清理人声残留… ${Math.round((a.cleanProgress || 0) * 100)}%`;
   return 'AI 分离…';
 }
 
@@ -391,6 +398,61 @@ async function run({ quiet = false } = {}) {
 
 /* ---------------- AI 分轨 ---------------- */
 
+let cleanSeq = 0;
+
+/** 用双模型里的伴奏当参照，清掉人声轨里的乐器残留（可以反复调强度） */
+async function applyClean() {
+  const rawV = state.ai.rawVocal;
+  const rawI = state.ai.rawInst;
+  if (!rawV || !rawI || state.ai.mode !== 'dual') return;
+  const seq = ++cleanSeq;
+  const token = runToken;
+  const strength = Math.max(0, Math.min(1, state.ai.clean));
+
+  if (strength <= 0) {
+    if (token !== runToken || seq !== cleanSeq) return;
+    state.vocalBuffer = rawV;
+    state.ai.stage = 'ready';
+    state.ai.cleanProgress = 0;
+    state.status = 'ready';
+    repaintView();
+    return;
+  }
+
+  state.status = 'working';
+  state.ai.stage = 'clean';
+  state.ai.cleanProgress = 0;
+  repaintView();
+  try {
+    const vL = rawV.getChannelData(0);
+    const vR = rawV.numberOfChannels > 1 ? rawV.getChannelData(1) : vL;
+    const iL = rawI.getChannelData(0);
+    const iR = rawI.numberOfChannels > 1 ? rawI.getChannelData(1) : iL;
+    const out = await cancelBleed([vL, vR], [iL, iR], {
+      strength,
+      sampleRate: rawV.sampleRate,
+      onProgress: (p) => {
+        if (token !== runToken || seq !== cleanSeq) return;
+        state.ai.cleanProgress = p;
+        paintWork();
+      },
+    });
+    if (token !== runToken || seq !== cleanSeq) return;
+    state.vocalBuffer = makeBuffer(out.l, out.r, rawV.sampleRate);
+    state.ai.cleanProgress = 1;
+    state.ai.stage = 'ready';
+    state.status = 'ready';
+    repaintView();
+  } catch (err) {
+    if (token !== runToken || seq !== cleanSeq) return;
+    state.status = 'ready';
+    state.ai.stage = 'ready';
+    state.error = `人声残留清理失败：${err?.message || err}`;
+    repaintView();
+    Toast.err(state.error);
+  }
+}
+
 async function runAI({ quiet = false } = {}) {
   if (!state.buffer || !state.file || state.status === 'working') return;
   const token = ++runToken;
@@ -462,8 +524,19 @@ async function runAI({ quiet = false } = {}) {
       ms: res.ms, strength: 1, bassHz: 0, autoGain: false,
     };
     state.instBuffer = res.instrumental;
-    state.vocalBuffer = res.vocals;
-    state.source = mode === 'vocal' ? 'vocal' : 'inst';
+    if (mode === 'dual') {
+      // 双模型有「伴奏参照」，人声默认过一遍残留清理
+      state.ai.rawInst = res.instrumental;
+      state.ai.rawVocal = res.vocals;
+      state.vocalBuffer = res.vocals;
+      state.source = 'inst';
+      await applyClean();
+    } else {
+      state.ai.rawInst = null;
+      state.ai.rawVocal = null;
+      state.vocalBuffer = res.vocals;
+      state.source = mode === 'vocal' ? 'vocal' : 'inst';
+    }
     state.ai.stage = 'ready';
     state.ai.ms = res.ms;
     state.status = 'ready';
@@ -504,6 +577,9 @@ async function loadFile(file) {
   state.source = 'inst';
   state.ai.stage = 'idle';
   state.ai.error = '';
+  state.ai.rawInst = null;
+  state.ai.rawVocal = null;
+  state.ai.cleanProgress = 0;
   repaintView();
 
   try {
@@ -621,6 +697,11 @@ function aiControlsHTML(working, stale) {
       ${Object.values(AI_MODES).map((m) => `<button class="chip${a.mode === m.id ? ' is-on' : ''}" data-aimode="${m.id}" ${working ? 'disabled' : ''}>${m.label}</button>`).join('')}
     </div>
     <p class="mono faint vr-hint">${modeDef.hint}</p>
+    ${a.mode === 'dual' ? `<label class="vr-slider">
+      <span class="vr-slider__head"><span class="k-label">人声残留清理</span><em class="mono" id="vrCleanVal">${Math.round(a.clean * 100)}%</em></span>
+      <input type="range" id="vrClean" min="0" max="100" step="5" value="${Math.round(a.clean * 100)}" ${working ? 'disabled' : ''} />
+      <span class="faint">用伴奏模型当参照，减掉人声里和伴奏相干的部分。0 = 关；默认 100%，觉得人声变薄就调低。</span>
+    </label>` : ''}
     <div class="vr-ai__head">
       <b>${esc(defs.map((d) => d.name).join(' + '))}</b>
       <span class="mono faint">${humanSize(totalBytes)} · MDX-Net · 本地推理</span>
@@ -655,7 +736,7 @@ function controlsHTML() {
     </div>
     <p class="mono faint vr-hint">${
       ai
-        ? 'M/S 只搬得走正中间的声音；混响、双轨、偏一点的人声都会留下。AI 分轨里「伴奏优先」的人声仍是残差（可能带音乐）；要干净人声选「人声优先」或「双模型」。'
+        ? 'M/S 只搬得走正中间的声音；混响、双轨、偏一点的人声都会留下。AI 分轨里「双模型」会用伴奏当参照清理人声残留；「人声优先」快但不清理。'
         : state.method === 'spectral'
           ? '逐频点只压中置成分，更干净，代价是要算几秒（约每 10 秒音频 1 秒）。'
           : '整段中置一起压，几乎瞬时；裙边会漏一点人声，适合先听个大概。'
@@ -694,11 +775,14 @@ function playerHTML() {
   const gainDb = !ai && Math.abs(r.gain - 1) > 0.01 ? `${(20 * Math.log10(r.gain)).toFixed(1)} dB` : '';
   const wavBytes = 44 + state.instBuffer.length * 2 * 2;
   const mode = ai ? aiModeOf(r.aiMode) : null;
-  const vocalLabel = ai ? (r.aiMode === 'inst' ? '人声（残差）' : '人声') : '人声残留';
+  const vocalLabel = ai
+    ? (r.aiMode === 'inst' ? '人声（残差）' : r.aiMode === 'dual' && state.ai.clean > 0 ? '人声（已清理）' : '人声')
+    : '人声残留';
   const instLabel = ai && r.aiMode === 'vocal' ? '伴奏（残差）' : '纯伴奏';
   const srcTag = { orig: '原曲', inst: instLabel, vocal: vocalLabel }[state.source] || instLabel;
+  const cleanTag = ai && r.aiMode === 'dual' && state.ai.clean > 0 ? ` · 去残留 ${Math.round(state.ai.clean * 100)}%` : '';
   const head = ai
-    ? `AI · ${esc(mode?.short || r.model || 'MDX-Net')} · ${(r.ms / 1000).toFixed(1)}s`
+    ? `AI · ${esc(mode?.short || r.model || 'MDX-Net')} · ${(r.ms / 1000).toFixed(1)}s${cleanTag}`
     : `${methodLabel(r.method)} · ${(r.ms / 1000).toFixed(r.ms < 950 ? 2 : 1)}s${gainDb ? ` · 增益 ${gainDb}` : ''}`;
   return `<div class="panel" data-reveal>
     <div class="panel__head">
@@ -961,6 +1045,9 @@ export default {
         }
         state.ai.error = '';
         state.ai.stage = 'idle';
+        state.ai.rawInst = null;
+        state.ai.rawVocal = null;
+        state.ai.cleanProgress = 0;
         repaint();
         return;
       }
@@ -1027,6 +1114,10 @@ export default {
         state.bassHz = Number(e.target.value);
         const v = root.querySelector('#vrBassVal');
         if (v) v.textContent = `${state.bassHz} Hz`;
+      } else if (e.target.id === 'vrClean') {
+        state.ai.clean = Number(e.target.value) / 100;
+        const v = root.querySelector('#vrCleanVal');
+        if (v) v.textContent = pct(state.ai.clean);
       } else if (e.target.id === 'vrSeek') {
         e.target.dataset.dragging = '1';
         state.position = (Number(e.target.value) / 1000) * audioDuration();
@@ -1056,6 +1147,9 @@ export default {
         state.autoGain = !!e.target.checked;
         if (state.method === 'fast') run({ quiet: true });
         else repaint();
+      } else if (e.target.id === 'vrClean') {
+        state.ai.clean = Number(e.target.value) / 100;
+        if (state.ai.rawVocal && state.ai.mode === 'dual') applyClean();
       } else if (e.target.id === 'vrSeek') {
         delete e.target.dataset.dragging;
         seekTo(Number(e.target.value) / 1000);
