@@ -51,22 +51,27 @@ PHONE_SIZES = {
 }
 MAX_EDGE = 1600
 QUALITY = 86
-DUP_DIST = 6
+DUP_DIST = 4        # 差分哈希距离阈值（64 位里允许差 4 位）
 
 
 def human(n):
     return f"{n / 1048576:.1f} MB" if n >= 1048576 else f"{n / 1024:.0f} KB"
 
 
-def ahash(im):
-    """8×8 灰度平均哈希 → 64bit 整数（用来判重 ✓）"""
-    g = im.convert("L").resize((8, 8), Image.LANCZOS)
+def dhash(im):
+    """9×8 灰度**差分**哈希 → 64bit
+    为什么不用平均哈希：aHash 只看"整体亮暗分布"，两张构图相似的插画（背景 + 中间主体）
+    在 8×8 下几乎一样 → 会互相误判成重复 ✗（我第一版就这样，测试里 3 张不同的图全被判重 ✗）。
+    dHash 比较**相邻像素**的明暗变化，对细节敏感得多 ✓"""
+    g = im.convert("L").resize((9, 8), Image.LANCZOS)
     px = list(g.getdata())
-    avg = sum(px) / len(px)
     bits = 0
-    for i, v in enumerate(px):
-        if v >= avg:
-            bits |= 1 << i
+    i = 0
+    for y in range(8):
+        for x in range(8):
+            if px[y * 9 + x] > px[y * 9 + x + 1]:
+                bits |= 1 << i
+            i += 1
     return bits
 
 
@@ -128,13 +133,15 @@ def main():
                         skipped.append((p, why))
                         reasons[why.split()[0]] = reasons.get(why.split()[0], 0) + 1
                         continue
-                h = ahash(im)
-                dup = next((k for k in hashes if hamming(k, h) <= DUP_DIST), None)
+                h = dhash(im)
+                ratio = im.size[0] / max(1, im.size[1])
+                # 判重：差分哈希距离 ≤ 阈值 **且** 长宽比几乎一致（比例门槛能挡掉大量误杀 ✓）
+                dup = next((k for k, ar in hashes if hamming(k, h) <= DUP_DIST and abs(ar - ratio) < 0.02), None)
                 if dup is not None:
                     skipped.append((p, "重复"))
                     reasons["重复"] = reasons.get("重复", 0) + 1
                     continue
-                hashes.append(h)
+                hashes.append((h, ratio))
                 size, blob = convert(p, im)
                 kept.append({"src": str(p), "out": f"assets/img/gallery/{hashlib.sha1(str(p).encode()).hexdigest()[:12]}.webp",
                              "w": size[0], "h": size[1], "bytes": len(blob)})
