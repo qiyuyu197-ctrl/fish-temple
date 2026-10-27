@@ -19,6 +19,7 @@ import { viewhead } from '../ui/bits.js';
 import { toolsTabs } from '../ui/tools-tabs.js';
 import { decodeAudio, toWav, encodeMp3, audioCtx, fmtTime } from '../plugins/tools/audio.js';
 import { cancelBleed } from '../plugins/tools/bleed.js';
+import { restoreAir } from '../plugins/tools/air.js';
 import {
   AI_MODELS, AI_MODES, ensureModel, separateFile as separateWithAI, separateDual, aiReady,
 } from '../plugins/tools/ai-separator.js';
@@ -49,6 +50,8 @@ const state = {
     localName: '',
     localFor: '',
     clean: 1,
+    air: 0.8,
+    modelInst: null,
     rawInst: null,
     rawVocal: null,
     cleanProgress: 0,
@@ -356,6 +359,36 @@ async function applyClean() {
   }
 }
 
+/* ---------------- 高频修复 ---------------- */
+
+/** 用原曲的 4kHz 以上补回模型伴奏被削掉的高频；只重算 DSP，不重跑模型 */
+function applyAir({ paint = true } = {}) {
+  const raw = state.ai.modelInst;
+  if (!raw) return;
+  const mode = state.ai.mode;
+  const s = mode === 'vocal' ? 0 : Math.max(0, Math.min(1, state.ai.air));
+  const was = state.playing && state.source === 'inst';
+  let next = raw;
+  if (s > 0 && state.buffer) {
+    const l = raw.getChannelData(0);
+    const r = raw.numberOfChannels > 1 ? raw.getChannelData(1) : l;
+    const orig = state.buffer;
+    const oL = orig.getChannelData(0);
+    const oR = orig.numberOfChannels > 1 ? orig.getChannelData(1) : oL;
+    const out = restoreAir([l, r], [oL, oR], { strength: s, sampleRate: raw.sampleRate });
+    next = makeBuffer(out.l, out.r, raw.sampleRate);
+    if (state.result) { state.result.l = out.l; state.result.r = out.r; }
+  } else if (state.result) {
+    const l = raw.getChannelData(0);
+    const r = raw.numberOfChannels > 1 ? raw.getChannelData(1) : l;
+    state.result.l = l;
+    state.result.r = r;
+  }
+  state.instBuffer = next;
+  if (was) { pause(); play(); }
+  if (paint) repaintView();
+}
+
 /* ---------------- AI 分轨 ---------------- */
 
 async function runAI({ quiet = false } = {}) {
@@ -427,6 +460,7 @@ async function runAI({ quiet = false } = {}) {
       ms: res.ms,
     };
     state.instBuffer = res.instrumental;
+    state.ai.modelInst = res.instrumental;
     if (mode === 'dual') {
       state.ai.rawInst = res.instrumental;
       state.ai.rawVocal = res.vocals;
@@ -439,6 +473,7 @@ async function runAI({ quiet = false } = {}) {
       state.vocalBuffer = res.vocals;
       state.source = mode === 'vocal' ? 'vocal' : 'inst';
     }
+    applyAir({ paint: false });
     state.ai.stage = 'ready';
     state.ai.ms = res.ms;
     state.status = 'ready';
@@ -478,6 +513,7 @@ async function loadFile(file) {
   state.source = 'inst';
   state.ai.stage = 'idle';
   state.ai.error = '';
+  state.ai.modelInst = null;
   state.ai.rawInst = null;
   state.ai.rawVocal = null;
   state.ai.cleanProgress = 0;
@@ -534,6 +570,8 @@ function noteHTML() {
         人声优先的伴奏可能带人声。要两条都干净就选双模型。<br>
         <b>人声残留清理是 DSP。</b>它只减掉和人声轨里与伴奏相干的部分；完全不相干的残留无能为力。
         默认 100%，觉得人声变薄就调低。<br>
+        <b>高频修复是从原曲借的。</b>MDX 会削掉 4kHz 以上的器乐高频，导出会糊；
+        补回来更亮，但可能带回一点人声齿音/气声。默认 80%，觉得刺就调低。<br>
         <b>慢。</b>双模型要两份模型、各跑一遍；首次还要下载约 128MB。手机可能吃力。<br>
         <b>不上传。</b>解码、推理、导出都在这台设备的浏览器里完成。
       </p>
@@ -580,6 +618,11 @@ function aiControlsHTML(working, stale) {
       <input type="range" id="vrClean" min="0" max="100" step="5" value="${Math.round(a.clean * 100)}" ${working ? 'disabled' : ''} />
       <span class="faint">用伴奏模型当参照，减掉人声里和伴奏相干的部分。0 = 关；默认 100%，觉得人声变薄就调低。</span>
     </label>` : ''}
+    ${a.mode !== 'vocal' ? `<label class="vr-slider">
+      <span class="vr-slider__head"><span class="k-label">高频修复</span><em class="mono" id="vrAirVal">${Math.round(a.air * 100)}%</em></span>
+      <input type="range" id="vrAir" min="0" max="100" step="5" value="${Math.round(a.air * 100)}" ${working ? 'disabled' : ''} />
+      <span class="faint">MDX 会削掉 4k 以上的器乐高频，导出会糊；从原曲补回来。可能带回一点齿音，觉得刺就调低。</span>
+    </label>` : ''}
     <div class="vr-ai__head">
       <b>${esc(defs.map((d) => d.name).join(' + '))}</b>
       <span class="mono faint">${humanSize(totalBytes)} · MDX-Net · 本地推理</span>
@@ -617,7 +660,8 @@ function playerHTML() {
   const instLabel = r.aiMode === 'vocal' ? '伴奏（残差）' : '纯音乐';
   const srcTag = { orig: '原曲', inst: instLabel, vocal: vocalLabel }[state.source] || instLabel;
   const cleanTag = r.aiMode === 'dual' && state.ai.clean > 0 ? ` · 去残留 ${Math.round(state.ai.clean * 100)}%` : '';
-  const head = `AI · ${esc(mode?.short || r.model || 'MDX-Net')} · ${(r.ms / 1000).toFixed(1)}s${cleanTag}`;
+  const airTag = r.aiMode !== 'vocal' && state.ai.air > 0 ? ` · 补高频 ${Math.round(state.ai.air * 100)}%` : '';
+  const head = `AI · ${esc(mode?.short || r.model || 'MDX-Net')} · ${(r.ms / 1000).toFixed(1)}s${cleanTag}${airTag}`;
   return `<div class="panel" data-reveal>
     <div class="panel__head">
       <span class="panel__title">03 / 试听与导出</span>
@@ -860,6 +904,7 @@ export default {
         }
         state.ai.error = '';
         state.ai.stage = 'idle';
+        state.ai.modelInst = null;
         state.ai.rawInst = null;
         state.ai.rawVocal = null;
         state.ai.cleanProgress = 0;
@@ -926,6 +971,10 @@ export default {
         state.ai.clean = Number(e.target.value) / 100;
         const v = root.querySelector('#vrCleanVal');
         if (v) v.textContent = pct(state.ai.clean);
+      } else if (e.target.id === 'vrAir') {
+        state.ai.air = Number(e.target.value) / 100;
+        const v = root.querySelector('#vrAirVal');
+        if (v) v.textContent = pct(state.ai.air);
       } else if (e.target.id === 'vrSeek') {
         e.target.dataset.dragging = '1';
         state.position = (Number(e.target.value) / 1000) * audioDuration();
@@ -951,6 +1000,11 @@ export default {
       if (e.target.id === 'vrClean') {
         state.ai.clean = Number(e.target.value) / 100;
         if (state.ai.rawVocal && state.ai.mode === 'dual') applyClean();
+        return;
+      }
+      if (e.target.id === 'vrAir') {
+        state.ai.air = Number(e.target.value) / 100;
+        if (state.ai.modelInst && state.ai.mode !== 'vocal') applyAir();
         return;
       }
       if (e.target.id === 'vrExport') {
