@@ -1,0 +1,106 @@
+/**
+ * styles/leaderboard.css — 排行榜 UI（ui/leaderboard.js 配套）
+ * 视觉沿用站点：纸色底、2px 墨色描边、等宽小字、方角；前三名给一点信号黄。
+ */
+
+/* ---- 上传区块 ---- */
+.rank-upload {
+  display: grid;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 2px solid var(--border);
+}
+.rank-upload__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.rank-upload__score {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--fg);
+}
+.rank-upload__hint {
+  font-style: normal;
+  font-size: var(--fs-2xs);
+  color: var(--fg-faint);
+  letter-spacing: var(--ls-wide);
+}
+.rank-upload__name {
+  width: 150px;
+  padding: 6px 10px;
+  border: 2px solid var(--ink-100);
+  background: var(--paper);
+  color: var(--fg);
+  font-size: var(--fs-xs);
+}
+.rank-upload__name:focus { outline: 2px solid var(--signal); outline-offset: 1px; }
+.rank-upload__note {
+  min-height: 1.2em;
+  font-size: var(--fs-2xs);
+  color: var(--signal-ink, var(--fg-soft));
+}
+
+/* ---- 榜单 ---- */
+.rank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: rank;
+}
+.rank-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 96px 120px;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+.rank-row:last-child { border-bottom: 0; }
+.rank-row__no {
+  font-size: var(--fs-xs);
+  color: var(--fg-faint);
+  letter-spacing: var(--ls-wide);
+}
+.rank-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.rank-row__val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rank-row__val i {
+  font-style: normal;
+  margin-left: 3px;
+  font-size: var(--fs-2xs);
+  color: var(--fg-faint);
+}
+.rank-row__meta {
+  text-align: right;
+  font-size: var(--fs-2xs);
+  color: var(--fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 前三名：左侧一条信号黄 + 序号加重 ✓ */
+.rank-row:nth-child(1) { box-shadow: inset 3px 0 0 var(--signal); }
+.rank-row:nth-child(2) { box-shadow: inset 3px 0 0 var(--ink-25); }
+.rank-row:nth-child(3) { box-shadow: inset 3px 0 0 var(--ink-12); }
+.rank-row:nth-child(-n + 3) .rank-row__no { color: var(--fg); font-weight: 700; }
+
+@media (max-width: 560px) {
+  .rank-row { grid-template-columns: 32px minmax(0, 1fr) 84px; }
+  .rank-row__meta { display: none; }
+  .rank-upload__name { width: 100%; }
+}
