@@ -3420,6 +3420,7 @@ async function main() {
       file: !!document.querySelector('#vrModelFile'),
       sliders: document.querySelectorAll('.vr-slider').length,
       air: !!document.querySelector('#vrAir'),
+      airSafe: !!document.querySelector('#vrAirSafe') && document.querySelector('#vrAirSafe').checked === true,
       modes: [...document.querySelectorAll('[data-aimode]')].map((b) => b.dataset.aimode).join(','),
       run: document.querySelector('#vrRun') ? document.querySelector('#vrRun').textContent.trim() : '',
       model: document.querySelector('.vr-ai__head') ? document.querySelector('.vr-ai__head').innerText.replace(/\\s+/g, ' ') : '',
@@ -3445,6 +3446,7 @@ async function main() {
   record('工具台：AI 分轨入口（三种输出 / 双模型清理 / 本地模型）',
     vocalUI?.aiUI?.panel === true && vocalUI?.aiUI?.file === true
       && vocalUI?.aiUI?.sliders === 1 && vocalUI?.aiUI?.air === true
+      && vocalUI?.aiUI?.airSafe === true
       && vocalUI?.aiUI?.modes === 'inst,vocal,dual'
       && /开始分离/.test(vocalUI?.aiUI?.run || '')
       && /UVR-MDX-NET/.test(vocalUI?.aiUI?.model || '')
@@ -3487,20 +3489,29 @@ async function main() {
       && bleedUI?.pure440 > 0.27 && bleedUI?.pure660 < 0.01,
     JSON.stringify(bleedUI));
 
-  // 高频修复：原曲 200Hz+8kHz，模型伴奏只有 200Hz；补完 8kHz 要回来，200Hz 不动
+  // 高频修复：全量模式补回居中的 8kHz；安全模式只补侧面，居中人声不补
   const airUI = await evaluate(`(async () => {
     const { restoreAir } = await import('/src/plugins/tools/air.js');
     const rate = 48000;
     const n = rate * 2;
-    const orig = new Float32Array(n);
-    const inst = new Float32Array(n);
+    const low = new Float32Array(n);
+    const center = new Float32Array(n);
+    const sideL = new Float32Array(n);
+    const sideR = new Float32Array(n);
+    const instL = new Float32Array(n);
+    const instR = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const t = i / rate;
-      const low = 0.3 * Math.sin(2 * Math.PI * 200 * t);
-      orig[i] = low + 0.2 * Math.sin(2 * Math.PI * 8000 * t);
-      inst[i] = low;
+      low[i] = 0.3 * Math.sin(2 * Math.PI * 200 * t);
+      center[i] = low[i] + 0.2 * Math.sin(2 * Math.PI * 8000 * t);
+      sideL[i] = low[i] + 0.2 * Math.sin(2 * Math.PI * 8000 * t);
+      sideR[i] = low[i] - 0.2 * Math.sin(2 * Math.PI * 8000 * t);
+      instL[i] = low[i];
+      instR[i] = low[i];
     }
-    const out = restoreAir([inst], [orig], { strength: 1, sampleRate: rate });
+    const full = restoreAir([low], [center], { strength: 1, safe: false, sampleRate: rate });
+    const safeCenter = restoreAir([low], [center], { strength: 1, safe: true, sampleRate: rate });
+    const safeSide = restoreAir([instL, instR], [sideL, sideR], { strength: 1, safe: true, sampleRate: rate });
     const proj = (d, f) => {
       const a = Math.floor(0.2 * rate), b = Math.floor(1.8 * rate);
       let sr = 0, si = 0;
@@ -3511,10 +3522,18 @@ async function main() {
       }
       return (2 * Math.sqrt(sr * sr + si * si)) / (b - a);
     };
-    return { low: proj(out.l, 200), high: proj(out.l, 8000) };
+    return {
+      low: proj(full.l, 200),
+      fullHigh: proj(full.l, 8000),
+      safeSideHigh: proj(safeSide.l, 8000),
+      safeCenterHigh: proj(safeCenter.l, 8000),
+    };
   })()`);
-  record('工具台：高频修复补回 8kHz、保留 200Hz',
-    airUI?.low > 0.27 && airUI?.low < 0.33 && airUI?.high > 0.17 && airUI?.high < 0.22,
+  record('工具台：高频修复全量补 8kHz、安全模式只补侧面',
+    airUI?.low > 0.27 && airUI?.low < 0.33
+      && airUI?.fullHigh > 0.17 && airUI?.fullHigh < 0.22
+      && airUI?.safeSideHigh > 0.17 && airUI?.safeSideHigh < 0.22
+      && airUI?.safeCenterHigh < 0.03,
     JSON.stringify(airUI));
 
   // Markdown 渲染（post_overview 内含表格、提示块、代码块、目录）

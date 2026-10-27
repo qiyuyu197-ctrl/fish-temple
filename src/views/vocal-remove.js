@@ -51,6 +51,7 @@ const state = {
     localFor: '',
     clean: 1,
     air: 0.8,
+    airSafe: true,
     modelInst: null,
     rawInst: null,
     rawVocal: null,
@@ -375,7 +376,16 @@ function applyAir({ paint = true } = {}) {
     const orig = state.buffer;
     const oL = orig.getChannelData(0);
     const oR = orig.numberOfChannels > 1 ? orig.getChannelData(1) : oL;
-    const out = restoreAir([l, r], [oL, oR], { strength: s, sampleRate: raw.sampleRate });
+    const rv = state.ai.rawVocal;
+    const vocal = state.ai.airSafe && rv
+      ? [
+        rv.getChannelData(0),
+        rv.numberOfChannels > 1 ? rv.getChannelData(1) : rv.getChannelData(0),
+      ]
+      : null;
+    const out = restoreAir([l, r], [oL, oR], {
+      strength: s, sampleRate: raw.sampleRate, safe: state.ai.airSafe, vocal,
+    });
     next = makeBuffer(out.l, out.r, raw.sampleRate);
     if (state.result) { state.result.l = out.l; state.result.r = out.r; }
   } else if (state.result) {
@@ -571,7 +581,8 @@ function noteHTML() {
         <b>人声残留清理是 DSP。</b>它只减掉和人声轨里与伴奏相干的部分；完全不相干的残留无能为力。
         默认 100%，觉得人声变薄就调低。<br>
         <b>高频修复是从原曲借的。</b>MDX 会削掉 4kHz 以上的器乐高频，导出会糊；
-        补回来更亮，但可能带回一点人声齿音/气声。默认 80%，觉得刺就调低。<br>
+        默认「人声安全」只补侧高频和人声不活跃处，避免带出小声音；关掉会更亮，
+        但 4kHz 以上本就几乎全是人声的歌会把齿音/气声带回来。默认 80%，觉得刺就调低。<br>
         <b>慢。</b>双模型要两份模型、各跑一遍；首次还要下载约 128MB。手机可能吃力。<br>
         <b>不上传。</b>解码、推理、导出都在这台设备的浏览器里完成。
       </p>
@@ -621,7 +632,11 @@ function aiControlsHTML(working, stale) {
     ${a.mode !== 'vocal' ? `<label class="vr-slider">
       <span class="vr-slider__head"><span class="k-label">高频修复</span><em class="mono" id="vrAirVal">${Math.round(a.air * 100)}%</em></span>
       <input type="range" id="vrAir" min="0" max="100" step="5" value="${Math.round(a.air * 100)}" ${working ? 'disabled' : ''} />
-      <span class="faint">MDX 会削掉 4k 以上的器乐高频，导出会糊；从原曲补回来。可能带回一点齿音，觉得刺就调低。</span>
+      <label class="mono faint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="vrAirSafe" ${a.airSafe ? 'checked' : ''} ${working ? 'disabled' : ''} />
+        人声安全（推荐）
+      </label>
+      <span class="faint">MDX 会削掉 4k 以上的器乐高频，导出会糊；从原曲补回来。安全模式只补侧高频/人声不活跃处，避免带出小声音；关掉会更亮但可能带回齿音。</span>
     </label>` : ''}
     <div class="vr-ai__head">
       <b>${esc(defs.map((d) => d.name).join(' + '))}</b>
@@ -1004,6 +1019,11 @@ export default {
       }
       if (e.target.id === 'vrAir') {
         state.ai.air = Number(e.target.value) / 100;
+        if (state.ai.modelInst && state.ai.mode !== 'vocal') applyAir();
+        return;
+      }
+      if (e.target.id === 'vrAirSafe') {
+        state.ai.airSafe = !!e.target.checked;
         if (state.ai.modelInst && state.ai.mode !== 'vocal') applyAir();
         return;
       }
