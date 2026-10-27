@@ -27,6 +27,20 @@
  *   GET    /api/netease/audio              音频流转发（同源直放，支持 Range）
  *   GET    /api/netease/status             代理状态
  *
+ *   GET    /api/netease/login/status       登录开关 / 当前账号是否已绑定
+ *   GET    /api/netease/login/qr           生成扫码 key + 二维码 SVG（要本站身份）
+ *   GET    /api/netease/login/qr/check     轮询扫码结果，成功即绑定
+ *   GET    /api/netease/login/me           当前绑定（不含 cookie）
+ *   POST   /api/netease/login/logout       解绑并丢弃 cookie
+ *   GET    /api/netease/login/playlists    我的歌单（登录态）
+ *   GET    /api/netease/login/playlist     私密歌单 / 我喜欢的音乐详情（登录态）
+ *   GET    /api/netease/login/likes        我喜欢的歌曲 id（登录态）
+ *   POST   /api/netease/login/like         红心 / 取消红心
+ *   GET    /api/netease/login/recommend    每日推荐（按账号算）
+ *   GET    /api/netease/login/cloud        云盘列表（你自己上传的歌）
+ *   GET    /api/netease/login/audio        云盘曲目的音频流（URL 带签名，<audio> 用）
+ *   GET    /api/netease/login/diagnostics  扫码链路诊断（仅站长，不含凭据）
+ *
  *   GET    /api/pixiv/random               随机 Pixiv 作品（元数据 + 镜像图片地址）
  *   GET    /api/pixiv/illust?id=           按作品 id 给出镜像图片地址
  *   GET    /api/pixiv/status               Pixiv 代理状态
@@ -45,10 +59,85 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStorage } from './storage.mjs';
 import { authConfig, authenticate } from './auth.mjs';
+// 网易云扫码登录：协议层（eapi）与业务层（绑定 / 个人数据）分开，见两个文件顶部的长注释
+import {
+  bindByCookie,
+  checkQrLogin,
+  clearBinding,
+  cloudAudioUrl,
+  canUseNeteaseLogin,
+  dailyRecommend,
+  diagnostics as neteaseDiagnostics,
+  fetchPlaylistWithLogin,
+  identityFor,
+  listCloudSongs,
+  listLikedIds,
+  listMyPlaylists,
+  neteaseLoginConfig,
+  publicBinding,
+  readBinding,
+  resolveCloudAudio,
+  resolveTrackAudio,
+  setSongLike,
+  signAudioUrl,
+  startQrLogin,
+  verifyCloudAudioToken,
+} from './netease-login.mjs';
+// 歌词的 v1 接口（逐字 yrc）要走 eapi —— 旧的 /api/song/lyric 只有行级 LRC
+import { createIdentity, eapiRequest } from './netease-eapi.mjs';
 // 联机扫雷复用同一份纯逻辑引擎（它不碰 DOM，所以服务端也能 import）
 import * as Mines from './src/plugins/minesweeper.js';
 // 评论的校验与权限规则：服务端与前端**共用同一份**（src/plugins/comment-model.js）✓
 import { validateComment, makeComment, canDelete } from './src/plugins/comment-model.js';
+
+/**
+ * 歌词：优先取 **v1**（`/api/song/lyric/v1`）——
+ * 它可能带回逐字时间轴 `yrc`（形如 `[start,dur](wordT,wordD,0)字…`），
+ * 没有逐字的歌会退化成行级 LRC（有时是富文本 JSON 行）。
+ * 服务端只负责把原文 / 逐字 / 译文三份原始文本取回来，解析在前端（plugins/lyrics.js）。
+ */
+const lyricCache = new Map();
+const LYRIC_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function fetchLyricBundle(id) {
+  const key = String(id);
+  const hit = lyricCache.get(key);
+  if (hit && Date.now() - hit.at < LYRIC_TTL_MS) return hit.data;
+
+  let data = null;
+  try {
+    const res = await eapiRequest('/api/song/lyric/v1', {
+      id: Number(key), cp: false, tv: 0, lv: 0, rv: 0, kv: 0, yv: 0, ytv: 0, yrv: 0,
+    }, createIdentity({}));
+    const body = res.body || {};
+    if (Number(body.code) === 200) {
+      data = {
+        lrc: String(body.lrc?.lyric || ''),
+        yrc: String(body.yrc?.lyric || ''),
+        tlyric: String(body.tlyric?.lyric || ''),
+      };
+    }
+  } catch { /* v1 失败就退回旧接口 */ }
+
+  if (!data) {
+    const { data: legacy } = await neteaseFetch(`/api/song/lyric?id=${key}&lv=-1&kv=-1&tv=-1`);
+    data = {
+      lrc: String(legacy?.lrc?.lyric || ''),
+      yrc: '',
+      tlyric: String(legacy?.tlyric?.lyric || ''),
+    };
+  }
+
+  // 纯音乐 / 无人声：两份都扒掉时间戳与 JSON 结构后没有可见文字
+  const visible = `${data.lrc}\n${data.yrc}`.replace(/\[[^\]]*\]|\{[^\n]*\}/g, '').trim();
+  data.nolyric = visible.length < 2;
+  lyricCache.set(key, { at: Date.now(), data });
+  if (lyricCache.size > 120) {
+    [...lyricCache.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 40)
+      .forEach(([k]) => lyricCache.delete(k));
+  }
+  return data;
+}
 
 /**
  * ⚠️ 这里**不能**用 `__filename` / `__dirname` 这两个名字。
@@ -634,18 +723,14 @@ async function resolveNeteaseAudio(id) {
   return info;
 }
 
-/** GET /api/netease/audio?id=<id> —— 同源音频流（支持 Range，可拖动进度） */
-async function streamNeteaseAudio(req, res, url, opts = {}) {
-  const id = (url.searchParams.get('id') || '').trim();
-  if (!/^\d{4,12}$/.test(id)) return fail(res, 400, '缺少合法的歌曲 id');
-
-  const info = await resolveNeteaseAudio(id);
-  if (!info) {
-    // 把两个入口各自的结果带上：线上排查时一眼看出是"上游拒绝"还是"我们超时"
-    const tried = audioUrlCache.get(String(id))?.tried;
-    const detail = tried?.length ? `（${tried.join('、')}）` : '';
-    return fail(res, 404, `这首歌没有匿名可用的音频流（会员 / 版权限制），请改用官方外链播放器${detail}`);
-  }
+/**
+ * 把解析好的音频地址送回浏览器：本地**同源转发**（支持 Range/206、可拖动），
+ * serverless 下改成 **302** 指向 CDN（函数不扛流量）。
+ *
+ * 抽成独立函数是因为**云盘曲目**也要走同一条路：解析方式不同（匿名 vs 登录态），
+ * 但"怎么把流送出去"必须只有一份 —— 否则诊断头、Range、缓存策略迟早分叉。
+ */
+async function sendAudioStream(req, res, info, opts = {}) {
   const audioUrl = info.url;
 
   /* Serverless（Netlify Functions）上不要在函数里搬音频：
@@ -694,8 +779,12 @@ async function streamNeteaseAudio(req, res, url, opts = {}) {
     return fail(res, status, `音频源返回 HTTP ${upstream.status}`);
   }
 
+  // 网易云 CDN 对 FLAC 也常回 `audio/mpeg`（甚至带 charset），而字节流其实是 fLaC。
+  // 浏览器大多会嗅探，但 Firefox / Safari 更依赖 Content-Type —— 按上游给的 type 纠正一下。
+  const declaredType = /flac/i.test(String(info.type || '')) ? 'audio/flac' : '';
+  const upstreamType = (upstream.headers.get('content-type') || '').replace(/;.*$/, '').trim();
   const headers = {
-    'Content-Type': upstream.headers.get('content-type') || 'audio/mpeg',
+    'Content-Type': declaredType || upstreamType || 'audio/mpeg',
     'Accept-Ranges': 'bytes',
     // 允许浏览器缓存：预加载下一首时就是靠它把音频先拿进缓存，切歌才不会空一拍。
     // 必须是 private —— 这是转发流，不该被任何共享缓存留存。
@@ -723,6 +812,21 @@ async function streamNeteaseAudio(req, res, url, opts = {}) {
   } catch {
     // 客户端中途断开（换歌、拖动进度、关页面）是常态，不是错误
   }
+}
+
+/** GET /api/netease/audio?id=<id> —— 同源音频流（支持 Range，可拖动进度） */
+async function streamNeteaseAudio(req, res, url, opts = {}) {
+  const id = (url.searchParams.get('id') || '').trim();
+  if (!/^\d{4,12}$/.test(id)) return fail(res, 400, '缺少合法的歌曲 id');
+
+  const info = await resolveNeteaseAudio(id);
+  if (!info) {
+    // 把两个入口各自的结果带上：线上排查时一眼看出是"上游拒绝"还是"我们超时"
+    const tried = audioUrlCache.get(String(id))?.tried;
+    const detail = tried?.length ? `（${tried.join('、')}）` : '';
+    return fail(res, 404, `这首歌没有匿名可用的音频流（会员 / 版权限制），请改用官方外链播放器${detail}`);
+  }
+  return sendAudioStream(req, res, info, opts);
 }
 
 /**
@@ -791,9 +895,361 @@ async function neteaseSearch(q, limit, offset) {
   return { songs: [], total: 0, cached: false, via: null, tried };
 }
 
+/* ---------------- 网易云扫码登录（/api/netease/login/*） ----------------
+ * 和上面那套"匿名公开代理"是两条独立的路：
+ *   · 匿名代理：只读公开元数据 + 匿名可用的音频流，任何人可用，缓存激进；
+ *   · 登录链路：要本站身份、要存 cookie、每个账号一套数据，**不缓存**。
+ * 把它们拆开是刻意的 —— 登录态的东西一旦混进公共缓存，就是别人的歌单出现在你眼前。
+ */
+
+/**
+ * 认人。三种情况：
+ *   ① 带了有效 Auth0 令牌 → 就是这个账号；
+ *   ② 没配 Auth0、且请求来自本机 → 允许（和 `data/` 写入是同一条信任边界，
+ *      否则本地开发要先搭一个 IdP 才能看一眼扫码面板）；
+ *   ③ 其余 → 未登录。
+ */
+async function neteaseViewer(req, opts = {}) {
+  const who = await authenticate(req);
+  if (who.ok) return { ok: true, sub: who.user.sub, role: who.user.role, user: who.user, via: 'auth0' };
+  if (!authConfig().enabled && !opts.serverless && isLoopback(req)) {
+    return {
+      ok: true,
+      sub: 'local-loopback',
+      role: 'owner',
+      via: 'loopback',
+      user: { sub: 'local-loopback', email: '', name: '本机', picture: '', verified: true, role: 'owner' },
+    };
+  }
+  return { ok: false, status: who.status || 401, error: who.error || '需要登录' };
+}
+
+/** 把登录链路的错误翻成 HTTP：301 = 网易云说"你的登录没了"，对我们就是 401。 */
+function neteaseFail(res, err) {
+  const code = Number(err?.code) || 0;
+  const status = code === 301 ? 401 : (err?.status && err.status >= 400 && err.status < 600 ? err.status : 502);
+  const message = String(err?.message || err);
+  // 401 时把"重新扫码"直接写进提示：前端原本就会在 401 后把面板打回第一步
+  return fail(res, status, code === 301 ? `网易云登录已失效，请重新扫码（${message}）` : message);
+}
+
+async function handleNeteaseLogin(req, res, url, seg, opts = {}) {
+  const store = storageFor(opts);
+  const cfg = neteaseLoginConfig();
+  const action = seg[1] || 'status';
+  const method = req.method || 'GET';
+
+  const viewer = await neteaseViewer(req, opts);
+  const gate = viewer.ok ? canUseNeteaseLogin(viewer.user, cfg) : { ok: false, status: viewer.status, error: viewer.error };
+
+  const requireViewer = () => {
+    if (!viewer.ok) return fail(res, viewer.status, viewer.error);
+    if (!gate.ok) return fail(res, gate.status, gate.error);
+    return null;
+  };
+
+  /**
+   * 读当前绑定；没绑就回 404 让前端显示"未绑定"，而不是假装有数据。
+   * 用 `stop` 而不是 `error` 传递"已经回过响应了"：`fail()` 的返回值是 res，
+   * 靠它的真假来决定流程太绕，一旦哪天 fail 改成返回 undefined 就会继续往下跑。
+   */
+  const requireBinding = async () => {
+    const doc = await readBinding(store, viewer.sub).catch(() => null);
+    if (!doc) { fail(res, 404, '还没有绑定网易云账号'); return { stop: true }; }
+    return { doc };
+  };
+
+  /* ---- 状态：任何人都能问"这个站开不开登录"，但只有登录了才知道绑没绑 ---- */
+  if (action === 'status' && method === 'GET') {
+    let bound = null;
+    if (viewer.ok) bound = publicBinding(await readBinding(store, viewer.sub).catch(() => null));
+    return ok(res, {
+      ok: true,
+      enabled: cfg.enabled,
+      mode: cfg.mode,
+      riskNotice: cfg.riskNotice,
+      qrTtl: Math.floor(cfg.qrTtlMs / 1000),
+      canBind: gate.ok,
+      reason: gate.ok ? '' : gate.error,
+      siteUser: viewer.ok
+        ? { sub: viewer.sub, name: viewer.user.name, role: viewer.role, via: viewer.via }
+        : null,
+      bound,
+    });
+  }
+
+  /* ---- 开始扫码 ---- */
+  // 注意：/qr/check 也以 'qr' 开头，所以这里必须要求「没有第三段」，
+  // 否则轮询会掉进"生成新二维码"这个分支（自检里踩过）。
+  if (action === 'qr' && !seg[2] && method === 'GET') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    try {
+      const started = await startQrLogin({ sub: viewer.sub, store });
+      log(`\x1b[36mNETEASE\x1b[0m 生成扫码 key：${started.deviceId}（${viewer.sub.slice(0, 12)}…）`);
+      return ok(res, { ok: true, ...started });
+    } catch (err) {
+      log(`\x1b[31mNETEASE\x1b[0m 生成扫码 key 失败：${err.message}`);
+      return neteaseFail(res, err);
+    }
+  }
+
+  /* ---- 轮询扫码结果 ---- */
+  if (action === 'qr' && seg[2] === 'check' && method === 'GET') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const key = (url.searchParams.get('key') || '').trim();
+    const state = (url.searchParams.get('state') || '').trim();
+    if (!key || !state) return fail(res, 400, '缺少 key / state');
+    try {
+      const result = await checkQrLogin({ sub: viewer.sub, key, state, store });
+      if (result.status === 'confirmed') {
+        log(`\x1b[32mNETEASE\x1b[0m 绑定成功：${result.profile?.nickname || '(未知)'} uid=${result.profile?.uid || '?'}`);
+      }
+      return ok(res, { ok: true, ...result });
+    } catch (err) {
+      return neteaseFail(res, err);
+    }
+  }
+
+  /* ---- 我是谁 / 解绑 ---- */
+  if (action === 'me' && method === 'GET') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const doc = await readBinding(store, viewer.sub).catch(() => null);
+    return ok(res, {
+      ok: true,
+      enabled: cfg.enabled,
+      mode: cfg.mode,
+      canBind: gate.ok,
+      bound: publicBinding(doc),
+    });
+  }
+
+  if (action === 'logout' && method === 'POST') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    await clearBinding(store, viewer.sub);
+    log(`\x1b[33mNETEASE\x1b[0m 已解绑（${viewer.sub.slice(0, 12)}…）`);
+    return ok(res, { ok: true, bound: null });
+  }
+
+  /* ---- 备用通道：粘贴 MUSIC_U（扫码被风控拦掉时用） ---- */
+  if (action === 'cookie' && method === 'POST') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    let body;
+    try { body = await readBody(req, 32 * 1024); } catch (err) { return fail(res, 400, err.message); }
+    const raw = String(body?.cookie || body?.musicU || '').trim();
+    if (!raw) return fail(res, 400, '缺少 cookie（把 MUSIC_U=… 那一行粘进来）');
+    try {
+      const r = await bindByCookie(store, viewer.sub, raw);
+      log(`\x1b[32mNETEASE\x1b[0m Cookie 绑定成功：${r.profile.nickname || '(未知)'} uid=${r.profile.uid || '?'}`);
+      return ok(res, { ok: true, ...r });
+    } catch (err) { return neteaseFail(res, err); }
+  }
+
+  /* ---- 个人数据：全部要求已绑定 ---- */
+  if (action === 'playlists' && method === 'GET') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const { doc, stop } = await requireBinding();
+    if (stop) return;
+    try {
+      const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 60));
+      const playlists = await listMyPlaylists(await identityFor(store, doc.cookie), doc.uid, { limit });
+      return ok(res, { ok: true, uid: doc.uid, nickname: doc.nickname, playlists });
+    } catch (err) { return neteaseFail(res, err); }
+  }
+
+  if (action === 'playlist' && method === 'GET') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const { doc, stop } = await requireBinding();
+    if (stop) return;
+    const id = (url.searchParams.get('id') || '').trim();
+    if (!/^\d+$/.test(id)) return fail(res, 400, '缺少合法的歌单 id');
+    try {
+      const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get('limit')) || 300));
+      const playlist = await fetchPlaylistWithLogin(await identityFor(store, doc.cookie), id, { limit });
+      return ok(res, { ok: true, playlist });
+    } catch (err) { return neteaseFail(res, err); }
+  }
+
+  if (action === 'likes' && method === 'GET') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const { doc, stop } = await requireBinding();
+    if (stop) return;
+    try {
+      const identity = await identityFor(store, doc.cookie);
+      const r = await listLikedIds(identity, doc.uid);
+      // 顺手告诉前端"我喜欢"那条歌单叫什么 id（前端拿它去导整张歌单）
+      let likedPlaylistId = '';
+      try {
+        const list = await listMyPlaylists(identity, doc.uid, { limit: 60 });
+        likedPlaylistId = String(list.find((p) => p.specialType === 5)?.id || '');
+      } catch { /* 拿不到就算了，ids 本身已经够用 */ }
+      return ok(res, { ok: true, count: r.ids.length, ids: r.ids, likedPlaylistId });
+    } catch (err) { return neteaseFail(res, err); }
+  }
+
+  if (action === 'like' && method === 'POST') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const { doc, stop } = await requireBinding();
+    if (stop) return;
+    let body;
+    try { body = await readBody(req, 16 * 1024); } catch (err) { return fail(res, 400, err.message); }
+    const id = String(body?.id || '').trim();
+    if (!/^\d+$/.test(id)) return fail(res, 400, '缺少合法的歌曲 id');
+    try {
+      const r = await setSongLike(await identityFor(store, doc.cookie), doc.uid, id, body?.like !== false);
+      return ok(res, { ok: true, ...r });
+    } catch (err) { return neteaseFail(res, err); }
+  }
+
+  if (action === 'recommend' && method === 'GET') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const { doc, stop } = await requireBinding();
+    if (stop) return;
+    try {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 30));
+      const songs = await dailyRecommend(await identityFor(store, doc.cookie), { limit });
+      return ok(res, { ok: true, songs });
+    } catch (err) { return neteaseFail(res, err); }
+  }
+
+  /**
+   * POST /api/netease/login/urls —— 给一批**普通 / 会员曲目**签音频地址。
+   *
+   * 和 cloud/urls 的区别：云盘曲目播放前还会查归属；这里签的是"用绑定账号自己的会话
+   * 去取这首歌的音源"。只有**这个账号自己**能用（token 钉着 sub，音频端点还会再读一次绑定），
+   * 匿名访客走的 /api/netease/audio 完全不受影响。
+   */
+  if (action === 'urls' && method === 'POST') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const { stop } = await requireBinding();
+    if (stop) return;
+    let body;
+    try { body = await readBody(req, 64 * 1024); } catch (err) { return fail(res, 400, err.message); }
+    const ids = (Array.isArray(body?.ids) ? body.ids : [])
+      .map(String).filter((s) => /^\d+$/.test(s)).slice(0, 200);
+    if (!ids.length) return fail(res, 400, '缺少歌曲 id 列表');
+    const level = String(body?.level || 'exhigh');
+    const urls = {};
+    for (const id of [...new Set(ids)]) urls[id] = await signAudioUrl(store, viewer.sub, id, 'track-audio', level);
+    return ok(res, { ok: true, urls });
+  }
+
+  /**
+   * POST /api/netease/login/cloud/urls —— 给一批云盘曲目重新签音频地址。
+   *
+   * 为什么需要：云盘曲目的 `src` 会被存进 localStorage（播放列表），但签名里有 30 天过期，
+   * 而且**旧版本的签名格式变过一次**（最初复用了扫码状态，缺字段会被 400）。
+   * 只靠"加入时签一次"，已经进了列表的歌就会永远拿着坏地址 —— 表现是点播放没声音。
+   * 前端在进音乐台时用这个端点统一换一遍，坏链接就自愈了。
+   */
+  if (action === 'cloud' && seg[2] === 'urls' && method === 'POST') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const { stop } = await requireBinding();
+    if (stop) return;
+    let body;
+    try { body = await readBody(req, 64 * 1024); } catch (err) { return fail(res, 400, err.message); }
+    const ids = (Array.isArray(body?.ids) ? body.ids : [])
+      .map(String).filter((s) => /^\d+$/.test(s)).slice(0, 200);
+    if (!ids.length) return fail(res, 400, '缺少歌曲 id 列表');
+    const urls = {};
+    for (const id of [...new Set(ids)]) urls[id] = await cloudAudioUrl(store, viewer.sub, id);
+    return ok(res, { ok: true, urls });
+  }
+
+  /* ---- 云盘：列表 + 播放地址 ---- */
+  if (action === 'cloud' && method === 'GET') {
+    const denied = requireViewer();
+    if (denied) return denied;
+    const { doc, stop } = await requireBinding();
+    if (stop) return;
+    try {
+      const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 200));
+      const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
+      const identity = await identityFor(store, doc.cookie);
+      const songs = await listCloudSongs(identity, doc.uid, { limit, offset });
+      // 顺手给出可直接塞进 <audio src> 的签名地址：媒体元素带不了 Bearer
+      const withAudio = await Promise.all(songs.map(async (s) => ({
+        ...s,
+        audio: await cloudAudioUrl(store, viewer.sub, s.id),
+      })));
+      return ok(res, { ok: true, uid: doc.uid, count: withAudio.length, songs: withAudio });
+    } catch (err) { return neteaseFail(res, err); }
+  }
+
+  /**
+   * GET /api/netease/login/audio?id=&t= —— 云盘曲目的音频流。
+   *
+   * 鉴权走 URL 上的签名（`<audio>` 发不了 Bearer），签名里钉着 sub + 歌曲 id + 过期时间。
+   * 没签名时才回落到本站 Bearer（给 curl / 自检用）。
+   * **只放云盘里的歌**：resolveCloudAudio 会先用 /cloud/get/byids 确认归属。
+   */
+  if (action === 'audio' && method === 'GET') {
+    const id = (url.searchParams.get('id') || '').trim();
+    if (!/^\d+$/.test(id)) return fail(res, 400, '缺少合法的歌曲 id');
+    const token = (url.searchParams.get('t') || '').trim();
+
+    let kind = 'track-audio';
+    let sub = '';
+    let level = 'exhigh';
+    if (token) {
+      try {
+        const payload = await verifyCloudAudioToken(store, token);
+        if (String(payload.id) !== id) return fail(res, 400, '音频签名与歌曲不匹配');
+        kind = payload.kind;
+        sub = payload.sub;
+        if (payload.level) level = payload.level;
+      } catch (err) {
+        return neteaseFail(res, err);
+      }
+    } else {
+      if (!viewer.ok) return fail(res, viewer.status, viewer.error);
+      sub = viewer.sub;
+    }
+
+    const doc = await readBinding(store, sub).catch(() => null);
+    if (!doc) return fail(res, 403, '这个账号还没有绑定网易云（或绑定已解绑）');
+    try {
+      const identity = await identityFor(store, doc.cookie);
+      const info = kind === 'cloud-audio'
+        ? await resolveCloudAudio(identity, doc.uid, id)
+        : await resolveTrackAudio(identity, id, { level });
+      // 和匿名链路同一条底线：只跟随网易云 CDN、统一升级 https（否则 https 站点会拦混合内容）
+      const safeUrl = httpsAudioUrl(info.url);
+      if (!safeUrl) return fail(res, 404, '音频地址不在网易云 CDN 白名单内');
+      info.url = safeUrl;
+      log(`\x1b[36mNETEASE\x1b[0m ${kind === 'cloud-audio' ? '云盘' : '登录态'}音频 ${id} → ${info.type || '?'} ${info.bitrate || 0}bps`);
+      return sendAudioStream(req, res, info, opts);
+    } catch (err) { return neteaseFail(res, err); }
+  }
+
+  /* ---- 诊断：只给站长，里面没有 cookie ---- */
+  if (action === 'diagnostics' && method === 'GET') {
+    if (!viewer.ok) return fail(res, viewer.status, viewer.error);
+    if (viewer.role !== 'owner') return fail(res, 403, '诊断信息只给站长');
+    const report = await neteaseDiagnostics(store);
+    return ok(res, { ok: true, viewer: { sub: viewer.sub, via: viewer.via }, ...report });
+  }
+
+  return fail(res, 404, `未知的登录接口：${action}（可用：status / qr / qr/check / me / logout / playlists / playlist / likes / like / recommend / cloud / audio / diagnostics）`);
+}
+
 async function handleNetease(req, res, url, opts = {}) {
   const seg = url.pathname.replace(/^\/api\/netease\/?/, '').split('/').filter(Boolean);
   const action = seg[0] || 'search';
+
+  // /api/netease/login/* —— 扫码登录与个人数据（要本站身份，单独一条处理链）
+  if (action === 'login') return handleNeteaseLogin(req, res, url, seg, opts);
 
   if (action === 'search') {
     const q = (url.searchParams.get('q') || '').trim();
@@ -840,11 +1296,11 @@ async function handleNetease(req, res, url, opts = {}) {
       // 完整曲目顺序要看 trackIds（见 README 的说明）
       payload = await neteaseFetch(`/api/v6/playlist/detail?id=${id}&n=${limit}&s=8`);
     } catch (err) {
-      return fail(res, 404, `读取歌单失败：${err.message}（私密歌单 /「我喜欢的音乐」需要登录，本项目不实现登录）`);
+      return fail(res, 404, `读取歌单失败：${err.message}（私密歌单 /「我喜欢的音乐」需要登录态：先在音乐台「网易云账号」扫码，或改用 /api/netease/login/playlist）`);
     }
 
     const pl = payload.data?.playlist;
-    if (!pl) return fail(res, 404, '歌单不存在或不可访问（私密歌单需要登录，本项目不实现登录）');
+    if (!pl) return fail(res, 404, '歌单不存在或不可访问（私密歌单需要登录态：先在音乐台「网易云账号」扫码）');
 
     const trackIds = (pl.trackIds || [])
       .map((t) => String(t.id))
@@ -921,16 +1377,15 @@ async function handleNetease(req, res, url, opts = {}) {
     // /api/netease/lyric?id=1431292823 —— 只取歌词文本，不涉及音频流
     const id = (url.searchParams.get('id') || '').trim();
     if (!/^\d{4,12}$/.test(id)) return fail(res, 400, '缺少合法的曲目 id');
-    const { data, cached } = await neteaseFetch(`/api/song/lyric?id=${id}&lv=-1&kv=-1&tv=-1`);
-    const lrc = String(data?.lrc?.lyric || '');
+    const data = await fetchLyricBundle(id);
     return ok(res, {
       ok: true,
-      cached,
       id,
-      lrc,
-      tlyric: String(data?.tlyric?.lyric || ''),
-      // 纯音乐 / 无人声时网易云会回一段很短或空的占位
-      nolyric: !!data?.nolyric || lrc.replace(/\[[^\]]*\]/g, '').trim().length < 2,
+      lrc: data.lrc,
+      yrc: data.yrc,
+      tlyric: data.tlyric,
+      // 纯音乐 / 无人声
+      nolyric: !!data.nolyric,
     });
   }
 
@@ -1731,6 +2186,68 @@ async function requireOwner(req, res, opts = {}) {
   return null;
 }
 
+/* ---------------- 排行榜（扫雷通关时间 / 像素小鱼积分） ----------------
+ * 读公开 ✓、谁都能投（不用登录 —— 游戏排行榜让客人也能上榜更友好 ✓）
+ * 但：同一昵称 10 秒只能投一次 ✓；只保留前 20 名 ✓；成绩做**合理性校验** ✓
+ * 反作弊的边界：纯前端游戏分数在客户端算出来，理论上能伪造 ✗ ——
+ * 真正的防作弊得把游戏逻辑搬到服务端 ✓（规则见 src/plugins/leaderboard.js ✓）
+ */
+const LEADERBOARD = 'leaderboards';
+
+async function handleLeaderboard(req, res, url, opts, seg) {
+  const store = storageFor(opts);
+  // 动态 import：只在用到时才加载这份纯逻辑模块 ✓
+  const L = await import('./src/plugins/leaderboard.js');
+  const boardId = String(seg[0] || '');
+  const board = L.getBoard(boardId);
+  if (!board) return fail(res, 404, '没有这个排行榜（可用：mines / fish）');
+
+  const readAll = async () => {
+    const doc = await store.readItem(LEADERBOARD, boardId).catch(() => null);
+    return Array.isArray(doc && doc.items) ? doc.items : [];
+  };
+  const sorted = (items) => [...items].sort(L.compare(boardId)).slice(0, L.TOP_N);
+
+  if (req.method === 'GET') {
+    const items = sorted(await readAll());
+    return ok(res, {
+      ok: true,
+      board: { id: board.id, label: board.label, unit: board.unit, order: board.order },
+      items,
+    });
+  }
+
+  if (req.method === 'POST') {
+    let body = {};
+    try { body = (await readBody(req)) || {}; } catch { body = {}; }
+    const nm = L.validateName(body.name);
+    if (!nm.ok) return fail(res, 400, nm.error);
+    const v = L.validateEntry(boardId, body.score, body.meta || {});
+    if (!v.ok) return fail(res, 400, v.error);
+
+    const items = await readAll();
+    const last = items
+      .filter((x) => x.name === nm.name)
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
+    if (last && Date.now() - Date.parse(last.at) < L.COOLDOWN_MS) {
+      return fail(res, 429, '提交太快了，等 10 秒再来');
+    }
+
+    const entry = { name: nm.name, score: v.score, meta: v.meta, at: new Date().toISOString() };
+    const next = sorted([...items, entry]);
+    try {
+      await store.writeItem(LEADERBOARD, boardId, { board: boardId, items: next, updatedAt: entry.at });
+    } catch (err) {
+      log(`\x1b[31mRANK\x1b[0m 写入失败：${err.message}`);
+      return fail(res, 503, '成绩没写进去（存储服务暂时不可用）：请重试');
+    }
+    log(`\x1b[35mRANK\x1b[0m ${boardId} + ${nm.name} ${v.score}`);
+    return ok(res, { ok: true, entry, rank: L.rankOf(next, boardId, v.score), items: next });
+  }
+
+  return fail(res, 405, `不支持的方法：${req.method}`);
+}
+
 /* ---------------- 联机扫雷（合作模式） ----------------
  * 设计取舍（VPS 与 Netlify 都能跑，不需要 WebSocket）：
  *   · **服务端权威**：棋盘只有服务端在改，客户端只发"我要揭/插旗/和弦哪一格"，
@@ -2402,7 +2919,15 @@ async function handleApi(req, res, url, opts = {}) {
       root: ROOT,
       dataDir: DATA_DIR,
       collections: Object.keys(COLLECTIONS),
-      netease: { enabled: true, endpoints: ['search', 'songs', 'playlist', 'album', 'lyric', 'resolve', 'playable', 'audio', 'status'] },
+      netease: {
+        enabled: true,
+        endpoints: ['search', 'songs', 'playlist', 'album', 'lyric', 'resolve', 'playable', 'audio', 'status'],
+        // 扫码登录是可选能力：没配账号体系 / 关掉开关时前端据此决定要不要显示入口
+        login: (() => {
+          const c = neteaseLoginConfig();
+          return { enabled: c.enabled, mode: c.mode, endpoints: ['qr', 'qr/check', 'cookie', 'me', 'logout', 'playlists', 'likes', 'like', 'recommend', 'urls', 'cloud', 'audio'] };
+        })(),
+      },
       pixiv: { enabled: true, endpoints: ['random', 'image', 'illust', 'status'], mirror: PIXIV.mirror },
       // 账号与内容存储：前端据此决定要不要显示登录入口、以及"能不能在线发布"
       auth: (() => { const c = authConfig(); return { enabled: c.enabled, domain: c.domain, clientId: c.clientId, ownerConfigured: c.owners.length > 0 }; })(),
@@ -2578,6 +3103,9 @@ async function handleApi(req, res, url, opts = {}) {
 
   /* ---------------- 联机扫雷 ---------------- */
   if (seg[0] === 'mine') return handleMine(req, res, url, opts, seg.slice(1));
+
+  /* ---------------- 排行榜 ---------------- */
+  if (seg[0] === 'leaderboard') return handleLeaderboard(req, res, url, opts, seg.slice(1));
 
   // /api/content/:collection[/:id]
   if (seg[0] === 'content') {

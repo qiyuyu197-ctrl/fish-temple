@@ -36,6 +36,12 @@ data/forum-comments/
 # 站内播放历史（每个账号一份，只有本人能读；属于个人收听记录，绝不该入库）
 data/history/
 
+# 网易云登录：绑定关系（加密后的 MUSIC_U）与设备指纹/加密密钥。
+# ⚠️ 同样**必须忽略**：`netease-auth/` 里是别人的登录凭据（虽然加密过），
+#    `netease-meta/` 里是解它的密钥与稳定 deviceId —— 一起提交等于把锁和钥匙都放仓库里。
+data/netease-auth/
+data/netease-meta/
+
 # 本地仿真"线上 Blobs"的替身目录（tools/netlify-dev.mjs 写入，纯运行期产物）
 .blobs-dev/
 
@@ -54,3 +60,5 @@ assets/models/*.part
 # 宣传 PV 工程：整目录不入库（成片 / 静帧 / 截图 / 联系表都是可重生成的生成物，
 # 需要时用 pv/capture.mjs 重抓截图、pv/run.mjs 重录成片；想恢复入库就删掉这一条）
 pv/
+# 排行榜成绩（运行期数据；线上存在 Blobs 里）
+data/leaderboards/
