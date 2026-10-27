@@ -63,6 +63,25 @@
   [headers.values]
     Cache-Control = "public, max-age=2592000, stale-while-revalidate=604800"
 
+[[headers]]
+  # 相册图片：**文件名即版本**（album-769.webp 这种，内容永远不变 ✓）
+  # → 给一年 immutable，回访时浏览器一个请求都不发 ✓（首屏"瞬间出来"的关键 ✓）
+  # 注意规则顺序：这条比上面的 /assets/img/* 更具体，放在它后面才能生效 ✓
+  for = "/assets/img/album/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  # 第三方库与字体同样按文件名定版，可长期缓存 ✓
+  for = "/assets/vendor/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/assets/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
 [[redirects]]
   # AI 模型不在仓库里，放在 GitHub Release（tag model-v1）。
   # Netlify 把 /model/… 代理到 Release，浏览器仍是同源请求，不用碰 CORS。

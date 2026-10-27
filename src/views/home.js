@@ -8,7 +8,7 @@ import { $, $$, esc, ICON } from '../util/dom.js';
 import { SITE, PIXIV } from '../config/site.config.js';
 import { Posts, News, ReadState, fmtDate, fmtRelative } from '../core/store.js';
 import { Registry } from '../core/registry.js';
-import { Stage } from '../plugins/stage.js';
+import { Stage, loadManifest } from '../plugins/stage.js';
 import { Player } from '../core/player.js';
 import { Motion } from '../core/motion.js';
 import { bus } from '../core/bus.js';
@@ -16,6 +16,12 @@ import { newsItem, postCard, sectionHead, statBlock, emptyState, lyricBox, waveR
 import { Toast } from '../ui/toast.js';
 
 let offArt = null;
+
+// 首屏横幅：桌面挑横图，手机挑竖图；数据加载完后缓存两套候选池。
+// 手机全幅是一块很高的区域，竖图比横图更完整、更少裁切。
+const HERO_MOBILE_MQ = '(max-width: 680px)';
+let heroPools = null;
+let heroLastUrl = '';
 
 /**
  * 渲染首屏巨型标题：把 & 标成信号黄，其余保持墨色。
@@ -48,12 +54,18 @@ export default {
     const tags = [...new Set(posts.flatMap((p) => p.tags || []))].slice(0, 10);
 
     return `
-    <section class="hero">
+    <section class="hero" id="hero">
+      <div class="hero__media" id="heroMedia" aria-hidden="true">
+        <img class="hero__media-img" id="heroMediaImg" alt="" decoding="async" fetchpriority="high" draggable="false" />
+        <span class="hero__media-scrim"></span>
+      </div>
       <div class="hero__bg" id="heroBg">
         <div class="hero__slash"></div>
         <div class="ruled-mask"></div>
       </div>
       <div class="hero__inner">
+        <button class="hero__media-fab" id="heroMediaFab" type="button" disabled
+                aria-label="换一张横幅" aria-keyshortcuts="R" title="换一张横幅（快捷键 R）">${ICON.refresh}</button>
         <div class="hero__eyebrow">
           <span class="hero__eyebrow-line"></span>
           <span class="k-label k-label--ink">${esc(SITE.subtitle)}</span>
@@ -81,6 +93,20 @@ export default {
           <button class="btn" id="heroPlay">${ICON.play}播放音乐</button>
           <a class="btn" href="#/admin" data-nav>${ICON.settings}发布内容</a>
           ${Registry.renderWidgets('hero-actions', {})}
+        </div>
+
+        <div class="hero__media-bar" id="heroMediaBar" hidden>
+          <a class="hero__media-credit" id="heroMediaCredit" href="#/gallery" data-nav>
+            <span class="hero__media-kicker">// RANDOM ARCHIVE</span>
+            <span class="hero__media-no" id="heroMediaNo">NO.---</span>
+            <b class="hero__media-title" id="heroMediaTitle">等待抽取</b>
+            <span class="hero__media-meta" id="heroMediaMeta">横幅相册</span>
+          </a>
+          <span class="hero__media-count" id="heroMediaCount">SCAN ---</span>
+          <button class="btn btn--sm" id="heroMediaPin" type="button" aria-pressed="false"
+                  title="固定当前横幅：之后进首页不再换">固定</button>
+          <button class="btn btn--sm" id="heroMediaShuffle" type="button" disabled
+                  aria-keyshortcuts="R" title="换一张横幅（快捷键 R）">${ICON.refresh}换一张</button>
         </div>
 
         <div class="hero__stats">
@@ -132,7 +158,7 @@ export default {
               <div class="stage" id="homeStage" style="min-height:200px">
                 <span class="stage__badge" id="homeStageBadge">ART</span>
                 <div class="stage__placeholder" id="homeStagePh">${ICON.image}<p class="mono" style="font-size:var(--fs-2xs)">点击下方进入画廊</p></div>
-                <img class="stage__img is-loading" id="homeStageImg" alt="插画预览" referrerpolicy="no-referrer" style="max-height:320px" />
+                <img class="stage__img is-loading" id="homeStageImg" alt="插画预览" referrerpolicy="no-referrer" fetchpriority="high" decoding="async" style="max-height:320px" />
               </div>
               <div class="grid" style="grid-template-columns:1fr 1fr;gap:6px">
                 <a class="btn btn--sm btn--signal" href="#/gallery" data-nav>${ICON.image}去插画板块</a>
@@ -183,14 +209,187 @@ export default {
   },
 
   mount(root) {
-    // 英雄区视差
-    Motion.parallax('#heroBg', 16);
+    // 英雄区视差：黄斜纹一层、照片一层，幅度都很小
+    const offHeroParallax = Motion.parallax('#heroBg', 16);
+    const offMediaParallax = Motion.parallax('#heroMediaImg', 8);
 
     // 数字滚动
     $$('.hero__stat b', root).forEach((el) => {
       const target = Number(String(el.textContent).replace(/\D/g, '')) || 0;
       if (target > 0 && target < 10000) Motion.countup(el, target, { pad: String(el.textContent).length });
     });
+
+    /* 首屏横幅 ---------------------------------------------------------
+     * 桌面从相册里挑横图，手机挑竖图；图片只做背景，标题/正文/按钮
+     * 浮在上层。换图时先预加载，旧图不闪掉；横竖都没有时才回退到全量。 */
+    let heroSeq = 0;
+    const pickHeroPhoto = async () => {
+      if (!heroPools) {
+        try {
+          const items = await loadManifest('data/album.json');
+          const all = items.filter((it) => it.url);
+          heroPools = {
+            all,
+            landscape: all.filter((it) => it.width && it.height && it.width >= it.height * 1.2),
+            portrait: all.filter((it) => it.width && it.height && it.height >= it.width * 1.15),
+          };
+        } catch {
+          heroPools = { all: [], landscape: [], portrait: [] };
+        }
+      }
+      const mobile = window.matchMedia(HERO_MOBILE_MQ).matches;
+      const preferred = mobile ? heroPools.portrait : heroPools.landscape;
+      const pool = preferred.length ? preferred : heroPools.all;
+      // 固定优先：只要还钉着，就直接用那一张（换一张时走 forceRandom 临时绕开）
+      if (heroPinned && !heroForceRandom) {
+        const p = heroPinned;
+        const o = p.width && p.height && p.height > p.width ? 'portrait' : 'landscape';
+        return { photo: p, count: pool.length, orientation: o, pinned: true };
+      }
+      if (!pool.length) {
+        const cur = Stage.current;
+        if (cur?.url) {
+          return {
+            photo: cur,
+            count: 1,
+            orientation: cur.width && cur.height && cur.height > cur.width ? 'portrait' : 'landscape',
+          };
+        }
+        return null;
+      }
+      let pick = pool[Math.floor(Math.random() * pool.length)];
+      for (let i = 0; i < 6 && pick.url === heroLastUrl && pool.length > 1; i++) {
+        pick = pool[Math.floor(Math.random() * pool.length)];
+      }
+      heroLastUrl = pick.url;
+      const orientation = pick.width && pick.height && pick.height > pick.width ? 'portrait' : 'landscape';
+      return { photo: pick, count: pool.length, orientation };
+    };
+
+    // 照片从浏览器顶端开始，顶栏 / 跑马灯压在照片上时切成透明文字态；
+    // 离开照片范围恢复纸底。
+    const topbarEl = document.getElementById('topbar');
+    const tickerEl = document.getElementById('ticker');
+    const heroEl = $('#hero');
+    const heroMediaEl = $('#heroMedia');
+    const syncTopbar = () => {
+      if (!topbarEl || !heroEl || !heroMediaEl) return;
+      const mb = heroMediaEl.getBoundingClientRect();
+      const tb = topbarEl.getBoundingClientRect();
+      const over = heroEl.classList.contains('is-media')
+        && mb.top < tb.bottom - 1 && mb.bottom > tb.top + 1;
+      topbarEl.classList.toggle('is-over-media', over);
+      tickerEl?.classList.toggle('is-over-media', over);
+    };
+    syncTopbar();
+    window.addEventListener('scroll', syncTopbar, { passive: true });
+    window.addEventListener('resize', syncTopbar);
+
+    let heroLoading = false;
+    let heroOrientationPending = false;
+    // 固定横幅：存整条 photo（标题/作者/尺寸都要留在信息条里），不只是一张 URL
+    const HERO_PIN_KEY = 'ft.terminal.heroPinned';
+    const readPinnedHero = () => {
+      try { const p = JSON.parse(localStorage.getItem(HERO_PIN_KEY) || 'null'); return p?.url ? p : null; } catch { return null; }
+    };
+    const writePinnedHero = (photo) => {
+      try {
+        if (photo?.url) localStorage.setItem(HERO_PIN_KEY, JSON.stringify(photo));
+        else localStorage.removeItem(HERO_PIN_KEY);
+      } catch { /* 隐私模式忽略 */ }
+    };
+    let heroPinned = readPinnedHero();
+    let heroForceRandom = false;
+    let heroCurrent = null;
+
+    const paintHeroPin = () => {
+      const btn = $('#heroMediaPin');
+      if (!btn) return;
+      const on = !!heroPinned;
+      btn.textContent = on ? '已固定' : '固定';
+      btn.setAttribute('aria-pressed', String(on));
+      btn.classList.toggle('is-on', on);
+      btn.title = on ? '已固定这张横幅：点一下恢复随机' : '固定当前横幅：之后进首页不再换';
+    };
+    const loadHeroPhoto = async () => {
+      const hero = $('#hero');
+      const img = $('#heroMediaImg');
+      const bar = $('#heroMediaBar');
+      const btns = [$('#heroMediaShuffle'), $('#heroMediaFab'), $('#heroMediaPin')].filter(Boolean);
+      if (!hero || !img || heroLoading) return;
+      heroLoading = true;
+      btns.forEach((b) => { b.disabled = true; });
+      hero.classList.add('is-loading');
+      hero.setAttribute('aria-busy', 'true');
+      bar?.classList.add('is-loading');
+      try {
+        const picked = await pickHeroPhoto();
+        if (!picked) {
+          if (bar) bar.hidden = true;
+          return;
+        }
+        const { photo } = picked;
+        // 先在 Image 里预载；失败就保留旧图，不要让首屏突然变白。
+        await new Promise((resolve, reject) => {
+          const pre = new Image();
+          pre.onload = resolve;
+          pre.onerror = reject;
+          pre.src = photo.url;
+        });
+        // 预加载期间可能已经切走又切回来；不要把旧闭包写到新页面上。
+        if (!document.body.contains(hero) || hero !== $('#hero')) return;
+        const hadMedia = hero.classList.contains('is-media');
+        img.src = photo.url;
+        img.alt = '';
+        if (hadMedia) {
+          img.classList.remove('is-swapping');
+          void img.offsetWidth;
+          img.classList.add('is-swapping');
+          setTimeout(() => img.classList.remove('is-swapping'), 520);
+        }
+        heroSeq += 1;
+        const no = `NO.${String(heroSeq).padStart(3, '0')}`;
+        const dims = (photo.width && photo.height) ? `${photo.width} × ${photo.height}` : '';
+        const noEl = $('#heroMediaNo');
+        const titleEl = $('#heroMediaTitle');
+        const metaEl = $('#heroMediaMeta');
+        const countEl = $('#heroMediaCount');
+        const credit = $('#heroMediaCredit');
+        if (noEl) noEl.textContent = no;
+        if (titleEl) titleEl.textContent = photo.title || '未命名档案';
+        if (metaEl) metaEl.textContent = [photo.author, dims].filter(Boolean).join(' / ') || `ALBUM / 相册 · ${picked.count} 张${picked.orientation === 'portrait' ? '竖图' : '横图'}`;
+        if (countEl) countEl.textContent = `${picked.orientation === 'portrait' ? 'PORTRAIT' : 'LANDSCAPE'} ${String(picked.count).padStart(3, '0')}`;
+        if (credit) {
+          credit.href = '#/gallery';
+          credit.setAttribute('aria-label', `在相册中查看${photo.title ? `：${photo.title}` : '随机照片'}`);
+        }
+        if (bar) bar.hidden = false;
+        hero.classList.add('is-media');
+        heroCurrent = photo;
+        // 固定状态下点「换一张」：换成新的这张，并继续钉住它
+        if (heroPinned && heroForceRandom) {
+          heroPinned = photo;
+          writePinnedHero(photo);
+        }
+        paintHeroPin();
+        syncTopbar();
+      } catch {
+        Toast.show('这张横幅没加载出来，换一张试试');
+      } finally {
+        heroLoading = false;
+        heroForceRandom = false;
+        const hasMedia = hero.classList.contains('is-media');
+        btns.forEach((b) => { b.disabled = !hasMedia; });
+        paintHeroPin();
+        hero.classList.remove('is-loading');
+        hero.setAttribute('aria-busy', 'false');
+        bar?.classList.remove('is-loading');
+        if (heroOrientationPending) {
+          heroOrientationPending = false;
+          setTimeout(loadHeroPhoto, 0);
+        }
+      }
+    };
 
     const paintStage = () => {
       const cur = Stage.current;
@@ -235,6 +434,53 @@ export default {
       window.open(PIXIV.searchUrl(kw), '_blank', 'noopener');
     });
 
+    // 只有在「当前曲目 + 正在播放」时，右侧歌词 / 音浪才出现。
+    // 暂停、播完、切歌停住、没有曲目时整块隐藏，避免在照片上留一块黑框。
+    const paintHeroPlaying = () => {
+      const hero = $('#hero');
+      if (!hero) return;
+      hero.classList.toggle('is-playing', !!Player.current && !!Player.playing);
+    };
+    paintHeroPlaying();
+    const offPlayerState = bus.on('player:state', paintHeroPlaying);
+    const offPlayerTrack = bus.on('player:track', paintHeroPlaying);
+
+    // 首屏「换一张」只换背景横幅，不动下面那块随机插画预览。
+    // 固定状态下换一张：换成新的这张并继续钉住（heroForceRandom 只绕开一次）
+    const shuffleHero = () => { heroForceRandom = !!heroPinned; void loadHeroPhoto(); };
+    $('#heroMediaShuffle')?.addEventListener('click', shuffleHero);
+    $('#heroMediaFab')?.addEventListener('click', shuffleHero);
+    $('#heroMediaPin')?.addEventListener('click', () => {
+      if (heroPinned) {
+        heroPinned = null;
+        writePinnedHero(null);
+        Toast.show('已取消固定，横幅恢复随机');
+      } else if (heroCurrent) {
+        heroPinned = heroCurrent;
+        writePinnedHero(heroCurrent);
+        Toast.show('已固定这张横幅，下次进首页还是它');
+      }
+      paintHeroPin();
+    });
+    paintHeroPin();
+    const onHeroKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      if (String(e.key).toLowerCase() !== 'r') return;
+      if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (document.querySelector('#cmdk:not([hidden])')) return;
+      e.preventDefault();
+      shuffleHero();
+    };
+    window.addEventListener('keydown', onHeroKey);
+
+    // 手机竖屏选竖图，桌面 / 横屏选横图；跨过断点时换一张对应的。
+    const heroMq = window.matchMedia(HERO_MOBILE_MQ);
+    const onHeroMq = () => {
+      if (heroLoading) heroOrientationPending = true;
+      else loadHeroPhoto();
+    };
+    heroMq.addEventListener('change', onHeroMq);
+
     offArt = bus.on('art:change', paintStage);
 
     // 挂载通过 Registry 注册的首页插槽组件
@@ -244,13 +490,29 @@ export default {
       Registry.mountWidgets('before-footer', root, {}),
     ];
 
-    // 若已有历史则直接显示，否则静默抽取一张
+    // 横幅：相册数据缓存过，通常第一帧后就能铺上。
+    loadHeroPhoto();
+
+    // 下面那块小预览继续沿用 Stage 的随机逻辑。
     if (Stage.history.length) paintStage();
-    else setTimeout(() => Stage.random({ silent: true }), 900);
+    else setTimeout(() => Stage.random({ silent: true }), 320);
 
     Motion.reveal(root);
     Motion.magnetic(root);
 
-    return () => { offArt?.(); cleanWidgets.forEach((fn) => fn?.()); };
+    return () => {
+      offArt?.();
+      offHeroParallax?.();
+      offMediaParallax?.();
+      offPlayerState?.();
+      offPlayerTrack?.();
+      heroMq.removeEventListener('change', onHeroMq);
+      window.removeEventListener('keydown', onHeroKey);
+      window.removeEventListener('scroll', syncTopbar);
+      window.removeEventListener('resize', syncTopbar);
+      topbarEl?.classList.remove('is-over-media');
+      tickerEl?.classList.remove('is-over-media');
+      cleanWidgets.forEach((fn) => fn?.());
+    };
   },
 };
