@@ -76,7 +76,6 @@ let startedAt = 0;
 let rafId = 0;
 let ro = null;
 let repaintView = () => {};
-let focus = null;          // 无UI播放层 { el, timer, onKey, onResize, lastFocus }
 
 /* ---------------- 小工具 ---------------- */
 
@@ -145,28 +144,6 @@ function currentBuffer() {
   return state.instBuffer || state.buffer;
 }
 
-function sourceLabels() {
-  const r = state.result;
-  if (!r) return { orig: '原曲', inst: '纯音乐', vocal: '人声' };
-  return {
-    orig: '原曲',
-    inst: r.aiMode === 'vocal' ? '伴奏（残差）' : '纯音乐',
-    vocal: r.aiMode === 'inst' ? '人声（残差）' : r.aiMode === 'dual' && state.ai.clean > 0 ? '人声（已清理）' : '人声',
-  };
-}
-
-/** 切换试听轨；主界面和「无UI」层共用 */
-function setSource(src) {
-  if (src === state.source) return;
-  const was = state.playing;
-  pause();
-  state.source = src;
-  repaintView();
-  paintFocus();
-  drawFocusWave();
-  if (was) play();
-}
-
 function paintPlayer() {
   const root = document.getElementById('view');
   if (!root) return;
@@ -183,18 +160,15 @@ function paintPlayer() {
   if (seek && !dragging) {
     seek.value = String(Math.round((state.position / Math.max(0.001, audioDuration())) * 1000));
   }
-  paintFocus();
 }
 
 function paintProgress() {
   const root = document.getElementById('view');
   const seek = root?.querySelector('#vrSeek');
-  if (seek && seek.dataset.dragging !== '1') {
-    const time = root.querySelector('#vrTime');
-    if (time) time.textContent = `${fmtTime(state.position)} / ${fmtTime(audioDuration())}`;
-    seek.value = String(Math.round((state.position / Math.max(0.001, audioDuration())) * 1000));
-  }
-  paintFocus();
+  if (!seek || seek.dataset.dragging === '1') return;
+  const time = root.querySelector('#vrTime');
+  if (time) time.textContent = `${fmtTime(state.position)} / ${fmtTime(audioDuration())}`;
+  seek.value = String(Math.round((state.position / Math.max(0.001, audioDuration())) * 1000));
 }
 
 function tick() {
@@ -260,206 +234,7 @@ function seekTo(ratio) {
   state.playing = false;
   state.position = Math.max(0, Math.min(1, ratio)) * audioDuration();
   paintPlayer();
-  paintProgress();
   if (was) play();
-}
-
-/* ---------------- 无UI播放 ---------------- */
-
-function focusTitle() {
-  return String(state.file?.name || '未命名').replace(/\.[^.]+$/, '') || '未命名';
-}
-
-function wakeFocus() {
-  if (!focus) return;
-  const { el } = focus;
-  el.classList.add('is-awake');
-  clearTimeout(focus.timer);
-  focus.timer = setTimeout(() => {
-    if (focus) focus.el.classList.remove('is-awake');
-  }, 2800);
-}
-
-function paintFocus() {
-  if (!focus) return;
-  const el = focus.el;
-  const labels = sourceLabels();
-  const ratio = Math.max(0, Math.min(1, state.position / Math.max(0.001, audioDuration())));
-  const play = el.querySelector('#vfPlay');
-  if (play) {
-    play.textContent = state.playing ? '❚❚' : '▶';
-    play.setAttribute('aria-label', state.playing ? '暂停' : '播放');
-    play.classList.toggle('is-playing', state.playing);
-  }
-  const fill = el.querySelector('#vfFill');
-  if (fill) fill.style.width = `${Math.round(ratio * 100 * 100) / 100}%`;
-  const head = el.querySelector('#vfPlayhead');
-  if (head) head.style.left = `${Math.round(ratio * 100 * 100) / 100}%`;
-  const time = el.querySelector('#vfTime');
-  if (time) time.textContent = `${fmtTime(state.position)} / ${fmtTime(audioDuration())}`;
-  const seek = el.querySelector('#vfSeek');
-  if (seek && seek.dataset.dragging !== '1') {
-    seek.value = String(Math.round(ratio * 1000));
-  }
-  const mode = el.querySelector('#vfMode');
-  if (mode) mode.textContent = labels[state.source] || '';
-  el.querySelectorAll('[data-fsource]').forEach((b) => {
-    const on = b.dataset.fsource === state.source;
-    b.classList.toggle('is-on', on);
-    b.setAttribute('aria-pressed', String(on));
-  });
-}
-
-function drawFocusWave() {
-  if (!focus) return;
-  const canvas = focus.el.querySelector('#vfWave');
-  const buf = currentBuffer();
-  if (!canvas || !buf) return;
-  const w = Math.max(280, Math.round(canvas.clientWidth || 800));
-  const h = Math.max(90, Math.round(canvas.clientHeight || 160));
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
-  const g = canvas.getContext('2d');
-  if (!g) return;
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, w, h);
-
-  const l = buf.getChannelData(0);
-  const r = buf.numberOfChannels > 1 ? buf.getChannelData(1) : l;
-  const cols = Math.max(120, Math.floor(w));
-  const env = envelope(l, r, cols);
-  const signal = cssColor('--signal', '#e5be00');
-  const faint = cssColor('--fg-faint', '#8a8a8a');
-  const mid = h / 2;
-  const amp = h / 2 - 6;
-
-  g.fillStyle = faint;
-  g.globalAlpha = 0.35;
-  g.fillRect(0, Math.round(mid), w, 1);
-  g.globalAlpha = 1;
-  g.fillStyle = signal;
-  for (let x = 0; x < cols; x++) {
-    const v = Math.min(1, env[x] || 0);
-    const bar = Math.max(0.7, v * amp);
-    g.fillRect(x, mid - bar, 1, bar * 2);
-  }
-}
-
-function closeFocus() {
-  if (!focus) return;
-  const f = focus;
-  focus = null;
-  clearTimeout(f.timer);
-  document.removeEventListener('keydown', f.onKey);
-  window.removeEventListener('resize', f.onResize);
-  f.el.remove();
-  document.body.classList.remove('vr-focus-open');
-  if (f.lastFocus instanceof HTMLElement && document.contains(f.lastFocus)) {
-    try { f.lastFocus.focus({ preventScroll: true }); } catch { /* 元素可能已经没了 */ }
-  }
-}
-
-function openFocus() {
-  if (!state.result || focus) return;
-  const labels = sourceLabels();
-  const el = document.createElement('div');
-  el.className = 'vr-focus';
-  el.id = 'vrFocus';
-  el.setAttribute('role', 'dialog');
-  el.setAttribute('aria-modal', 'true');
-  el.setAttribute('aria-label', '无UI播放');
-  el.innerHTML = `<div class="vr-focus__bg" aria-hidden="true"></div>
-    <header class="vr-focus__top">
-      <span class="mono">FOCUS / 无UI</span>
-      <button class="vr-focus__exit" id="vfExit" type="button">退出 <span class="mono">ESC</span></button>
-    </header>
-    <main class="vr-focus__main">
-      <p class="mono vr-focus__mode" id="vfMode">${esc(labels[state.source] || '')}</p>
-      <h2 class="vr-focus__title" id="vfTitle">${esc(focusTitle())}</h2>
-      <div class="vr-focus__wavewrap">
-        <canvas class="vr-focus__wave" id="vfWave" aria-hidden="true"></canvas>
-        <span class="vr-focus__fill" id="vfFill" aria-hidden="true"></span>
-        <span class="vr-focus__playhead" id="vfPlayhead" aria-hidden="true"></span>
-      </div>
-      <p class="mono vr-focus__time" id="vfTime">${fmtTime(state.position)} / ${fmtTime(audioDuration())}</p>
-    </main>
-    <footer class="vr-focus__controls" id="vfControls">
-      <button class="vr-focus__play" id="vfPlay" type="button" aria-label="${state.playing ? '暂停' : '播放'}">${state.playing ? '❚❚' : '▶'}</button>
-      <input class="vr-focus__seek" id="vfSeek" type="range" min="0" max="1000" step="1" value="${Math.round((state.position / Math.max(0.001, audioDuration())) * 1000)}" aria-label="播放进度" />
-      <div class="vr-focus__ab">
-        <button type="button" data-fsource="orig" aria-pressed="${state.source === 'orig'}">${labels.orig}</button>
-        <button type="button" data-fsource="inst" aria-pressed="${state.source === 'inst'}">${labels.inst}</button>
-        <button type="button" data-fsource="vocal" aria-pressed="${state.source === 'vocal'}">${labels.vocal}</button>
-      </div>
-    </footer>
-    <p class="vr-focus__hint mono">移动鼠标 / 触摸显示控制 · 空格播放 · Esc 退出</p>`;
-  document.body.append(el);
-  document.body.classList.add('vr-focus-open');
-
-  const lastFocus = document.activeElement;
-  const onKey = (e) => {
-    if (!focus) return;
-    if (e.key === 'Escape') { e.preventDefault(); closeFocus(); return; }
-    if (e.key === 'Tab') {
-      const items = [...el.querySelectorAll('button:not([disabled]), input:not([disabled]), a[href]')]
-        .filter((n) => n.offsetParent !== null);
-      if (items.length) {
-        const first = items[0];
-        const last = items[items.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-      return;
-    }
-    if (e.target?.closest?.('input,button,select,textarea')) return;
-    if (e.key === ' ') { e.preventDefault(); togglePlay(); return; }
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      e.preventDefault();
-      const d = e.key === 'ArrowLeft' ? -5 : 5;
-      seekTo((state.position + d) / Math.max(0.001, audioDuration()));
-    }
-  };
-  const onResize = () => {
-    paintFocus();
-    drawFocusWave();
-  };
-  focus = { el, timer: 0, lastFocus, onKey, onResize };
-
-  let awakeAtDown = true;
-  el.addEventListener('pointermove', wakeFocus);
-  el.addEventListener('pointerdown', () => {
-    awakeAtDown = el.classList.contains('is-awake');
-    wakeFocus();
-  });
-  el.addEventListener('click', (e) => {
-    if (e.target.closest('button,input,select,label')) return;
-    if (!awakeAtDown) { wakeFocus(); return; }
-    togglePlay();
-  });
-  el.querySelector('#vfExit').addEventListener('click', closeFocus);
-  el.querySelector('#vfPlay').addEventListener('click', () => togglePlay());
-  const seek = el.querySelector('#vfSeek');
-  seek.addEventListener('input', () => {
-    seek.dataset.dragging = '1';
-    state.position = (Number(seek.value) / 1000) * audioDuration();
-    paintFocus();
-  });
-  seek.addEventListener('change', () => {
-    delete seek.dataset.dragging;
-    wakeFocus();
-    seekTo(Number(seek.value) / 1000);
-  });
-  el.querySelectorAll('[data-fsource]').forEach((b) => {
-    b.addEventListener('click', () => { wakeFocus(); setSource(b.dataset.fsource); });
-  });
-  document.addEventListener('keydown', onKey);
-  window.addEventListener('resize', onResize);
-
-  paintFocus();
-  requestAnimationFrame(() => { drawFocusWave(); el.querySelector('#vfPlay')?.focus({ preventScroll: true }); });
-  wakeFocus();
-  if (!state.playing) play().catch(() => { /* 自动播放被拦时保持暂停，等用户点播放 */ });
 }
 
 /* ---------------- 进度 ---------------- */
@@ -838,10 +613,9 @@ function playerHTML() {
   const stale = isStale();
   const buf = exportBuffer();
   const wavBytes = buf ? 44 + buf.length * 2 * 2 : 0;
-  const labels = sourceLabels();
-  const vocalLabel = labels.vocal;
-  const instLabel = labels.inst;
-  const srcTag = labels[state.source] || instLabel;
+  const vocalLabel = r.aiMode === 'inst' ? '人声（残差）' : r.aiMode === 'dual' && state.ai.clean > 0 ? '人声（已清理）' : '人声';
+  const instLabel = r.aiMode === 'vocal' ? '伴奏（残差）' : '纯音乐';
+  const srcTag = { orig: '原曲', inst: instLabel, vocal: vocalLabel }[state.source] || instLabel;
   const cleanTag = r.aiMode === 'dual' && state.ai.clean > 0 ? ` · 去残留 ${Math.round(state.ai.clean * 100)}%` : '';
   const head = `AI · ${esc(mode?.short || r.model || 'MDX-Net')} · ${(r.ms / 1000).toFixed(1)}s${cleanTag}`;
   return `<div class="panel" data-reveal>
@@ -864,7 +638,6 @@ function playerHTML() {
           <button class="chip${state.source === 'orig' ? ' is-on' : ''}" data-source="orig">原曲</button>
           <button class="chip${state.source === 'inst' ? ' is-on' : ''}" data-source="inst">${instLabel}</button>
           <button class="chip${state.source === 'vocal' ? ' is-on' : ''}" data-source="vocal">${vocalLabel}</button>
-          <button class="vr-focusbtn" id="vrFocusBtn" type="button" title="无UI模式：只留波形与控制，自动隐藏" aria-label="进入无UI模式">无UI</button>
         </div>
       </div>
       <div class="tool-actions">
@@ -1105,11 +878,19 @@ export default {
       }
 
       const src = e.target.closest('[data-source]');
-      if (src) { setSource(src.dataset.source); return; }
+      if (src) {
+        const s = src.dataset.source;
+        if (s === state.source) return;
+        const was = state.playing;
+        pause();
+        state.source = s;
+        repaint();
+        if (was) play();
+        return;
+      }
 
       if (e.target.closest('#vrRun')) { runAI(); return; }
       if (e.target.closest('#vrPlay')) { await togglePlay(); return; }
-      if (e.target.closest('#vrFocusBtn')) { openFocus(); return; }
 
       if (e.target.closest('#vrWav')) {
         const buf = exportBuffer();
@@ -1197,7 +978,6 @@ export default {
     requestAnimationFrame(() => drawWave(root.querySelector('#vrWave')));
 
     return () => {
-      closeFocus();
       pause();
       ro?.disconnect();
       ro = null;
