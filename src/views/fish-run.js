@@ -13,6 +13,8 @@
  */
 
 import { viewhead } from '../ui/bits.js';
+// 排行榜 UI（共用组件 ✓）：一局结束后给「上传成绩」按钮
+import { uploadHTML, mountUpload } from '../ui/leaderboard.js';
 
 const BEST_KEY = 'ft.terminal.fishRunBest';
 
@@ -356,7 +358,25 @@ export default {
     const playBgm = () => { bgm.play().catch(() => { /* 被策略拦就静默，不影响游戏 ✓ */ }); };
     const stopBgm = () => { try { bgm.pause(); bgm.currentTime = 0; } catch { /* 忽略 */ } };
 
-    game = makeGame(canvas, { onOver: stopBgm });
+    /* 排行榜：一局结束后在画布下面出现「上传成绩」✓
+     * 只在**真的跑过**（score ≥ 1）时才出现，待机状态别吓人 ✗ */
+    let rankHost = root.querySelector('#fishRank');
+    if (!rankHost) {
+      rankHost = document.createElement('div');
+      rankHost.id = 'fishRank';
+      canvas.insertAdjacentElement('afterend', rankHost);
+    }
+    const showRank = (st) => {
+      if (!st || st.score < 1) { rankHost.innerHTML = ''; return; }
+      const seconds = Math.max(1, Math.round(st.t / 60));
+      const meta = { level: LEVEL, seconds };
+      rankHost.innerHTML = uploadHTML('fish', st.score, meta);
+      mountUpload(root, { boardId: 'fish', score: st.score, meta });
+    };
+
+    game = makeGame(canvas, {
+      onOver: (st) => { stopBgm(); showRank(st); },
+    });
     game.ready();                                    // 待机，不自动开始 ✓
     raf = requestAnimationFrame(game.loop);
 
