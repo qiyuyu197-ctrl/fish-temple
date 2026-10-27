@@ -157,4 +157,27 @@ export function restoreAir(inst, orig, {
   return { l: outL, r: outR };
 }
 
-export default { restoreAir };
+/**
+ * 量一下模型伴奏缺了多少高频（dB），用来决定要不要补、补多少。
+ * 只看前 60 秒，够代表整首；4kHz 以上 RMS 比。
+ * @param {AudioBuffer|Float32Array[]} inst
+ * @param {AudioBuffer|Float32Array[]} orig
+ * @param {{sampleRate?:number, cutoff?:number}} opts
+ * @returns {number} 原曲高频 / 模型高频，dB；0 表示不缺
+ */
+export function measureAirNeed(inst, orig, { sampleRate = 48000, cutoff = 3800 } = {}) {
+  const get = (x, c) => (x?.getChannelData ? x.getChannelData(c) : x[c]);
+  const iL = get(inst, 0), oL = get(orig, 0);
+  const iR = get(inst, 1) || iL, oR = get(orig, 1) || oL;
+  if (!iL || !oL) return 0;
+  const n = Math.min(iL.length, oL.length, Math.round(sampleRate * 60));
+  if (n < 1000) return 0;
+  const iH = highpass(Float32Array.from({ length: n }, (_, i) => (iL[i] + iR[i]) / 2), sampleRate, cutoff);
+  const oH = highpass(Float32Array.from({ length: n }, (_, i) => (oL[i] + oR[i]) / 2), sampleRate, cutoff);
+  let ie = 0, oe = 0;
+  for (let i = 0; i < n; i += 4) { ie += iH[i] * iH[i]; oe += oH[i] * oH[i]; }
+  if (ie < 1e-12) return oe > 1e-12 ? 24 : 0;
+  return Math.max(0, Math.round(20 * Math.log10(Math.sqrt(oe / ie)) * 10) / 10);
+}
+
+export default { restoreAir, measureAirNeed };

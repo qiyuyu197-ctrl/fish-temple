@@ -3491,7 +3491,7 @@ async function main() {
 
   // 高频修复：全量模式补回居中的 8kHz；安全模式只补侧面，居中人声不补
   const airUI = await evaluate(`(async () => {
-    const { restoreAir } = await import('/src/plugins/tools/air.js');
+    const { restoreAir, measureAirNeed } = await import('/src/plugins/tools/air.js');
     const rate = 48000;
     const n = rate * 2;
     const low = new Float32Array(n);
@@ -3527,13 +3527,16 @@ async function main() {
       fullHigh: proj(full.l, 8000),
       safeSideHigh: proj(safeSide.l, 8000),
       safeCenterHigh: proj(safeCenter.l, 8000),
+      needDull: measureAirNeed([low], [center], { sampleRate: rate }),
+      needSame: measureAirNeed([center], [center], { sampleRate: rate }),
     };
   })()`);
   record('工具台：高频修复全量补 8kHz、安全模式只补侧面',
     airUI?.low > 0.27 && airUI?.low < 0.33
       && airUI?.fullHigh > 0.17 && airUI?.fullHigh < 0.22
       && airUI?.safeSideHigh > 0.17 && airUI?.safeSideHigh < 0.22
-      && airUI?.safeCenterHigh < 0.03,
+      && airUI?.safeCenterHigh < 0.03
+      && airUI?.needDull > 20 && airUI?.needSame < 1,
     JSON.stringify(airUI));
 
   // Markdown 渲染（post_overview 内含表格、提示块、代码块、目录）

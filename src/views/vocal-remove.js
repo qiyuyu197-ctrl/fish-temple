@@ -19,7 +19,7 @@ import { viewhead } from '../ui/bits.js';
 import { toolsTabs } from '../ui/tools-tabs.js';
 import { decodeAudio, toWav, encodeMp3, audioCtx, fmtTime } from '../plugins/tools/audio.js';
 import { cancelBleed } from '../plugins/tools/bleed.js';
-import { restoreAir } from '../plugins/tools/air.js';
+import { restoreAir, measureAirNeed } from '../plugins/tools/air.js';
 import {
   AI_MODELS, AI_MODES, ensureModel, separateFile as separateWithAI, separateDual, aiReady,
 } from '../plugins/tools/ai-separator.js';
@@ -471,6 +471,13 @@ async function runAI({ quiet = false } = {}) {
     };
     state.instBuffer = res.instrumental;
     state.ai.modelInst = res.instrumental;
+    if (mode !== 'vocal') {
+      // 先量这首歌缺不缺高频：不缺就别补，避免把本来就亮的结果做糊
+      const need = measureAirNeed(res.instrumental, state.buffer, {
+        sampleRate: res.instrumental.sampleRate,
+      });
+      state.ai.air = need >= 12 ? 0.8 : need >= 6 ? 0.5 : 0;
+    }
     if (mode === 'dual') {
       state.ai.rawInst = res.instrumental;
       state.ai.rawVocal = res.vocals;
@@ -636,7 +643,7 @@ function aiControlsHTML(working, stale) {
         <input type="checkbox" id="vrAirSafe" ${a.airSafe ? 'checked' : ''} ${working ? 'disabled' : ''} />
         人声安全（推荐）
       </label>
-      <span class="faint">MDX 会削掉 4k 以上的器乐高频，导出会糊；从原曲补回来。安全模式只补侧高频/人声不活跃处，避免带出小声音；关掉会更亮但可能带回齿音。</span>
+      <span class="faint">先量这首歌缺多少高频：不缺会自动设 0，缺才从原曲补。安全模式只补侧高频/人声不活跃处，避免带出小声音；关掉会更亮但可能带回齿音。</span>
     </label>` : ''}
     <div class="vr-ai__head">
       <b>${esc(defs.map((d) => d.name).join(' + '))}</b>
