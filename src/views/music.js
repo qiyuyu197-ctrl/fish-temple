@@ -5,7 +5,7 @@
  *
  *   · 搜索   站内搜索网易云曲目（经 server.mjs 代理元数据接口）
  *   · 歌单   粘贴公开歌单链接 / ID，一次性把整个歌单的曲目导入播放列表
- *            （仅元数据；「我喜欢的音乐」等需要登录的歌单读不到，本站不做登录）
+ *            （私密歌单与我喜欢的音乐要先用 plugins/netease-login.js 扫码连接网易云账号）
  *   · 播放   默认走站内直放（同源 <audio>，真实进度 / 可拖动 / 后台接播）；
  *            会员或版权受限的曲目才回退网易云官方 iframe（进度为估算）
  *   · 列表   加入 / 移除 / 清空，保存在浏览器本地；该列表就是网站的播放列表
@@ -33,8 +33,12 @@ import {
   toTrack, savePlaylist,
   importPlaylist, PLAYLIST_IMPORT_LIMIT,
   isVipOnly, checkPlayable, findPlayableAlternatives, audioInfo, looksLikeFragment,
-  importFromLink, classifyLink,
+  importFromLink, classifyLink, refreshCloudUrls, useLoginAudio,
 } from '../plugins/netease.js';
+// 网易云账号（扫码登录）：只负责"这条状态带 + 面板"，cookie 永远在服务端
+import { NeteaseLogin } from '../plugins/netease-login.js';
+// 从历史恢复云盘曲目时要重新签一次音频地址（云盘没有公开元数据，普通 songs 接口查不到）
+import { Auth } from '../plugins/auth.js';
 // 站内播放历史：**我们自己的**一份记录（不接网易云账号、不存任何第三方 cookie、不发给网易云）。
 // 记录与同步都在 core/history.js 里自己挂 bus 完成，这里只负责把它画出来、让用户能继续播放。
 import {
@@ -211,6 +215,9 @@ export default {
         </div>
       </div>` : ''}
 
+      <!-- 网易云账号：本站账号的附属绑定。未开启 / 未登录本站时这里会自己收起，不占版面 -->
+      ${NeteaseLogin.stripHTML()}
+
       <!-- ① 一个输入框搞定三件事：搜关键词 / 粘贴歌曲链接或 ID / 导入歌单与专辑 -->
       <div class="ne-search" id="neSearch" style="margin-top:var(--sp-5)">
         <div class="ne-search__head">
@@ -243,7 +250,8 @@ export default {
         <p class="ne-search__hint">
           <b>关键词</b>搜曲目；<b>歌曲链接或纯数字 ID</b>直接播放；<b>歌单 / 专辑链接</b>（含 App 分享出来的
           <code>163cn.tv</code> 短链）会被自动识别类型并并入本站列表。
-          只读公开歌单与专辑，私密歌单需要登录 —— 本站不做登录。
+          公开歌单与专辑不需要登录；<b>私密歌单</b>和<b>我喜欢的音乐</b>要先在上面「网易云账号」里扫码连接 ——
+          登录只用来读你自己的歌单，不会拿它去取 VIP 音频。
         </p>
       </div>
 
@@ -306,6 +314,9 @@ export default {
   async mount(root) {
     MiniPlayer.show();
 
+    // 网易云账号状态带：读一次状态、挂按钮。失败不影响音乐台其余部分。
+    try { await NeteaseLogin.mount(root); } catch (err) { console.warn('[netease-login] mount 失败', err); }
+
     // 页头的沉浸入口：没有曲目时 disabled，选中后由 paintNow 解开
     $('#stageTop')?.addEventListener('click', () => ListeningStage.open());
 
@@ -355,6 +366,9 @@ export default {
           },
         });
         // setTracks 会广播 playlist:change，列表与播放器据此自行重绘
+        // 导入的曲目里可能有"云盘里也有一份"的歌（例如「我喜欢的音乐」包含自己的上传）：
+        // 立刻按 id 标记成云盘曲目并换上签名地址，否则它们在列表里会按匿名曲目播不出声
+        void refreshCloudUrls({ force: true });
         paintPlaylist();
         paintNow();
         const src = res.source || {};
@@ -506,6 +520,15 @@ export default {
      */
     let soundSeq = 0;
     const checkSound = async (track) => {
+      /**
+       * 云盘曲目**不参与这个探测**。
+       *
+       * 这个函数问的是"匿名访客能不能拿到音频"，而云盘曲目只有登录态能放 ——
+       * 匿名探测必然 false，于是它会给歌曲打上 `embedOnly = true`，
+       * 播放器随即换成官方 iframe，而官方播放器对云盘曲目同样放不出来。
+       * 表现就是：云盘里明明有歌、点播放没声音，还没有任何报错。
+       */
+      if (track?.cloud) { state.sound = null; setLyricNote(''); return; }
       if (!track || track.provider !== 'netease' || !state.apiReady) { state.sound = null; setLyricNote(''); return; }
       const seq = ++soundSeq;
       const id = String(track.neteaseId);
@@ -545,6 +568,17 @@ export default {
         paintNow();
         return;
       }
+      /**
+       * 探测是异步的：这期间云盘刷新可能已经把这首歌标记成 `cloud`（它确实在云盘里）。
+       * 那样就不能再按"匿名拿不到"处理 —— 云盘歌本来就不该看匿名结论。
+       */
+      if (track.cloud) { state.sound = null; setLyricNote(''); return; }
+      /**
+       * 绑定了网易云账号时，**会员曲目也不要提前判死**：
+       * 匿名拿不到 ≠ 这个账号拿不到。交给播放器用登录态试一次，
+       * 真拿不到再走官方播放器（那条回退还留在 provider.onError 里）。
+       */
+      if (useLoginAudio()) { state.sound = null; setLyricNote(''); paintNow(); return; }
       // 匿名态拿不到音频流：直接判定这一首只能走官方外链播放器，
       // 免得播放器先白试一次站内直放、再回退（会多一次请求和一条提示）
       track.embedOnly = true;
@@ -722,6 +756,7 @@ export default {
 
     return () => {
       offs.forEach((f) => f?.());
+      NeteaseLogin.unmount();  // 关掉可能还开着的扫码面板，停轮询
       soundSeq++;              // 让还在飞的探测结果失效
       setLyricNote('');
     };
@@ -1187,7 +1222,21 @@ async function resumeFromHistory(id) {
   }
   try {
     const [song] = await fetchSongs([id]);
-    if (!song) { Toast.err('取不到这首歌的信息（可能已下架）'); return; }
+    if (!song) {
+      /**
+       * 云盘曲目经常**没有公开元数据**（匿名 song/detail 查不到），但历史里可能还留着它。
+       * 这里补一次云盘列表查询：找到了就用刚签好的地址建一条 cloud 曲目，
+       * 否则点到「最近播放」里的云盘歌只会得到一句"取不到信息"。
+       */
+      const r = await Auth.api('/netease/login/cloud?limit=200').catch(() => null);
+      const hit = r?.ok ? (r.data?.songs || []).find((s) => String(s.id) === String(id)) : null;
+      if (!hit) { Toast.err('取不到这首歌的信息（可能已下架，或不在云盘里）'); return; }
+      const track = { ...toTrack(hit), cloud: true, src: hit.audio || '' };
+      Player.add(track, { play: true });
+      savePlaylist(Player.tracks);
+      seekWhenReady(target);
+      return;
+    }
     const track = toTrack(song);
     Player.add(track, { play: true });
     savePlaylist(Player.tracks);

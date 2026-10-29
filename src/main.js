@@ -57,6 +57,7 @@ import { dashboardView } from './plugins/dashboard-view.js';
 import { bootstrapPlaylist } from './plugins/netease.js';
 import { Almanac } from './plugins/almanac.js';
 import { Auth } from './plugins/auth.js';
+import { NeteaseLogin } from './plugins/netease-login.js';
 import * as Mines from './plugins/minesweeper.js';
 import { MinesLive } from './views/mine.js';
 
@@ -153,6 +154,14 @@ async function boot() {
     console.warn('[auth] 初始化失败', err);
   }
 
+  // 3.6) 网易云账号（扫码登录）的状态：问一次服务端开没开、这个账号绑没绑。
+  //      必须在 Auth 之后 —— 它要带着本站身份去问。没有服务端时它自己静默降级。
+  try {
+    await NeteaseLogin.init();
+  } catch (err) {
+    console.warn('[netease-login] 初始化失败', err);
+  }
+
   // 4) 音频引擎 + 迷你播放条
   Player.init();
   if (Settings.get('shuffle')) Player.setShuffle(true);
@@ -223,7 +232,6 @@ async function boot() {
   //     放在最后：它只影响"第二次打开"，不该抢启动的路径
   initPWA();
 }
-
 
 document.addEventListener('DOMContentLoaded', () => {
   boot().catch((err) => {

@@ -237,6 +237,8 @@ export const Player = {
       audioSeconds: Number(t.audioSeconds) || 0,
       /** 这首歌只能走官方外链播放器（会员 / 版权 / 直放已经失败过），别再白试一次 */
       embedOnly: !!t.embedOnly,
+      /** 云盘曲目：音频必须走 /api/netease/login/audio（带签名），不能用匿名链路 */
+      cloud: !!t.cloud,
     };
   },
 
@@ -289,6 +291,8 @@ export const Player = {
     const hasDirect = this._providers.has('netease-audio');
 
     if (track.neteaseId) {
+      // 云盘曲目只能走直放：官方 iframe 放不出云盘音频，embedOnly 对它没有意义
+      if (track.cloud) return hasDirect ? 'netease-audio' : (this._providers.has('netease') ? 'netease' : 'local');
       if (hasDirect && this.preferDirectAudio && !track.embedOnly) return 'netease-audio';
       if (this._providers.has('netease')) return 'netease';
     }
@@ -401,6 +405,27 @@ export const Player = {
       bus.emit('player:noaudio', { track });
       return false;
     }
+
+    /**
+     * 播放前先确认元素拿的就是"现在这个地址"。
+     *
+     * 为什么必须做：`prepare()` 可能在曲目还没被识别成云盘曲目时跑过一次，
+     * 把 `<audio>` 锁在匿名地址上（云盘歌匿名必 404），之后云盘标记补上了、
+     * `track.src` 也换成签名地址，但**元素不会自己跟着换**。
+     * 这时点列表里"当前这一行"走的是 toggle → play()，如果这里不纠正，
+     * 就会一直对着那个死地址 `play()`，表现就是点了没反应、也没声音。
+     */
+    if (this.audio && !this.isEmbed) {
+      const attr = this.audio.getAttribute('src');
+      if (attr !== src) {
+        this.audio.src = src;
+        try { this.audio.load(); } catch { /* 个别浏览器对空 src 会抛 */ }
+      } else if (this.audio.error) {
+        // 地址没变但元素处于错误态：显式 reload 一次，等于"再试一次"
+        try { this.audio.load(); } catch { /* noop */ }
+      }
+    }
+
     try {
       const p = this.audio.play();
       p?.catch?.(() => {});
@@ -620,6 +645,15 @@ export const Player = {
   },
 
   toggle() {
+    /**
+     * 元素处于错误态时，"切换"没有意义 —— 先按**当前地址**重新准备一次再播。
+     * 典型场景：云盘曲目在启动时被按匿名地址准备过（那时还没识别成云盘），
+     * 界面显示在播、元素其实已经 error；这时点播放/点当前行，应该重试而不是暂停。
+     */
+    if (!this.isEmbed && this.audio?.error) {
+      this._intent = true;
+      return this.prepare(this.index, { autoplay: true });
+    }
     const next = !this.playing;
     this.playing = next;
     this._emitState();          // 立即反馈，不等 iframe 加载 / 音频缓冲
@@ -1272,15 +1306,45 @@ export const Player = {
   ensureGraph() {
     if (this.ctx || !this.audio) return;
     const track = this.current;
-    // ⚠️ 只给「自托管音频」建图，站内直放的网易云曲目**刻意不建**。
+    // ⚠️ 站内直放的网易云曲目**不能**用 createMediaElementSource 接管：
+    // 一旦接管，<audio> 的声音就永久改由 AudioContext 转发，而这个上下文一被挂起
+    // （iOS 进后台、设备切换、自动播放策略）声音就没了，界面还显示"播放中"。
     //
-    // 原因：`createMediaElementSource` 一旦调用，<audio> 的输出就**永久**改由
-    // AudioContext 转发（规范如此，没法撤销），而这个上下文一旦被挂起 ——
-    // iOS 进后台、音频设备切换、自动播放策略、耳机拔出 —— 声音就彻底没了，
-    // 界面却还显示"播放中"。频谱只是锦上添花，而移动端「后台完整放完 + 自动切歌」
-    // 是刚需，所以直放走**纯媒体管线**，可视化退化成合成音浪（观感一致）。
-    // 自托管文件沿用老行为：本地文件自己控制，出问题也是自己的文件。
-    if (track?.neteaseId) return;
+    // 但那就意味着没有频谱、场景没法跟节奏。所以直放走 **captureStream 旁路**：
+    // 从 <audio> 抓一路 MediaStream，只接 analyser、**不接 destination** ——
+    // 声音仍走原来的媒体管线，分析器拿到的是同一份实时音频。
+    // 浏览器没有 captureStream（或抓流失败）时退化成合成音浪，不硬来。
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+
+    if (track?.neteaseId) {
+      const capture = this.audio.captureStream || this.audio.mozCaptureStream;
+      if (typeof capture !== 'function') return;
+      try {
+        const stream = capture.call(this.audio);
+        if (!stream?.getAudioTracks?.().length) return;
+        this.ctx = new AC();
+        this.source = this.ctx.createMediaStreamSource(stream);
+        this.analyser = this.ctx.createAnalyser();
+        this.analyser.fftSize = 2048;
+        this.analyser.smoothingTimeConstant = 0.5;
+        this.source.connect(this.analyser);
+        // 注意：这里**不** connect 到 destination，否则会听到两遍 / 打断原管线
+        this.freq = new Uint8Array(this.analyser.frequencyBinCount);
+        this.ctx.resume?.().catch(() => {});
+        bus.emit('player:graph', { ok: true, mode: 'tap' });
+        return;
+      } catch (err) {
+        console.warn('[player] captureStream 旁路失败，退化为合成可视化', err);
+        try { this.ctx?.close?.(); } catch { /* noop */ }
+        this.ctx = null;
+        this.source = null;
+        this.analyser = null;
+        this.freq = null;
+        return;
+      }
+    }
+
     const sameOrigin = (() => {
       const url = this._audioUrlFor(track);
       if (!url) return false;
@@ -1291,14 +1355,15 @@ export const Player = {
     // AudioContext 输出的，而 iOS 一进后台就把这个上下文挂起 —— 声音没了，
     // 界面却还在"播放中"。移动端「后台完整放完 + 自动切歌」比频谱动画重要。
     if (PLAYER.visualizerOnIOS === false && IS_IOS) return;
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
     try {
       this.ctx = new AC();
       this.source = this.ctx.createMediaElementSource(this.audio);
       this.analyser = this.ctx.createAnalyser();
-      this.analyser.fftSize = 256;
-      this.analyser.smoothingTimeConstant = 0.78;
+      // 2048 点：频点间隔 ≈21.5Hz，才分得清 bass(20–150) / lowMid(150–400)。
+      // 256 点一个频点跨 172Hz，低频全糊在一起，onset 检测根本没法做。
+      // 平滑降到 0.5：鼓点要的是"这一帧的瞬态"，不是被抹平的平均值。
+      this.analyser.fftSize = 2048;
+      this.analyser.smoothingTimeConstant = 0.5;
       this.source.connect(this.analyser);
       this.analyser.connect(this.ctx.destination);
       this.freq = new Uint8Array(this.analyser.frequencyBinCount);
@@ -1314,14 +1379,30 @@ export const Player = {
   /** 返回 0~1 的频谱数组；不可用时返回 null（调用方使用合成动画） */
   spectrum(bars = PLAYER.bars) {
     if (!this.analyser || !this.freq) return null;
+    // 上下文被挂起（后台标签、设备切换、自动播放策略）时 getByteFrequencyData 全是 0，
+    // 直接返回 null 让调用方退化成合成音浪，而不是把"全零"当成真实频谱把条压平。
+    if (this.ctx?.state === 'suspended') {
+      this.ctx.resume?.().catch(() => {});
+      return null;
+    }
     this.analyser.getByteFrequencyData(this.freq);
+    let total = 0;
+    for (let j = 0; j < this.freq.length; j += 1) total += this.freq[j];
+    if (total === 0) return null;
     const out = new Array(bars);
-    const usable = Math.floor(this.freq.length * 0.72);
-    const step = usable / bars;
+    // 对数频率映射：音乐能量集中在低频，线性切 40 根会让第 7 根之后永远贴底
+    // （看起来就是"音浪不动"）。按 30Hz–16kHz 等比切，低中高都分配得到条。
+    const sampleRate = this.ctx?.sampleRate || 44100;
+    const binHz = sampleRate / this.analyser.fftSize;
+    const minHz = 30;
+    const maxHz = 16000;
+    const ratio = maxHz / minHz;
     for (let i = 0; i < bars; i++) {
+      const f0 = minHz * (ratio ** (i / bars));
+      const f1 = minHz * (ratio ** ((i + 1) / bars));
+      const s = Math.max(0, Math.floor(f0 / binHz));
+      const e = Math.max(s + 1, Math.min(this.freq.length - 1, Math.ceil(f1 / binHz)));
       let sum = 0;
-      const s = Math.floor(i * step);
-      const e = Math.max(s + 1, Math.floor((i + 1) * step));
       for (let j = s; j < e; j++) sum += this.freq[j];
       out[i] = Math.min(1, sum / (e - s) / 210);
     }

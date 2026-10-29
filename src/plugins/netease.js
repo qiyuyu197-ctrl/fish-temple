@@ -6,7 +6,8 @@
  *   ✅ 站内搜索        通过 server.mjs 代理调用网易云公开元数据接口
  *                      （浏览器直连会被同源策略拦掉，因为对方不返回 CORS 头）
  *   ✅ 导入歌单        粘贴公开歌单链接 / ID，一次把整个歌单的曲目合并进本站播放列表
- *                      ❌「我喜欢的音乐」与私密歌单需要登录，本项目不做登录
+ *                      「我喜欢的音乐」与私密歌单见 plugins/netease-login.js：
+ *                      扫码连接网易云账号后由 /api/netease/login/playlist 读（只读你自己的歌单）
  *   ✅ 站内试听/播放    经本站 /api/netease/audio **同源转发音频流**，由页面自己的
  *                      <audio> 播放（见下面的「站内直放」一节）——这是默认方式，
  *                      因为只有它才有真实的 duration / currentTime / ended：
@@ -33,9 +34,154 @@
 import { bus } from '../core/bus.js';
 import { Player } from '../core/player.js';
 import { EmbedHost } from '../ui/embed-host.js';
+import { Auth } from './auth.js';
 
 const STORE_KEY = 'ft.terminal.neteasePlaylist';
+const USE_LOGIN_AUDIO_KEY = 'ft.terminal.neteaseUseLoginAudio';
+const AUDIO_LEVEL_KEY = 'ft.terminal.neteaseAudioLevel';
+const AUDIO_LEVELS = ['standard', 'exhigh', 'lossless', 'hires'];
+const CLOUD_MATCH_KEY = 'ft.terminal.neteaseCloudMatch';
+
+/**
+ * 是否按 id 把曲目认成"云盘曲目"。
+ *
+ * 默认开。自检用 `?noCloudMatch=1` 关掉：套件里那首《逆さまの蝶》正好也可能在
+ * 站主的云盘里，一匹配就会真的播出来，而用例断言的是"匿名放不出 → 回退官方播放器"。
+ * 测试环境不该被账号里的数据改变结论 —— 所以留一个显式开关，而不是让用例变红。
+ */
+export function cloudMatchEnabled() {
+  try { return localStorage.getItem(CLOUD_MATCH_KEY) !== '0'; } catch { return true; }
+}
+
+try {
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('noCloudMatch') === '1') {
+    localStorage.setItem(CLOUD_MATCH_KEY, '0');
+  }
+} catch { /* 隐私模式等场景忽略 */ }
+
+export function getAudioLevel() {
+  try {
+    const raw = String(localStorage.getItem(AUDIO_LEVEL_KEY) || '').toLowerCase();
+    if (raw === 'high') return 'exhigh';
+    return AUDIO_LEVELS.includes(raw) ? raw : 'exhigh';
+  } catch { return 'exhigh'; }
+}
+export function setAudioLevel(level) {
+  const next = AUDIO_LEVELS.includes(level) ? level : 'exhigh';
+  try { localStorage.setItem(AUDIO_LEVEL_KEY, next); } catch { /* noop */ }
+  return next;
+}
 const API_BASE = '/api/netease';
+
+/**
+ * 把"云盘里的歌"标记并换成云盘音频地址。
+ *
+ * 为什么不能只看 `t.cloud`：云盘里的歌也会出现在**普通歌单 / 我喜欢的音乐**里
+ * （实测 8 首云盘歌同时在这位用户的「我喜欢的音乐」里，id 完全相同）。
+ * 从歌单导入时走的是普通 `toTrack`，没有 cloud 标记、也没有签名地址 ——
+ * 于是播放器把它当普通匿名曲目去放，结果就是没声音。
+ *
+ * 所以这里拉一次云盘列表，按 **id** 把任何匹配的曲目都改成云盘曲目：
+ * 不管它是从云盘面板加的、从歌单导入的，还是上次残留在列表里的。
+ *
+ * 另外还负责"自愈"：签名过期 / 早期版本签错的 src 会在这里换掉；
+ * 被旧探测误判出来的 `embedOnly` 也一起清掉。
+ *
+ * 30 秒防抖：音乐台来回切换、连续导入时不必每次都打接口。
+ */
+/**
+ * 是否用绑定账号自己的会话播放**会员曲目**（默认关）。
+ *
+ * 为什么做成显式开关：这会把你的会员音频经由本站转发，属于风险操作；
+ * 默认关 = 匿名体验与以前完全一致（免费档，会员曲目回退官方播放器），
+ * 用户自己在账号面板里勾选后才启用。
+ */
+export function useLoginAudio() {
+  try { return localStorage.getItem(USE_LOGIN_AUDIO_KEY) === '1'; } catch { return false; }
+}
+export function setUseLoginAudio(on) {
+  try { on ? localStorage.setItem(USE_LOGIN_AUDIO_KEY, '1') : localStorage.removeItem(USE_LOGIN_AUDIO_KEY); } catch { /* noop */ }
+}
+
+let cloudRefreshAt = 0;
+export async function refreshCloudUrls({ force = false } = {}) {
+  if (!force && Date.now() - cloudRefreshAt < 30_000) return 0;
+  cloudRefreshAt = Date.now();
+  try {
+    let byId = new Map();
+    if (cloudMatchEnabled()) {
+      const r = await Auth.api('/netease/login/cloud?limit=200');
+      if (r.ok && r.data?.songs) byId = new Map(r.data.songs.map((s) => [String(s.id), s]));
+    }
+    // 云盘为空 / 被关掉也要继续往下走：会员曲目那一步和云盘无关
+
+    let changed = 0;
+    const cur = Player.current;
+    let currentTouched = false;
+    for (const t of Player.tracks) {
+      const hit = byId.get(String(t.neteaseId || ''));
+      if (!hit) continue;
+      let touched = false;
+      if (!t.cloud) { t.cloud = true; touched = true; }
+      if (t.embedOnly) { t.embedOnly = false; touched = true; }
+      if (hit.audio && hit.audio !== t.src) { t.src = hit.audio; touched = true; }
+      // 云盘条目里的时长/封面比公开元数据更准（尤其是没匹配到曲库的上传）
+      if (hit.duration && !t.duration) { t.duration = hit.duration; touched = true; }
+      if (hit.cover && !t.cover) { t.cover = hit.cover; touched = true; }
+      if (touched) { changed += 1; if (t === cur) currentTouched = true; }
+    }
+
+    /**
+     * 会员曲目也在这里**提前签好**（只有在用户显式打开开关时才做）。
+     *
+     * 为什么不能只靠 onError 补救：启动时 `setTracks()` 会先按匿名地址 `prepare(0)`，
+     * 那一发必然 404，错误回调与 `checkSound` 的异步结果很容易抢在重试之前，
+     * 把曲目打成 `embedOnly` / 切到官方 iframe —— 之后就算拿到会员地址也不播了。
+     * 提前签好、并且清掉误判，播放路径就和普通直放一样干净。
+     */
+    if (useLoginAudio()) {
+      const need = Player.tracks.filter((t) => !t.cloud && t.neteaseId
+        && (Number(t.fee) === 1 || Number(t.fee) === 4 || t.embedOnly));
+      if (need.length) {
+        const urls = await signLoginAudio(need.map((t) => t.neteaseId)).catch(() => ({}));
+        for (const t of need) {
+          const next = urls[String(t.neteaseId)];
+          if (!next) continue;
+          let touched = false;
+          if (t.src !== next) { t.src = next; touched = true; }
+          if (t.embedOnly) { t.embedOnly = false; touched = true; }
+          if (touched) { changed += 1; if (t === cur) currentTouched = true; }
+        }
+      }
+    }
+
+    if (changed) {
+      savePlaylist(Player.tracks);
+      // 当前这首刚好被改写：立刻按新地址重设一次（否则 <audio> 还锁在旧地址上）
+      if (currentTouched) {
+        try { Player.prepare(Player.index, { autoplay: Player.playing || Player._intent }); } catch { /* noop */ }
+      }
+    }
+    return changed;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 给普通 / 会员曲目签"登录态音频"地址（只有绑定了网易云账号时才有）。
+ * 返回 { [id]: url }；没绑定或失败时返回空对象，调用方按匿名失败处理。
+ */
+export async function signLoginAudio(ids, level = getAudioLevel()) {
+  const list = [...new Set((ids || []).map(String).filter((s) => /^\d+$/.test(s)))].slice(0, 200);
+  if (!list.length) return {};
+  try {
+    const r = await Auth.api('/netease/login/urls', { method: 'POST', body: { ids: list, level } });
+    return r.ok && r.data?.urls ? r.data.urls : {};
+  } catch {
+    return {};
+  }
+}
 
 /**
  * 官方外链播放器地址。
@@ -395,8 +541,9 @@ export async function fetchSongs(ids) {  const list = [...new Set((ids || []).ma
 /* ---------------- 歌单导入 ----------------
  * 能力边界：
  *   ✅ 公开歌单（含排行榜）可以读取曲目列表 → 一次性导入到本站播放列表
- *   ❌ 「我喜欢的音乐」、私密歌单、需要登录才可见的歌单读不到 —— 不做登录
- *   ❌ 导入的只是**曲目元数据**，试听仍然走官方外链播放器（不涉及音频流）
+ *   ✅ 「我喜欢的音乐」、私密歌单：扫码连接网易云账号后，由
+ *      /api/netease/login/playlist 带登录态读取（见 plugins/netease-login.js）
+ *   ❌ 登录态**只用来读歌单**，不用来取 VIP 音频流
  */
 
 /** 单次导入的曲目上限：太大既慢又占 localStorage，且列表页会很长 */
@@ -508,8 +655,12 @@ export async function fetchAlbum(input, { limit = PLAYLIST_IMPORT_LIMIT, onProgr
   return { ...json.album, tracks: json.tracks || [] };
 }
 
-/** 把一批曲目并进站内播放列表（导入歌单 / 专辑共用） */
-function applyImport(songs, { replace = false } = {}) {
+/**
+ * 把一批曲目并进站内播放列表（导入歌单 / 专辑共用）。
+ * 导出给 plugins/netease-login.js 用：登录后拿到的是"歌单 id + 曲目 id"，
+ * 详情仍走公开接口，最后统一从这里落地，避免两套去重/保序逻辑。
+ */
+export function applyImport(songs, { replace = false } = {}) {
   const incoming = songs.map(toTrack);
   const others = Player.tracks.filter((t) => t.provider !== 'netease');
   const existing = Player.tracks.filter((t) => t.provider === 'netease');
@@ -615,6 +766,9 @@ export function savePlaylist(tracks) {
         // 官方播放器的估算时钟也能直接用真实秒数（元数据时长可能只是试听片段）
         embedOnly: !!t.embedOnly,
         audioSeconds: Number(t.audioSeconds) || 0,
+        // 云盘曲目要连签名地址一起存：它的音频必须走 /login/audio（匿名接口拿不到），
+        // 而 <audio> 的地址就是列表接口当时签好的那个（30 天有效）
+        ...(t.cloud ? { cloud: true, src: t.src } : {}),
       }));
     localStorage.setItem(STORE_KEY, JSON.stringify(slim));
     return true;
@@ -675,6 +829,8 @@ export const neteaseAudioProvider = {
    */
   audioUrl(track) {
     if (!track?.neteaseId) return '';
+    // 云盘曲目只能走带签名的 /login/audio；没有 src 就是空，绝不能落到匿名链路上
+    if (track.cloud) return track.src || '';
     return track.src || directAudioUrl(track.neteaseId);
   },
   prepare(track, ctx) {
@@ -699,9 +855,53 @@ export const neteaseAudioProvider = {
   onError(track, ctx) {
     if (!track?.neteaseId) return false;
 
+    /**
+     * 云盘曲目单独一条路：匿名外链和官方播放器都放不出来，唯一能做的是**换一把新签名**再试。
+     * 失败的常见原因是列表里存的是旧地址（签名过期 / 早期版本签错）。
+     */
+    if (track.cloud) {
+      void (async () => {
+        const beforeSrc = track.src;
+        await refreshCloudUrls({ force: true }).catch(() => 0);
+        const stillMine = ctx.providerId === 'netease-audio' && ctx.current === track;
+        const fixed = Boolean(track.src) && track.src !== beforeSrc;
+        if (fixed && stillMine && ctx._intent) {
+          ctx.prepare(ctx.index, { autoplay: true });
+          return;
+        }
+        bus.emit('toast', {
+          message: `「${track.title}」的云盘音频取不到（链接可能已失效）。回「云盘」里再点一次播放试试。`,
+          kind: 'warn',
+          ttl: 8000,
+        });
+      })();
+      return true;   // 接管这次失败：别切官方播放器，云盘曲目在那边同样放不出来
+    }
+
     // 同步先接管这次失败：绝不让引擎弹"加载失败"、更不要跳到下一首
     // （用户点的是这首，就该把这首放出来）。随后异步决定回退到哪一步。
     void (async () => {
+      /**
+       * 会员 / 付费曲目：匿名拿不到，但**绑定账号自己是会员**时可以用它自己的会话取。
+       * 这一步放在最前面：成功了就直接换地址重播，不用再走"原始外链 → 官方播放器"那条回退链。
+       * 每次失败后 60 秒内不重复尝试，避免同一条卡住的歌反复请求。
+       */
+      const lastTry = Number(track._loginAudioAt) || 0;
+      if (!track.cloud && useLoginAudio() && Date.now() - lastTry > 60_000) {
+        track._loginAudioAt = Date.now();
+        const urls = await signLoginAudio([track.neteaseId]).catch(() => ({}));
+        const next = urls[String(track.neteaseId)];
+        if (next) {
+          track.src = next;
+          track.embedOnly = false;
+          const stillMineLogin = ctx.providerId === 'netease-audio' && ctx.current === track;
+          // 即便现在没在播（比如页面刚打开、元素先按匿名地址准备过），也要把地址换成登录态这份，
+          // 并且**直接结束**这次错误处理 —— 绝不能继续走到"标记 embedOnly / 切官方播放器"。
+          if (stillMineLogin) ctx.prepare(ctx.index, { autoplay: !!ctx._intent });
+          return;
+        }
+      }
+
       // 问一句"服务端到底能不能给这首歌音频"，用来决定回退到哪一步。
       let missing = false;
       try {
