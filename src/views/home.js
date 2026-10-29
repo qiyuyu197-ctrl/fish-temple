@@ -14,6 +14,7 @@ import { Motion } from '../core/motion.js';
 import { bus } from '../core/bus.js';
 import { newsItem, postCard, sectionHead, statBlock, emptyState, lyricBox, waveRow } from '../ui/bits.js';
 import { Toast } from '../ui/toast.js';
+import { openBackgroundPicker } from '../ui/background-picker.js';
 
 let offArt = null;
 
@@ -97,7 +98,7 @@ export default {
 
         <div class="hero__media-bar" id="heroMediaBar" hidden>
           <a class="hero__media-credit" id="heroMediaCredit" href="#/gallery" data-nav>
-            <span class="hero__media-kicker">// RANDOM ARCHIVE</span>
+            <span class="hero__media-kicker" id="heroMediaKicker">// RANDOM ARCHIVE</span>
             <span class="hero__media-no" id="heroMediaNo">NO.---</span>
             <b class="hero__media-title" id="heroMediaTitle">等待抽取</b>
             <span class="hero__media-meta" id="heroMediaMeta">横幅相册</span>
@@ -105,6 +106,8 @@ export default {
           <span class="hero__media-count" id="heroMediaCount">SCAN ---</span>
           <button class="btn btn--sm" id="heroMediaPin" type="button" aria-pressed="false"
                   title="固定当前横幅：之后进首页不再换">固定</button>
+          <button class="btn btn--sm" id="heroMediaPick" type="button" disabled
+                  aria-keyshortcuts="G" title="从图库选一张 / 导入自己的图（快捷键 G）">选图</button>
           <button class="btn btn--sm" id="heroMediaShuffle" type="button" disabled
                   aria-keyshortcuts="R" title="换一张横幅（快捷键 R）">${ICON.refresh}换一张</button>
         </div>
@@ -296,7 +299,11 @@ export default {
       try {
         if (photo?.url) localStorage.setItem(HERO_PIN_KEY, JSON.stringify(photo));
         else localStorage.removeItem(HERO_PIN_KEY);
-      } catch { /* 隐私模式忽略 */ }
+        return true;
+      } catch {
+        // 隐私模式 / 配额满：本次会话仍然能看，只是刷新后不保留
+        return false;
+      }
     };
     let heroPinned = readPinnedHero();
     let heroForceRandom = false;
@@ -315,7 +322,7 @@ export default {
       const hero = $('#hero');
       const img = $('#heroMediaImg');
       const bar = $('#heroMediaBar');
-      const btns = [$('#heroMediaShuffle'), $('#heroMediaFab'), $('#heroMediaPin')].filter(Boolean);
+      const btns = [$('#heroMediaShuffle'), $('#heroMediaFab'), $('#heroMediaPin'), $('#heroMediaPick')].filter(Boolean);
       if (!hero || !img || heroLoading) return;
       heroLoading = true;
       btns.forEach((b) => { b.disabled = true; });
@@ -323,19 +330,30 @@ export default {
       hero.setAttribute('aria-busy', 'true');
       bar?.classList.add('is-loading');
       try {
-        const picked = await pickHeroPhoto();
+        let picked = await pickHeroPhoto();
         if (!picked) {
           if (bar) bar.hidden = true;
           return;
         }
-        const { photo } = picked;
+        let { photo } = picked;
         // 先在 Image 里预载；失败就保留旧图，不要让首屏突然变白。
-        await new Promise((resolve, reject) => {
-          const pre = new Image();
-          pre.onload = resolve;
-          pre.onerror = reject;
-          pre.src = photo.url;
-        });
+        // 相册里偶有坏图 / 缺文件，随机到它时再抽一张，最多重试 2 次。
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            await new Promise((resolve, reject) => {
+              const pre = new Image();
+              pre.onload = resolve;
+              pre.onerror = reject;
+              pre.src = photo.url;
+            });
+            break;
+          } catch (err) {
+            if (attempt >= 2 || picked.pinned) throw err;
+            picked = await pickHeroPhoto();
+            if (!picked) throw err;
+            photo = picked.photo;
+          }
+        }
         // 预加载期间可能已经切走又切回来；不要把旧闭包写到新页面上。
         if (!document.body.contains(hero) || hero !== $('#hero')) return;
         const hadMedia = hero.classList.contains('is-media');
@@ -354,11 +372,13 @@ export default {
         const titleEl = $('#heroMediaTitle');
         const metaEl = $('#heroMediaMeta');
         const countEl = $('#heroMediaCount');
+        const kicker = $('#heroMediaKicker');
         const credit = $('#heroMediaCredit');
         if (noEl) noEl.textContent = no;
         if (titleEl) titleEl.textContent = photo.title || '未命名档案';
         if (metaEl) metaEl.textContent = [photo.author, dims].filter(Boolean).join(' / ') || `ALBUM / 相册 · ${picked.count} 张${picked.orientation === 'portrait' ? '竖图' : '横图'}`;
         if (countEl) countEl.textContent = `${picked.orientation === 'portrait' ? 'PORTRAIT' : 'LANDSCAPE'} ${String(picked.count).padStart(3, '0')}`;
+        if (kicker) kicker.textContent = photo.custom ? '// LOCAL IMAGE' : '// RANDOM ARCHIVE';
         if (credit) {
           credit.href = '#/gallery';
           credit.setAttribute('aria-label', `在相册中查看${photo.title ? `：${photo.title}` : '随机照片'}`);
@@ -462,14 +482,35 @@ export default {
       }
       paintHeroPin();
     });
+
+    // 从图库 / 本地导入里选一张：选中即固定，和「固定当前横幅」共用同一套存储
+    const pickHeroBackground = async () => {
+      if (document.body.classList.contains('is-bgpicker-open')) return;
+      const picked = await openBackgroundPicker({
+        scope: 'home',
+        currentUrl: heroCurrent?.url || '',
+        currentPhoto: heroCurrent,
+      });
+      if (!picked?.url) return;
+      heroPinned = picked;
+      heroForceRandom = false;
+      const saved = writePinnedHero(picked);
+      await loadHeroPhoto();
+      Toast.show(saved ? '已换成这张背景，并固定' : '已换成这张背景；图太大，下次打开可能丢失');
+    };
+    $('#heroMediaPick')?.addEventListener('click', pickHeroBackground);
     paintHeroPin();
+
     const onHeroKey = (e) => {
+      if (document.body.classList.contains('is-bgpicker-open')) return;
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
-      if (String(e.key).toLowerCase() !== 'r') return;
+      const key = String(e.key).toLowerCase();
+      if (key !== 'r' && key !== 'g') return;
       if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (document.querySelector('#cmdk:not([hidden])')) return;
       e.preventDefault();
-      shuffleHero();
+      if (key === 'g') void pickHeroBackground();
+      else shuffleHero();
     };
     window.addEventListener('keydown', onHeroKey);
 

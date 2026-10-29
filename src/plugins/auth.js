@@ -180,22 +180,25 @@ function usableConfig(json) {
     ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`)
     : '';
   const clientId = typeof json?.clientId === 'string' ? json.clientId : '';
+  // 两种账号形态：Auth0（跳第三方页面）与本地账号（桌面版 / 自建服务，自己收密码）
+  const mode = json?.mode === 'local' ? 'local' : (enabled ? 'auth0' : 'off');
   return {
-    enabled: enabled && !!origin && !!clientId,
+    enabled: enabled && (mode === 'local' || (!!origin && !!clientId)),
+    mode,
     domain: origin.replace(/^https?:\/\//i, ''),
     origin,
     clientId,
     audience: typeof json?.audience === 'string' ? json.audience : '',
     // 服务端说启用了、但少了必要字段：如实说明，界面别装作能用
-    incomplete: enabled && (!origin || !clientId),
+    incomplete: enabled && mode === 'auth0' && (!origin || !clientId),
   };
 }
 
 /* ---------------- 主体 ---------------- */
 
 export const Auth = {
-  /** { enabled, domain, origin, clientId, audience, incomplete } */
-  config: { enabled: false, domain: '', origin: '', clientId: '', audience: '', incomplete: false },
+  /** { enabled, mode, domain, origin, clientId, audience, incomplete } */
+  config: { enabled: false, mode: 'off', domain: '', origin: '', clientId: '', audience: '', incomplete: false },
 
   /** 'loading' | 'off' | 'anon' | 'user' */
   state: 'loading',
@@ -216,6 +219,8 @@ export const Auth = {
   get expiresAt() { return Number(this.session?.expiresAt) || 0; },
 
   get enabled() { return this.config.enabled === true; },
+  get mode() { return this.config.mode || 'off'; },
+  get isLocal() { return this.mode === 'local'; },
   get loggedIn() { return !!this.user; },
   get isOwner() { return this.user?.role === 'owner'; },
 
@@ -223,6 +228,13 @@ export const Auth = {
 
   async init() {
     await this.loadConfig();
+
+    // 本地账号：没有跳转、没有回调，只有一枚存在 localStorage 里的令牌
+    if (this.config.mode === 'local') {
+      await this.restore();
+      bus.emit('auth:ready', { enabled: this.enabled, state: this.state, user: this.user, notice: this.notice, mode: 'local' });
+      return this;
+    }
 
     const cb = readCallback();
     if (cb.present) {
@@ -277,6 +289,24 @@ export const Auth = {
   async restore() {
     const saved = readJSON(KEYS.session);
     if (!saved?.access_token) { this._setState('anon'); return false; }
+
+    // 本地账号：没有 refresh token，令牌就是一个会过期的签名串
+    if (this.isLocal) {
+      this.session = saved;
+      if (Number(saved.expiresAt) > Date.now() + EXPIRY_SKEW) {
+        this.user = readJSON(KEYS.user)
+          || { sub: '', email: '', name: '已登录', picture: '', verified: true, role: 'member', source: 'local' };
+        this._setState('user');
+        bus.emit('auth:user', { user: this.user });
+        void this.confirmWithServer();
+        return true;
+      }
+      this.notice = '登录已过期，请重新登录';
+      this._clearSession();
+      this._setState('anon');
+      bus.emit('auth:user', { user: null, notice: this.notice });
+      return false;
+    }
 
     this.session = saved;
     this.user = readJSON(KEYS.user) || userFromClaims(claimsOf(saved.id_token));
@@ -359,6 +389,43 @@ export const Auth = {
 
     location.assign(this.authorizeUrl({ loginHint, challenge, state }));
     return true;
+  },
+
+  /**
+   * 本地账号登录 / 注册（桌面版、自建服务）。
+   * 密码只在这条 POST 里出现一次，服务端立刻 scrypt 哈希，不回传任何东西。
+   * 失败抛错，由调用方把 message 显示在面板里（错误文案已经是人话）。
+   */
+  async loginLocal({ email = '', password = '', register = false, name = '' } = {}) {
+    if (!this.enabled || !this.isLocal) throw new Error('本站没有启用本地账号');
+    const path = register ? 'auth/local/register' : 'auth/local/login';
+    let res;
+    try {
+      res = await fetch(`${API.base}/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name }),
+      });
+    } catch (err) {
+      throw new Error(`连不上本地服务：${String(err?.message || err)}`);
+    }
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok || !json.token) {
+      throw new Error(json?.error || `登录失败（HTTP ${res.status}）`);
+    }
+
+    this.session = {
+      access_token: json.token,
+      expiresAt: Date.now() + Number(json.expiresIn || 0) * 1000,
+      local: true,
+    };
+    writeJSON(KEYS.session, this.session);
+    this.user = { ...json.user, source: 'local' };
+    writeJSON(KEYS.user, this.user);
+    this.notice = '';
+    this._setState('user');
+    bus.emit('auth:user', { user: this.user, mode: 'local', registered: register });
+    return this.user;
   },
 
   /**
@@ -495,6 +562,22 @@ export const Auth = {
    * 并在界面上如实说明"浏览器里可能还留着 Auth0 会话"。
    */
   logout() {
+    // 本地账号：服务端是无状态的签名令牌，登出就是把这枚令牌从本地抹掉
+    if (this.isLocal) {
+      const token = this.session?.access_token;
+      this._clearSession();
+      this._setState('anon');
+      this.notice = '';
+      bus.emit('auth:user', { user: null });
+      if (token) {
+        void fetch(`${API.base}/auth/local/logout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => { /* 无状态服务端，失败也无所谓 */ });
+      }
+      return true;
+    }
+
     const origin = this.config.origin;
     const clientId = this.config.clientId;
     const canRemote = this.enabled && !!origin && !!clientId;
@@ -534,13 +617,18 @@ export const Auth = {
    */
   async token() {
     if (!this.enabled) return null;
-    if (this._valid()) return this.session.id_token || null;
+    if (this._valid()) return this.isLocal
+      ? (this.session.access_token || null)
+      : (this.session.id_token || null);
+    if (this.isLocal) return null;
     const ok = await this.refresh();
     return ok ? (this.session.id_token || null) : null;
   },
 
   /** 用 refresh_token 换新令牌（Auth0 的 Refresh Token 轮换） */
   async refresh() {
+    // 本地账号没有 refresh token：过期就重新输一次密码
+    if (this.isLocal) return false;
     if (!this.session?.refresh_token || !this.enabled) return false;
     try {
       const res = await fetch(`${this.config.origin}/oauth/token`, {

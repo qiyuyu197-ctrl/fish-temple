@@ -374,6 +374,15 @@ body.has-miniplayer .footer { padding-bottom: calc(var(--miniplayer-h) + var(--s
   .lstage__queuebtn b { display: none; }
 }
 
+/* 舞台顶部多了一个「选图」入口：窄屏让按钮换行，别把最右边的退出键挤出屏幕 */
+@media (max-width: 820px) {
+  .lstage__top { flex-wrap: wrap; gap: 6px; }
+  .lstage__brand { flex: 1 1 100%; }
+  .lstage__topmeta { display: none; }
+  .lstage__close { margin-left: auto; }
+  .lstage__bgbtn.lstage__bgpick { min-width: 44px; padding-inline: 8px; }
+}
+
 /* 触屏：可点元素至少给到舒服的高度（切角保持不变） */
 @media (hover: none) {
   .music .ne-search__bar .btn { min-height: 44px; }

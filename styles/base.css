@@ -83,8 +83,7 @@ code, pre { font-family: var(--font-mono); }
 }
 .k-label--ink { color: var(--fg); }
 .k-label--signal { color: var(--signal-deep); }
-[data-theme="night"] .k-label--signal,
-[data-theme="blueprint"] .k-label--signal { color: var(--signal); }
+[data-scheme="dark"] .k-label--signal { color: var(--signal); }
 
 .display {
   font-family: var(--font-display);
@@ -97,8 +96,7 @@ code, pre { font-family: var(--font-mono); }
 .muted { color: var(--fg-muted); }
 .faint { color: var(--fg-faint); }
 .signal { color: var(--signal-deep); }
-[data-theme="night"] .signal,
-[data-theme="blueprint"] .signal { color: var(--signal); }
+[data-scheme="dark"] .signal { color: var(--signal); }
 .nowrap { white-space: nowrap; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -128,8 +126,7 @@ code, pre { font-family: var(--font-mono); }
   pointer-events: none; opacity: 0.05; mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
 }
-[data-theme="night"] .grain,
-[data-theme="blueprint"] .grain { mix-blend-mode: screen; opacity: 0.035; }
+[data-scheme="dark"] .grain { mix-blend-mode: screen; opacity: 0.035; }
 
 /* 扫描线 */
 .scanlines {
@@ -215,7 +212,7 @@ code, pre { font-family: var(--font-mono); }
 }
 .nav__link:hover { color: var(--fg); background: color-mix(in srgb, var(--ink-100) 5%, transparent); }
 .nav__link:hover::after { transform: scaleX(1); }
-/* 当前板块：整块用主题信号色点亮（paper / night / blueprint 会各自取自己的 --signal） */
+/* 当前板块：整块用主题信号色点亮（每套主题各自取自己的 --signal） */
 .nav__link.is-active {
   color: var(--signal-ink);
   background: var(--signal);
@@ -286,8 +283,7 @@ code, pre { font-family: var(--font-mono); }
 .ticker__item { color: var(--fg-muted); }
 .ticker__item b { color: var(--fg); font-weight: 600; }
 .ticker__item i { font-style: normal; color: var(--signal-deep); margin-right: 8px; }
-[data-theme="night"] .ticker__item i,
-[data-theme="blueprint"] .ticker__item i { color: var(--signal); }
+[data-scheme="dark"] .ticker__item i { color: var(--signal); }
 
 /* ============================================================
    主视图容器
@@ -412,8 +408,7 @@ code, pre { font-family: var(--font-mono); }
 .footer__links { display: flex; flex-direction: column; gap: 4px; }
 .footer__links a { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-muted); transition: color var(--t-fast) var(--ease); }
 .footer__links a:hover { color: var(--signal-deep); }
-[data-theme="night"] .footer__links a:hover,
-[data-theme="blueprint"] .footer__links a:hover { color: var(--signal); }
+[data-scheme="dark"] .footer__links a:hover { color: var(--signal); }
 .footer__bar {
   display: flex; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap;
   margin-top: var(--sp-6); padding-top: var(--sp-4);

@@ -85,7 +85,8 @@ export const Shell = {
     const user = Auth.user;
 
     if (!user) {
-      box.innerHTML = `<button class="authbox__btn" id="authLogin" type="button" title="登录 / 注册（Auth0）">
+      const label = Auth.isLocal ? '登录 / 注册（本机账号）' : '登录 / 注册（Auth0）';
+      box.innerHTML = `<button class="authbox__btn" id="authLogin" type="button" title="${label}">
         ${ICON.user}<span class="authbox__label">登录</span>
       </button>`;
       delete box.dataset.open;
@@ -114,7 +115,7 @@ export const Shell = {
         </div>
         <div class="authbox__rows mono">
           <span><i>角色</i><b>${Auth.isOwner ? '站长 OWNER' : '普通用户 MEMBER'}</b></span>
-          <span><i>邮箱</i><b>${user.verified ? '已验证' : (Auth.enabled ? '未验证' : '—')}</b></span>
+          <span><i>邮箱</i><b>${user.source === 'local' ? '本机账号' : (user.verified ? '已验证' : (Auth.enabled ? '未验证' : '—'))}</b></span>
           ${user.source === 'token' ? '<span><i>身份</i><b>服务端未确认</b></span>' : ''}
         </div>
         <button class="authbox__item" id="authEdit" type="button" role="menuitem">编辑资料</button>
@@ -145,6 +146,8 @@ export const Shell = {
   openAuthPanel() {
     if ($('#authPanel')) return;
     if (!Auth.enabled) { Toast.show(Auth.notice || '本站未启用账号功能', 'err'); return; }
+    // 本地账号（桌面版）：不走 Auth0，密码框就在我们自己面板里
+    if (Auth.isLocal) return this._openLocalAuthPanel();
 
     const scrim = document.createElement('div');
     scrim.className = 'authpanel__scrim';
@@ -220,6 +223,116 @@ export const Shell = {
       this._closeAuthPanel = null;
       fn();
     }
+  },
+
+  /**
+   * 本地账号面板（桌面版 / 自建服务）。
+   *
+   * 和 Auth0 那条路的区别：密码就在我们自己手里过一遍 —— 所以这里只做两件事：
+   *   ① 把密码原样 POST 给本机服务（服务端立刻 scrypt 哈希，不存明文、不回传）；
+   *   ② 失败时把服务端的人话错误显示出来（"邮箱或密码不对" / "这个邮箱已经注册过了"）。
+   *
+   * 面板里有一个「注册 / 登录」切换：第一次用就是注册，之后用登录。
+   */
+  _openLocalAuthPanel() {
+    let register = false;
+
+    const scrim = document.createElement('div');
+    scrim.className = 'authpanel__scrim';
+    scrim.id = 'authPanelScrim';
+    scrim.innerHTML = `
+      <div class="authpanel" id="authPanel" role="dialog" aria-modal="true" aria-labelledby="authPanelTitle">
+        <div class="authpanel__head">
+          <b id="authPanelTitle">登录 / 注册</b>
+          <button class="authpanel__x" id="authPanelClose" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="authpanel__lead">这是<b>本机账号</b>：密码只保存在这台电脑上，由本地服务加盐哈希后存储。</p>
+        <form class="authpanel__form" id="authPanelForm" novalidate>
+          <label class="authpanel__label mono" for="authPanelEmail">邮箱</label>
+          <input class="authpanel__input" id="authPanelEmail" type="email" name="email" required
+                 autocomplete="username" inputmode="email" spellcheck="false" placeholder="you@example.com" />
+          <label class="authpanel__label mono" for="authPanelPassword">密码</label>
+          <input class="authpanel__input" id="authPanelPassword" type="password" name="password" required
+                 autocomplete="current-password" minlength="6" placeholder="至少 6 位" />
+          <p class="authpanel__err mono" id="authPanelErr" role="alert" hidden></p>
+          <button class="btn btn--signal authpanel__go" id="authPanelGo" type="submit">登录</button>
+        </form>
+        <button class="authpanel__alt" id="authPanelSwitch" type="button">没有账号？注册一个</button>
+        <p class="authpanel__foot mono">账号存在数据目录的 auth/users.json；忘了密码只能删掉它重来</p>
+      </div>`;
+    document.body.append(scrim);
+
+    const panel = $('#authPanel');
+    const email = $('#authPanelEmail');
+    const password = $('#authPanelPassword');
+    const err = $('#authPanelErr');
+    const go = $('#authPanelGo');
+    const switcher = $('#authPanelSwitch');
+
+    const showErr = (msg) => {
+      err.textContent = msg;
+      err.hidden = false;
+      email?.setAttribute('aria-invalid', 'true');
+    };
+    const clearErr = () => {
+      err.hidden = true;
+      err.textContent = '';
+      email?.removeAttribute('aria-invalid');
+    };
+
+    const close = () => {
+      scrim.remove();
+      $('#authLogin')?.focus?.();
+    };
+    this._closeAuthPanel = close;
+
+    const paintMode = () => {
+      const title = $('#authPanelTitle');
+      if (title) title.textContent = register ? '注册本机账号' : '登录';
+      if (go) go.textContent = register ? '注册并登录' : '登录';
+      if (switcher) switcher.textContent = register ? '已有账号？直接登录' : '没有账号？注册一个';
+      password?.setAttribute('autocomplete', register ? 'new-password' : 'current-password');
+    };
+
+    switcher?.addEventListener('click', () => {
+      register = !register;
+      clearErr();
+      paintMode();
+      password?.focus?.();
+    });
+
+    scrim.addEventListener('click', (e) => { if (e.target === scrim) close(); });
+    scrim.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+    $('#authPanelClose')?.addEventListener('click', close);
+
+    $('#authPanelForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const mail = String(email?.value || '').trim();
+      const pass = String(password?.value || '');
+      if (!mail) { showErr('请先填邮箱'); email?.focus(); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { showErr('邮箱格式看起来不对，检查一下'); email?.focus(); return; }
+      if (pass.length < 6) { showErr('密码至少 6 位'); password?.focus(); return; }
+      clearErr();
+      if (go) { go.disabled = true; go.textContent = register ? '注册中…' : '登录中…'; }
+      try {
+        const user = await Auth.loginLocal({ email: mail, password: pass, register });
+        close();
+        Toast.ok(register ? `账号已建好，欢迎 ${user.name}` : `欢迎回来，${user.name}`);
+      } catch (ex) {
+        showErr(String(ex?.message || ex));
+        if (go) { go.disabled = false; paintMode(); }
+        password?.select?.();
+      }
+    });
+
+    email?.addEventListener('input', () => { if (!err?.hidden) clearErr(); });
+    password?.addEventListener('input', () => { if (!err?.hidden) clearErr(); });
+
+    paintMode();
+    panel?.setAttribute('tabindex', '-1');
+    email?.focus?.();
   },
 
   /* ---------------- 编辑资料（昵称 / 头像） ---------------- */

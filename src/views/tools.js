@@ -4,14 +4,16 @@
  * 五件工具，**全部在浏览器里跑，文件不上传**（这是站点"零依赖静态站"的直接收益：
  * 没有后端，所以也不需要把用户的文件交给谁）。
  *
- *   ① 格式转换  图片 png/jpg/webp/gif/bmp ↔；docx → txt/md/html；txt/md/html/csv → docx；
+ *   ① 格式转换  图片 png/jpg/webp/gif/bmp ↔；docx → PDF / txt / md / html；
+ *              txt/md/html/csv → docx；pptx → PDF（一页一张幻灯片）；
  *              音频 mp3/m4a/wav/ogg/flac → wav（瞬时）或 m4a/webm（实时重编码）
  *   ② 图片压缩  批量缩放 + 质量 + 换格式，实时看前后体积
  *   ③ 文本工具  JSON 格式化/压缩、Base64、URL 编解码、行处理、文本统计、文件 SHA-256
  *   ④ 提取音频  视频里的音轨 → WAV / MP3（独立页签 ?tab=audio）
  *   ⑤ 分离纯音乐/人声  AI 模型分出伴奏与人声 → WAV / MP3（独立页签 ?tab=vocal）
  *
- * 做不到的也写在界面上：pdf/xlsx/pptx 解析（复杂度不划算）；AI 分轨的模型权重按需加载（见 vocal 页签）。
+ * 做不到的也写在界面上：xlsx 解析、老式 .doc/.ppt 二进制、以及「PDF 里的文字不能选中」
+ * （PDF 是每页成像后封装的，见 pdf.js 文件头）；AI 分轨的模型权重按需加载（见 vocal 页签）。
  */
 
 import { $, $$, esc, ICON } from '../util/dom.js';
@@ -78,7 +80,7 @@ const dropZone = (id, hint, accept = '') => `
   </div>`;
 
 function convertRow(item) {
-  const kinds = { image: '图片', doc: '文档', audio: '音频', text: '文本', unknown: '未知' };
+  const kinds = { image: '图片', doc: '文档', slide: '演示', audio: '音频', text: '文本', legacy: '老格式', unknown: '未知' };
   const targets = targetsFor(item.file);
   const out = item.out;
   return `
@@ -93,7 +95,7 @@ function convertRow(item) {
     <span class="tool-row__acts">
       ${targets.length ? `<select class="tool-select" data-target="${item.id}" ${item.busy ? 'disabled' : ''}>
         ${targets.map((t) => `<option value="${esc(t.id)}" ${t.id === item.target ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}
-      </select>` : '<span class="mono faint" style="font-size:var(--fs-2xs)">暂不支持</span>'}
+      </select>` : `<span class="mono faint" style="font-size:var(--fs-2xs);max-width:170px;text-align:right">${item.kind === 'legacy' ? '老格式：先另存为 .docx / .pptx' : '暂不支持'}</span>`}
       <button class="btn btn--sm" data-convert="${item.id}" ${item.busy || !targets.length ? 'disabled' : ''}>转换</button>
       ${out ? `<button class="btn btn--sm btn--signal" data-save="${item.id}">下载</button>` : ''}
       <button class="btn btn--sm" data-remove="${item.id}" title="移除">✕</button>
@@ -111,7 +113,7 @@ function convertPanel() {
       <span class="mono faint" style="font-size:var(--fs-2xs)">文件不上传 · 全在浏览器里处理</span>
     </div>
     <div class="panel__body grid" style="gap:var(--sp-4)">
-      ${dropZone('toolDrop', '图片 · docx · 文本 · 音频，可一次拖多个')}
+      ${dropZone('toolDrop', '图片 · docx / pptx · 文本 · 音频，可一次拖多个')}
       ${items.length
         ? `<div class="tool-list">${items.map(convertRow).join('')}</div>
            <div class="tool-actions">
@@ -119,9 +121,9 @@ function convertPanel() {
              <button class="btn" id="saveZip" ${done.length ? '' : 'disabled'}>打包下载 ZIP（${done.length}）</button>
              <button class="btn btn--danger" id="clearFiles">清空列表</button>
              <span class="grow"></span>
-             <span class="mono faint" style="font-size:var(--fs-2xs)">音频转 m4a / webm 需要实时重编码，耗时≈音频时长</span>
+             <span class="mono faint" style="font-size:var(--fs-2xs)">音频转 m4a / webm 要实时重编码（耗时≈时长）；docx / pptx → PDF 约 0.3–0.6 秒/页</span>
            </div>`
-        : emptyState({ title: '还没有文件', desc: '支持：png/jpg/webp/gif/bmp · docx · txt/md/html/csv · mp3/m4a/wav/ogg/flac', icon: '⇄' })}
+        : emptyState({ title: '还没有文件', desc: '支持：png/jpg/webp/gif/bmp · docx · pptx · txt/md/html/csv · mp3/m4a/wav/ogg/flac', icon: '⇄' })}
       <details class="tool-note">
         <summary>支持矩阵与做不到的部分</summary>
         <div class="tool-note__body">
@@ -129,14 +131,18 @@ function convertPanel() {
             <thead><tr><th>类型</th><th>能读</th><th>能写</th></tr></thead>
             <tbody>
               <tr><td>图片</td><td>png / jpg / webp / gif(首帧) / bmp</td><td>${Object.values(FORMAT_LABEL).join(' / ')}</td></tr>
-              <tr><td>文档</td><td>docx（含标题、列表、表格）</td><td>docx（由文本生成）</td></tr>
+              <tr><td>文档</td><td>docx（标题、列表、表格、图片、分页符）</td><td>docx（由文本生成）· txt / md / html · <b>pdf</b></td></tr>
+              <tr><td>演示</td><td>pptx / pptm（文本框、图片、表格、占位符继承）</td><td><b>pdf</b>（一页一张幻灯片）</td></tr>
               <tr><td>文本</td><td>txt / md / html / csv / json</td><td>txt / docx</td></tr>
               <tr><td>音频</td><td>mp3 / m4a / wav / ogg / flac / webm</td><td>wav（瞬时）· m4a / webm（实时）</td></tr>
             </tbody>
           </table>
           <p class="faint" style="font-size:var(--fs-2xs);margin:var(--sp-3) 0 0;line-height:1.8">
-            <b>MP3 编码不做</b>：需要一个第三方编码器（LAME 之类），本项目零依赖。<br />
-            <b>PDF / XLSX / PPTX 不做</b>：解析量级远超"顺手写个小工具"，与其给个会出错的按钮，不如明说。
+            <b>PDF 是图片式的</b>：每页先在浏览器里排好版，再拍成一张 JPEG 封进 PDF。中文、表格、图片都不会崩，
+            但<b>文字不能选中、不能搜索</b>，体积约 200–400KB/页。要可选中文字的 PDF，用浏览器打印（打印 → 另存为 PDF）。<br />
+            <b>.doc / .ppt 不做</b>：那是 97-2003 的二进制格式，解析量级完全不同；先在 Office / WPS 里另存为 .docx / .pptx 再拖进来。<br />
+            <b>PPT 里的图表 / SmartArt / 动画不还原</b>：会留一个写着「图表 / 对象未转换」的虚框，不假装转成功。<br />
+            <b>XLSX 与 MP3 编码不做</b>：前者是另一个量级的工作，后者需要第三方编码器（本项目零依赖）。
           </p>
         </div>
       </details>
@@ -287,7 +293,7 @@ export default {
       ${toolsTabs('hub')}
       ${viewhead({
         title: 'TOOLBOX',
-        sub: '三个在浏览器里跑的小工具：格式转换、图片压缩、文本处理；再加上「提取音频」与「分离纯音乐/人声」两个独立页签。文件不上传、不落盘，关掉页面就没了 —— 因为没有后端，所以也不需要把文件交给谁。',
+        sub: '三个在浏览器里跑的小工具：格式转换（含 docx / pptx → PDF）、图片压缩、文本处理；再加上「提取音频」与「分离纯音乐/人声」两个独立页签。文件不上传、不落盘，关掉页面就没了 —— 因为没有后端，所以也不需要把文件交给谁。',
         idx: 'MODULE / 06',
         meta: [
           { label: 'TOOLS', value: String(TABS.length).padStart(2, '0') },

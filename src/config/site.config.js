@@ -38,11 +38,15 @@ export const SITE = {
 /**
  * 主题。首个为默认主题；切换顺序按数组顺序循环。
  * 新增主题：在 styles/tokens.css 里加 [data-theme="your-id"] 变量块，然后在此追加。
+ * scheme 决定这一套是浅色还是深色：CSS 里「浅色用深强调色 / 深色用亮强调色」
+ * 这类分支统一走 <html data-scheme="light|dark">，不用再逐个主题写选择器。
  */
 export const THEMES = [
-  { id: 'paper',     label: 'PAPER',     hint: '奶油纸 · 日间' },
-  { id: 'night',     label: 'NIGHT',     hint: '暗色终端' },
-  { id: 'blueprint', label: 'BLUEPRINT', hint: '蓝图 · 冷色' },
+  { id: 'paper',     label: 'PAPER',     hint: '奶油纸 · 日间', scheme: 'light' },
+  { id: 'night',     label: 'NIGHT',     hint: '暗色终端',      scheme: 'dark' },
+  { id: 'blueprint', label: 'BLUEPRINT', hint: '蓝图 · 冷色',   scheme: 'dark' },
+  { id: 'matcha',    label: 'MATCHA',    hint: '抹茶 · 日间',   scheme: 'light' },
+  { id: 'sakura',    label: 'SAKURA',    hint: '樱花 · 日间',   scheme: 'light' },
 ];
 
 /** 导航。path 使用 hash 路由；badge 可写 'NEW'、'BETA' 或数字。 */

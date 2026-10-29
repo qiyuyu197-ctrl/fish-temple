@@ -62,7 +62,9 @@ function build() {
  */
 export function waveLevels(n, active, t = performance.now() / 1000) {
   const out = new Array(n);
-  const real = active ? Player.spectrum(n) : null;
+  let real = active ? Player.spectrum(n) : null;
+  // 频谱"存在但全是 0"和"拿不到频谱"是一回事：都交给合成音浪，别把条压平
+  if (real && !real.some((v) => v > 0.001)) real = null;
   for (let i = 0; i < n; i++) {
     if (!active) { out[i] = 0.05; continue; }
     if (real) {

@@ -3,7 +3,9 @@
    参考《明日方舟：终末地》官网视觉语言：
    奶油纸底 / 墨黑文字 / 信号黄强调 / 全直角工业编辑风
    所有页面与组件只允许消费这里的变量，禁止硬编码颜色与尺度。
-   扩展方式：新增一套 [data-theme="xxx"] 覆盖下方同名变量即可。
+   扩展方式：新增一套 [data-theme="xxx"] 覆盖下方同名变量，并在 site.config.js
+   的 THEMES 里登记 scheme（light / dark，会写到 <html data-scheme>）。
+   浅色主题用 --signal-deep 作文字强调、--signal 只作填充；深色主题反过来。
    ============================================================ */
 
 :root {
@@ -50,7 +52,7 @@
   --selection-bg: var(--signal);
   --selection-fg: var(--ink-100);
 
-  /* ---------- 深色命令栏（两套主题都保持深色） ---------- */
+  /* ---------- 深色命令栏（所有主题都保持深色） ---------- */
   --console-bg:    #121316;
   --console-fg:    #F1EFE8;
   --console-muted: #9C9A94;
@@ -214,6 +216,86 @@
   --console-line:  #17456F;
   --trace:         var(--signal);
   color-scheme: dark;
+}
+
+/* ============================================================
+   主题 · 抹茶 (Matcha) —— 日间
+   奶油绿茶底 / 深煎茶墨色 / 抹茶奶油强调色。
+   控制台压成更深的茶褐绿，和浅底形成一层「茶室木框」的对比。
+   ============================================================ */
+[data-theme="matcha"] {
+  --paper:        #E9EEDC;
+  --paper-2:      #E0E6CD;
+  --paper-3:      #D4DDBA;
+  --paper-sunk:   #E4E9D3;
+  --ink:          #1A2117;
+  --ink-2:        #222A1E;
+
+  --ink-100:      #1A2117;
+  --ink-80:       #39452F;
+  --ink-60:       #58664B;
+  --ink-40:       #82906F;
+  --ink-25:       #B3BFA2;
+  --ink-12:       #D1DAC0;
+
+  --signal:       #A8C46F;   /* 抹茶奶油 */
+  --signal-deep:  #4F6B2C;   /* 深煎茶：浅底上的强调文字 */
+  --signal-ink:   #16200F;   /* 抹茶底上的文字 */
+  --alert:        #BC3F29;
+  --ok:           #1F7A4D;
+  --link:         #356B52;
+
+  --line:         #C4CFB2;
+  --line-strong:  #1A2117;
+  --line-soft:    #D5DEC5;
+
+  --grid-line: rgba(26, 33, 23, 0.05);
+  --console-bg:    #151C14;
+  --console-fg:    #EDF0E2;
+  --console-muted: #96A487;
+  --console-line:  #2B3527;
+  --trace:         var(--ink-100);
+  color-scheme: light;
+}
+
+/* ============================================================
+   主题 · 樱花 (Sakura) —— 日间
+   淡樱纸底 / 梅墨紫棕 / 樱花粉强调色。
+   强调色刻意压深成梅子色，保证小字号标签在浅粉底上依然看得清。
+   ============================================================ */
+[data-theme="sakura"] {
+  --paper:        #FBF0F1;
+  --paper-2:      #F5E3E7;
+  --paper-3:      #EDD6DC;
+  --paper-sunk:   #F7E9EB;
+  --ink:          #2A1B21;
+  --ink-2:        #332229;
+
+  --ink-100:      #2A1B21;
+  --ink-80:       #4C353E;
+  --ink-60:       #6B525C;
+  --ink-40:       #9A7F89;
+  --ink-25:       #C6B0B8;
+  --ink-12:       #E4D4D9;
+
+  --signal:       #F0A3B8;   /* 樱花粉 */
+  --signal-deep:  #A54362;   /* 梅子红：浅底上的强调文字 */
+  --signal-ink:   #2A0F18;   /* 樱粉底上的文字 */
+  --alert:        #C53A4B;
+  --ok:           #2F7A58;
+  --link:         #9C4A7E;
+
+  --line:         #DDC3C9;
+  --line-strong:  #2A1B21;
+  --line-soft:    #EBD9DD;
+
+  --grid-line: rgba(42, 27, 33, 0.045);
+  --console-bg:    #2B1A22;
+  --console-fg:    #FBF0F1;
+  --console-muted: #C0A2AC;
+  --console-line:  #4A333C;
+  --trace:         var(--ink-100);
+  color-scheme: light;
 }
 
 /* ============================================================
