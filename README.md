@@ -75,8 +75,20 @@ git tag app-v1.1.0 && git push origin app-v1.1.0   # 自动构建并挂到 Relea
 （仓库设置需要管理员权限，工作流自己开不了），然后跑一次 **Deploy to GitHub Pages**。
 细节、限制与排错见 **[app/README.md](app/README.md)**。
 
+**③ Windows 桌面版** —— 到 [Releases](../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，
+解压双击 `FishTemple.exe`，不装 Node、不装运行时。
+这次是**真的能断网用**：站点、相册、`server.mjs` 全打进安装目录，Electron 在
+`127.0.0.1` 上把服务跑起来，`/api/*` 照常工作。数据写在 `%APPDATA%\FishTemple\data`。
+
+```bash
+git tag desktop-v1.0.0 && git push origin desktop-v1.0.0   # 自动构建并挂到 Release
+```
+
+完整版解压 520MB、zip 约 300MB（236MB 是相册图）；手动跑工作流勾 **lite** 可出约 120MB 的精简版。
+细节见 **[app/desktop/README.md](app/desktop/README.md)**。
+
 > 两点实话：APK 是「壳 + 线上站点」，**必须联网**（仓库里 288MB 主要是插画，模型还不在仓库里）；
-> iOS 的后台音频会被系统挂起，这在网页层解决不了。
+> 桌面版才是离线的那一个，代价是体积。iOS 的后台音频会被系统挂起，这在网页层解决不了。
 
 ---
 
@@ -89,7 +101,7 @@ git tag app-v1.1.0 && git push origin app-v1.1.0   # 自动构建并挂到 Relea
 ├── manifest.webmanifest    PWA 清单：名称 / 图标（192 / 512 / maskable）/ 快捷方式 / 安装面板截图
 ├── sw.js                   Service Worker（**由 tools/gen-service-worker.mjs 生成**，别手改）
 ├── offline.html            断网兜底页（可点「重新连接」）
-├── app/                    装成 App：README + Android 壳工程（见「装成 App」一节）
+├── app/                    装成 App：README + Android 壳工程 + 桌面版（见「装成 App」一节）
 ├── server.mjs              本地服务器 + 全部 /api 实现（导出 handleApiRequest，Netlify Function 复用的就是它）
 ├── auth.mjs                Auth0 令牌校验（RS256 + JWKS，只用 node:crypto）+ 角色判定（站长 / 普通成员）
 ├── storage.mjs             内容存储双驱动：本地写 data/ 文件，线上写 Netlify Blobs
@@ -102,6 +114,7 @@ git tag app-v1.1.0 && git push origin app-v1.1.0   # 自动构建并挂到 Relea
 │   └── workflows/
 │       ├── season-roll.yml 每季自动换季：AniList → anime.json + 封面 → commit（失败开 issue）
 │       ├── android.yml     构建 Android APK → 挂到 GitHub Release（tag `app-v*`）
+│       ├── desktop.yml     构建 Windows 桌面版 zip → 挂到 GitHub Release（tag `desktop-v*`）
 │       └── pages.yml       手动发布到 GitHub Pages（Netlify 额度用尽时的备胎）
 ├── design/                 设计与取舍笔记（不参与构建，供人读）
 │   ├── endfield-adoption.md 全站 endfield 层的采纳范围与取舍

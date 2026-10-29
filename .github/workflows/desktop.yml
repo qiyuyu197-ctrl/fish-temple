@@ -1,0 +1,104 @@
+name: Desktop App (Windows)
+
+# 打一个 Windows 便携版（绿色目录 + zip），挂到 GitHub Release。
+#
+# 和安卓包的区别：桌面版把站点和 server.mjs 一起打进去，
+# 所以**断网也能用**（相册、文章、工具台全在本地），代价是体积大。
+#
+# 什么时候跑：
+#   · 推 desktop-v* 标签（如 desktop-v1.0.0）→ 构建并发布到 Release
+#   · 手动 Actions → Run workflow → 只留 Artifacts，不发版
+#
+# 想要小体积可以在手动触发时勾 lite：跳过 assets/img（约 240MB），
+# 产物从 ~300MB 降到 ~120MB，代价是插画板块空白。
+
+on:
+  workflow_dispatch:
+    inputs:
+      lite:
+        description: '精简版：不带相册图（体积小，插画板块会空）'
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'desktop-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 版本号
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $ver = "${{ github.ref_name }}" -replace '^desktop-v', ''
+          } else {
+            $ver = "1.0.0-dev.${{ github.run_number }}"
+          }
+          "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "构建版本 $ver"
+
+      - name: 安装打包依赖（Electron）
+        working-directory: app/desktop
+        run: npm install --no-audit --no-fund
+
+      - name: 组装站点（${{ inputs.lite && 'lite' || '完整' }}）
+        working-directory: app/desktop
+        run: |
+          if ("${{ inputs.lite }}" -eq "true") {
+            node scripts/assemble-site.mjs --lite
+          } else {
+            node scripts/assemble-site.mjs
+          }
+
+      - name: 打包 exe
+        working-directory: app/desktop
+        run: node scripts/package.mjs --version=$env:VERSION
+
+      - name: 压缩成 zip
+        working-directory: app/desktop
+        run: |
+          $zip = "dist/fish-temple-desktop-$env:VERSION-win-x64.zip"
+          Compress-Archive -Path "dist/FishTemple-win32-x64" -DestinationPath $zip -CompressionLevel Optimal
+          Get-Item $zip | Select-Object Name, @{n = 'MB'; e = { [math]::Round($_.Length / 1MB) } }
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: fish-temple-desktop
+          path: app/desktop/dist/*.zip
+          if-no-files-found: error
+
+      - name: 发布到 Release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: 鱼の灵庙 桌面版 ${{ env.VERSION }}
+          files: app/desktop/dist/*.zip
+          body: |
+            ## 鱼の灵庙 · 桌面版 ${{ env.VERSION }}
+
+            Windows 便携版，**解压即用**，不用安装、不用装 Node。
+
+            1. 下载下面的 `.zip`，解压到任意目录（**别放 C:\Program Files**，那里不可写）
+            2. 双击 `FishTemple.exe`
+            3. 第一次启动会慢几秒（把内容清单播种到 `%APPDATA%\FishTemple`）
+
+            - **断网也能用**：站点、相册、文章、工具台都在本地，`server.mjs` 在 127.0.0.1 上跑
+            - 只有 Pixiv 抽卡、网易云搜索这类要访问外网的功能需要联网
+            - 数据在 `%APPDATA%\FishTemple\data`（不碰安装目录）
+            - 需要 Windows 10/11 x64

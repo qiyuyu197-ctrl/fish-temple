@@ -1,17 +1,19 @@
 # 装成 App
 
-站点本来是个网页。这里的「App」有两层，互相独立，可以只用其中一个：
+站点本来是个网页。下面三种「App」互相独立，可以只用其中一个：
 
 | 形态 | 怎么拿到 | 谁的活 |
 | --- | --- | --- |
 | **PWA**（推荐先试） | 手机浏览器打开站点 → 菜单里「安装应用 / 添加到主屏幕」 | 已经在仓库里了，部署上去就生效 |
 | **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[1.0.3](../../../releases/download/app-v1.0.3/fish-temple-1.0.3.apk)，226KB） | GitHub Actions 自动构建，见下面的「发版」 |
+| **Windows 桌面版** | 到 [Releases](../../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，解压双击 `FishTemple.exe` | 断网可用，站点和 server.mjs 都在包里，见 [desktop/README.md](desktop/README.md) |
 
-两者都不上架应用商店：PWA 不需要，APK 走侧载（下载后手动安装）。
+三者都不上架应用商店：PWA 不需要，APK 与桌面版都是直接下载。
 
-> ⚠️ **地址要先定下来。** App 和 PWA 都是「壳 + 线上站点」，站点打不开就是兜底页。
+> ⚠️ **地址要先定下来。** PWA 和 APK 都是「壳 + 线上站点」，站点打不开就是兜底页。
 > 默认地址是 GitHub Pages（`https://<用户名>.github.io/<仓库名>/`）。
 > 第一次要手动开一下 Pages，见「站点地址」一节；站点搬家只改一个变量，不用改代码。
+> 桌面版不受这条限制 —— 它把站点打进包里了，断网也能用。
 
 ---
 
@@ -96,6 +98,26 @@ git push origin app-v1.0.0
 只要还是这个仓库、这个缓存，新版本能直接覆盖安装；
 缓存被清掉后重新构建会换一把钥匙，用户得先卸载再装（本地数据会丢）。
 真要长期发版，换成自己的 keystore + `secrets`，或者上架商店。
+
+---
+
+## 三、Windows 桌面版：唯一能真正离线的
+
+到 [Releases](../../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，解压双击 `FishTemple.exe`。
+
+和上面两个的根本区别：**站点和 `server.mjs` 都打进了包里**，Electron 启动时在本机
+`127.0.0.1` 的随机端口上把服务跑起来 —— 断网也能用，`/api/*` 全都在。
+
+- 数据在 `%APPDATA%\FishTemple\data`（菜单 → 文件 → 打开数据目录）
+- 完整版解压 520MB / zip 约 300MB；`--lite` 版本约 120MB（没有相册图）
+- 只支持 Windows x64；登录（Auth0）因为端口每次不同，暂时用不了
+
+构建、目录结构、踩过的坑（asar 里 spawn 不到、`type: module` 丢失）都写在
+**[desktop/README.md](desktop/README.md)**。
+
+```bash
+git tag desktop-v1.0.0 && git push origin desktop-v1.0.0
+```
 
 ---
 

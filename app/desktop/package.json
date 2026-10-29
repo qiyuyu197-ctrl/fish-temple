@@ -1,0 +1,19 @@
+{
+  "name": "fish-temple-desktop",
+  "productName": "FishTemple",
+  "version": "1.0.0",
+  "private": true,
+  "description": "鱼の灵庙 · 桌面版：本地跑 server.mjs + Electron 窗口，断网也能用",
+  "main": "main.cjs",
+  "author": "FISH TEMPLE",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "assemble": "node scripts/assemble-site.mjs",
+    "dist": "node scripts/assemble-site.mjs && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "34.0.0"
+  }
+}

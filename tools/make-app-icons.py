@@ -105,6 +105,13 @@ def main() -> int:
     drawable.mkdir(parents=True, exist_ok=True)
     fg.save(drawable / 'ic_launcher_foreground.png', 'PNG', optimize=True)
     print(f'app/android/.../drawable/ic_launcher_foreground.png  {fg_size}x{fg_size}')
+
+    # Windows 桌面版：一个多尺寸 .ico（任务栏 16 / 资源管理器 256 都要认）
+    ico = ROOT / 'app' / 'desktop' / 'icon.ico'
+    ico.parent.mkdir(parents=True, exist_ok=True)
+    square(art, 256).save(ico, format='ICO', sizes=[(16, 16), (24, 24), (32, 32),
+                                                   (48, 48), (64, 64), (128, 128), (256, 256)])
+    print(f'app/desktop/icon.ico  16~256')
     return 0
 
 
