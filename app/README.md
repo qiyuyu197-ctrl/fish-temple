@@ -105,18 +105,18 @@ git push origin app-v1.0.0
 
 到 [Releases](../../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，解压双击 `FishTemple.exe`。
 
-和上面两个的根本区别：**站点和 `server.mjs` 都打进了包里**，Electron 启动时在本机
-`127.0.0.1` 的随机端口上把服务跑起来 —— 断网也能用，`/api/*` 全都在。
+**纯本地**：没有本地端口、没有后台服务进程。页面走 `fish://app/`，主进程自己从磁盘读；
+`/api/*` 也在同一进程里调 `server.mjs` 的 `handleApiRequest()`（Netlify Functions 用的就是它）。
+所以断网、关机重启、拔网线，它都是同一个样子。
 
 - 数据在 `%APPDATA%\FishTemple\data`（菜单 → 文件 → 打开数据目录）
 - 完整版解压 520MB / zip 386MB；`--lite` 版本解压 284MB / zip 119MB（没有相册图）
-- 只支持 Windows x64；登录（Auth0）因为端口每次不同，暂时用不了
+- 只支持 Windows x64；登录（Auth0）因为 origin 是 `fish://app`，暂时用不了
 
-构建、目录结构、踩过的坑（asar 里 spawn 不到、`type: module` 丢失）都写在
-**[desktop/README.md](desktop/README.md)**。
+构建、目录结构、踩过的坑都写在 **[desktop/README.md](desktop/README.md)**。
 
 ```bash
-git tag desktop-v1.0.0 && git push origin desktop-v1.0.0
+git tag desktop-v1.1.0 && git push origin desktop-v1.1.0
 ```
 
 ---

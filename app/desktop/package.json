@@ -1,9 +1,9 @@
 {
   "name": "fish-temple-desktop",
   "productName": "FishTemple",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "鱼の灵庙 · 桌面版：本地跑 server.mjs + Electron 窗口，断网也能用",
+  "description": "鱼の灵庙 · 桌面版：单进程、无本地端口，页面与接口都在本机跑（断网可用）",
   "main": "main.cjs",
   "author": "FISH TEMPLE",
   "license": "UNLICENSED",
