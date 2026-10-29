@@ -61,16 +61,18 @@ npm run pwa:sw
 npm run verify:pwa -- http://127.0.0.1:5173
 ```
 
-**② Android APK** —— 到 [Releases](../../releases) 下载 `.apk` 装上。
-它是个**没有地址栏的 WebView**（`app/android/`，纯原生 Java、无 AndroidX），
+**② Android APK** —— 到 [Releases](../../releases) 下载 `.apk` 装上（[最新一版](../../releases/latest)）。
+它是个**没有地址栏的 WebView**（`app/android/`，纯原生 Java、无 AndroidX，226KB），
 只补浏览器缺的那几件：站外链接交给系统浏览器、`blob:` 导出能落到「下载」目录、
 论坛选图、返回键、打不开时的本地兜底页。站点更新不用重发 APK。
 
 ```bash
-git tag app-v1.0.0 && git push origin app-v1.0.0   # 自动构建并挂到 Release
+git tag app-v1.1.0 && git push origin app-v1.1.0   # 自动构建并挂到 Release
 ```
 
 要改 App 打开的地址：仓库变量 `APP_URL`（或手动跑工作流时填），**不用改代码**。
+默认指向 GitHub Pages —— 第一次要在 Settings → Pages 里把 Source 选成 **GitHub Actions**
+（仓库设置需要管理员权限，工作流自己开不了），然后跑一次 **Deploy to GitHub Pages**。
 细节、限制与排错见 **[app/README.md](app/README.md)**。
 
 > 两点实话：APK 是「壳 + 线上站点」，**必须联网**（仓库里 288MB 主要是插画，模型还不在仓库里）；

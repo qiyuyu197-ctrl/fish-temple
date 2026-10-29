@@ -5,12 +5,13 @@
 | 形态 | 怎么拿到 | 谁的活 |
 | --- | --- | --- |
 | **PWA**（推荐先试） | 手机浏览器打开站点 → 菜单里「安装应用 / 添加到主屏幕」 | 已经在仓库里了，部署上去就生效 |
-| **Android APK** | 到 [Releases](../../releases) 下载 `.apk` 装上 | GitHub Actions 自动构建，见下面的「发版」 |
+| **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[1.0.3](../../../releases/download/app-v1.0.3/fish-temple-1.0.3.apk)，226KB） | GitHub Actions 自动构建，见下面的「发版」 |
 
 两者都不上架应用商店：PWA 不需要，APK 走侧载（下载后手动安装）。
 
 > ⚠️ **地址要先定下来。** App 和 PWA 都是「壳 + 线上站点」，站点打不开就是兜底页。
-> 站点搬家只改一个变量（见「站点地址」），不用重新写代码。
+> 默认地址是 GitHub Pages（`https://<用户名>.github.io/<仓库名>/`）。
+> 第一次要手动开一下 Pages，见「站点地址」一节；站点搬家只改一个变量，不用改代码。
 
 ---
 
@@ -120,9 +121,19 @@ gradle -p app/android assembleDebug -PappUrl=https://example.com/
 Netlify 的免费额度被限流时站点会 503（App 也打不开，会停在兜底页）。两条路：
 
 - **恢复原来的站点**：处理好 Netlify 那边的额度，App 不用重装。
-- **换到 GitHub Pages**（免费、不按流量暂停）：Actions → **Deploy to GitHub Pages** → Run workflow，
-  拿到 `https://<用户名>.github.io/<仓库名>/`，把它填进 `APP_URL` 再构建一次 APK。
-  这个工作流故意做成手动触发：仓库里还有 `tools/`、`deploy/`，发布是件该由你点头的事。
+- **换到 GitHub Pages**（免费、不按流量暂停）：见下面。
+
+**第一次要手动开一下 Pages**（仓库设置需要管理员权限，工作流自己开不了）：
+
+1. 仓库 → **Settings → Pages**
+2. **Build and deployment → Source** 选 **GitHub Actions**（不是 "Deploy from a branch"）
+3. 回到 **Actions → Deploy to GitHub Pages → Run workflow**
+
+跑完会得到 `https://<用户名>.github.io/<仓库名>/`，也就是 APK 默认指向的地址。
+之后只要 `main` 上的站点内容有变动，Pages 会自动重新发布，不用再管。
+
+> 这个工作流故意只发布站点运行时需要的东西（`tools/`、`deploy/`、`app/` 都不上公网），
+> 所以仓库里那些开发脚本不会跟着暴露出去。
 
 ---
 
