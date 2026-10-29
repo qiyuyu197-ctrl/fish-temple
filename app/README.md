@@ -110,7 +110,7 @@ git tag app-v2.0.0
 git push origin app-v2.0.0
 ```
 
-CI 会自动构建并挂到 Release。手动触发时勾 **lite** 可出不含相册图的精简包（约 60MB）。
+CI 会自动构建并挂到 Release。手动触发时勾 **lite** 可出不含相册图的精简包（本地实测 23MB）。
 APK 用 debug 签名（CI 缓存 keystore 复用），同一把钥匙能覆盖升级。
 
 **用户怎么装**：Releases → 下载 `fish-temple-android-*.apk` → 手机上点开 →

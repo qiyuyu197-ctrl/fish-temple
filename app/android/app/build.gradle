@@ -94,4 +94,8 @@ tasks.register('bundleSite', Sync) {
     }
 }
 
+// preBuild 不够：merge*Assets 并不保证排在它后面（增量构建时更明显），
+// 所以直接把 bundleSite 挂到资源合并任务上，否则会拿上一次的站点副本打包。
 tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'bundleSite' }
+tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeReleaseAssets' }
+        .configureEach { dependsOn 'bundleSite' }

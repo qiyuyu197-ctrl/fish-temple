@@ -62,7 +62,7 @@ npm run verify:pwa -- http://127.0.0.1:5173
 ```
 
 **② Android APK** —— 到 [Releases](../../releases) 下载 `.apk` 装上（[最新一版](../../releases/latest)）。
-从 2.0 起它也是**纯本地**的：站点打进 APK（约 260MB），启动时在本机 `127.0.0.1`
+从 2.0 起它也是**纯本地**的：站点打进 APK（约 290MB），启动时在本机 `127.0.0.1`
 起一个只给自己用的小服务（`SiteServer.java`），账号是本机账号（`LocalAuth.java`）。
 断网能看相册、文章、工具、扫雷；网易云 / Pixiv 这类要外网代理的功能会明确显示离线。
 
