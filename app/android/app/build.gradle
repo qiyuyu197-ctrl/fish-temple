@@ -8,14 +8,17 @@
  *   gradle -p app/android assembleDebug -PappUrl=https://你的域名/
  * 或者改下面这个默认值。
  */
+plugins {
+    id 'com.android.application'
+}
+
+// ⚠️ 这些 def 必须写在 plugins {} 之后：Gradle 只允许 plugins 之前出现
+//    buildscript / pluginManagement，其它语句会直接报
+//    "only buildscript {}, pluginManagement {} and other plugins {} script blocks are allowed"
 def rawUrl = (project.findProperty('appUrl') ?: 'https://qiyuyu197-ctrl.github.io/fish-temple/').toString()
 def appUrl = rawUrl.endsWith('/') ? rawUrl : rawUrl + '/'     // 相对路径要靠结尾的斜杠
 def appVersionName = (project.findProperty('appVersionName') ?: '1.0.0').toString()
 def appVersionCode = (project.findProperty('appVersionCode') ?: '1') as Integer
-
-plugins {
-    id 'com.android.application'
-}
 
 android {
     namespace 'com.qiyuyu.fishtemple'
