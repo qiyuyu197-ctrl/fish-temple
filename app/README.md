@@ -63,45 +63,62 @@ Chromium 判定可安装、**断网重开外壳还在**、断网切板块、接�
 
 ---
 
-## 二、Android APK：一个没有地址栏的窗口
+## 二、Android APK：纯本地，断网可用
 
-工程在 `app/android/`，纯原生 Java（不引 AndroidX、不引 Capacitor），
-整个 App 就是 **一个 Activity + 一个 WebView**。APK 约 100KB 量级，
-因为站点资源不打进包里 —— 打开时加载线上地址。
+工程在 `app/android/`，纯原生 Java（不引 AndroidX、不引 Capacitor）。
 
-**浏览器里没有、但装上之后必须有的，这一层补了：**
+**2.0 起它和桌面版是一个性质**：站点文件打进 APK（`assets/site`，约 289MB），
+启动时在本机 `127.0.0.1` 起一个只给自己用的小服务（`SiteServer.java`），
+窗口加载 `http://127.0.0.1:<随机端口>/`。账号是本机账号（`LocalAuth.java`），
+和桌面版 `/api/auth/local/*` 是同一套契约。
+
+> 为什么安卓不能像桌面版那样完全不要端口：网页里的写操作都是 POST + JSON 请求体，
+> 而 WebView 的 `shouldInterceptRequest` **拿不到请求体**。开一个只监听本机的
+> ServerSocket 是既能复用现有前端、又不需要任何外部服务器的最短路径 ——
+> 它不出这个 App，也不依赖任何线上地址。
 
 | 场景 | 处理 |
 | --- | --- |
-| 点站外链接（Pixiv / B 站 / 网易云官网） | 交给系统浏览器，不在无地址栏窗口里迷路 |
-| 工具台导出 zip、Tier List 存图、AI 分离导出音频 | `blob:` 下载浏览器会自己做，WebView 不做 → JS 桥转 base64 存进「下载」目录 |
+| 站外链接（Pixiv / B 站 / 网易云官网） | 交给系统浏览器 |
+| 工具台导出 zip、Tier List 存图 | `blob:` 下载走 JS 桥转 base64 存进「下载」目录 |
 | 论坛发图 `<input type="file">` | 接系统文件选择器（含多选） |
 | 返回键 | 先退站内历史，到底了才退出 App |
-| 打不开首页 | 本地兜底页（`res/raw/offline.html`），带「重新连接」 |
-| 网易云官方播放器 iframe | 允许第三方 cookie，沿用浏览器里的登录态 |
-| 转屏 / 分屏 | `configChanges` 里吃掉，WebView 不重建，音乐不断 |
+| 打不开 | 本地兜底页（`res/raw/offline.html`），带「重试」 |
+| 明文 HTTP | `network_security_config.xml` 只给 `127.0.0.1` / `localhost` 开例外，其他域名照旧禁止 |
 
-**发版（在 GitHub 上点两下就行）**
+**账号**：顶栏「登录」→ 邮箱 + 密码，第一次就是注册，第一个账号是站长。
+数据存在 App 私有目录（`files/data/auth/users.tsv`），密码 PBKDF2-SHA256 加盐，
+不进任何服务器。
+
+**做不到的（如实写在界面里）**：网易云搜索 / 扫码登录、Pixiv 抽卡。
+这些要访问外网代理，而代理逻辑在 `server.mjs`（加密 eapi + 转发），安卓没有 Node 跑它 ——
+相关接口会回 503，音乐台显示 `PROXY OFFLINE`，不会静默失败。
+
+**怎么验**（不用模拟器）：这套本地服务不碰 Android API，可以在电脑上跑真测试 ——
 
 ```bash
-git tag app-v1.0.0
-git push origin app-v1.0.0
+node tools/verify-android-server.mjs
 ```
 
-推上去之后 `.github/workflows/android.yml` 会自动构建 APK，并挂到这个 tag 的 Release 上。
-想先看看能不能建出来、不发版：Actions → **Android APK** → Run workflow（只留 Artifacts）。
+它用 javac 编译 `Json/LocalAuth/SiteServer`，起服务，再用真浏览器走一遍
+启动 / health / 注册登录 / 内容覆盖层 / 离线降级，最后截图。当前 9 项全过。
 
-**用户怎么装**：Releases → 下载 `fish-temple-x.y.z.apk` → 手机上点开 →
-系统提示「不允许安装未知来源应用」→ 去设置里给浏览器/文件管理器打开这个权限 → 继续安装。
+**发版**
 
-**签名与升级**：APK 用 debug 签名（CI 里把 keystore 缓存住复用）。
-只要还是这个仓库、这个缓存，新版本能直接覆盖安装；
-缓存被清掉后重新构建会换一把钥匙，用户得先卸载再装（本地数据会丢）。
-真要长期发版，换成自己的 keystore + `secrets`，或者上架商店。
+```bash
+git tag app-v2.0.0
+git push origin app-v2.0.0
+```
+
+CI 会自动构建并挂到 Release。手动触发时勾 **lite** 可出不含相册图的精简包（约 60MB）。
+APK 用 debug 签名（CI 缓存 keystore 复用），同一把钥匙能覆盖升级。
+
+**用户怎么装**：Releases → 下载 `fish-temple-android-*.apk` → 手机上点开 →
+允许「安装未知来源应用」→ 装。需要 Android 7.0（API 24）及以上。
 
 ---
 
-## 三、Windows 桌面版：唯一能真正离线的
+## 三、Windows 桌面版：纯本地
 
 到 [Releases](../../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，解压双击 `FishTemple.exe`。
 

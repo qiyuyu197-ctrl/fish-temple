@@ -60,3 +60,38 @@ android {
         checkReleaseBuilds false
     }
 }
+
+/* ---------------- 把站点打进 APK ----------------
+ * 安卓版是纯本地的：站点文件必须真的躺在 APK 里（assets/site），
+ * 启动时由 SiteServer 从 AssetManager 读出来发给 WebView。
+ *
+ * 这个 Sync 任务在构建前从仓库根目录同步运行时文件；产物是生成物，
+ * 不进版本库（.gitignore 里已经排除）。
+ *
+ *   gradle assembleDebug              # 完整（含相册图，APK 约 290MB）
+ *   gradle assembleDebug -Plite       # 精简（不含 assets/img，APK 约 60MB）
+ */
+def repoRoot = file('../../..')
+def siteAssets = file('src/main/assets/site')
+def liteBuild = project.hasProperty('lite')
+
+tasks.register('bundleSite', Sync) {
+    from(repoRoot) {
+        include 'index.html'
+        include 'manifest.webmanifest'
+        include 'offline.html'
+        include 'sw.js'
+        include 'src/**'
+        include 'styles/**'
+        include 'data/*.json'
+        include 'assets/**'
+        exclude 'assets/models/**'
+        if (liteBuild) exclude 'assets/img/**'
+    }
+    into siteAssets
+    doLast {
+        logger.lifecycle("已把站点同步到 ${siteAssets}（${liteBuild ? 'lite' : '完整'}）")
+    }
+}
+
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'bundleSite' }

@@ -7,6 +7,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.AssetManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -14,7 +15,6 @@ import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.view.KeyEvent;
-import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
@@ -30,30 +30,37 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Locale;
 
 /**
- * MainActivity — 「鱼の灵庙」的安卓外壳
+ * MainActivity — 「鱼の灵庙」安卓版（纯本地）
  * ------------------------------------------------------------------
- * 这一层刻意做得很薄，只补浏览器里没有、而装成 App 之后必须有的东西：
+ * 和上一版的区别：上一版只是个壳，打开的是线上 GitHub Pages；
+ * 这一版把站点打进了 APK，启动时在本机 127.0.0.1 起一个只给自己用的小服务
+ * （SiteServer.java），窗口加载 http://127.0.0.1:<随机端口>/。
  *
- *   · 站外链接交给系统浏览器（不要在一个没有地址栏的窗口里迷路）
- *   · 文件下载：http(s) 交给系统 DownloadManager，blob: 走 JS 桥自己存
- *     （工具台导出 zip / tierlist 存图 / AI 分离导出音频都是 blob:）
- *   · <input type="file"> 能真的选图（论坛发图要用）
- *   · 返回键先退站点历史，再退出 App
- *   · 打不开首页时给一个能重试的本地兜底页，而不是白屏
+ * 所以它现在和桌面版是一个性质：**断网也能用**，账号也是本机的
+ * （LocalAuth.java，和桌面版 /api/auth/local/* 同一套契约）。
  *
- * 站内的一切仍然是网页本身，所以更新站点不需要重新发 APK。
- * 首页地址在 app/android/app/build.gradle 的 appUrl 里，构建时可覆盖。
+ * 为什么安卓不能像桌面版那样完全不要端口：网页里的写操作都是 POST + 请求体，
+ * 而 WebView 的 shouldInterceptRequest 拿不到请求体 —— 开一个本机 ServerSocket
+ * 是既能复用现有前端、又不需要任何外部服务器的最短路径。
+ *
+ * 明确做不到的：需要外网代理的功能（网易云搜索/扫码登录、Pixiv 抽卡）。
+ * 那套 eapi 加密代理在 server.mjs 里，安卓没条件跑 Node，接口会如实回 503。
  */
 public class MainActivity extends Activity {
 
     private static final int REQ_FILE = 1001;
+    private static final String ASSET_ROOT = "site";
 
     private WebView webView;
     private android.webkit.ValueCallback<Uri[]> fileChooserCallback;
+    private SiteServer server;
+    private int port = 0;
     private boolean loadFailed = false;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -70,7 +77,7 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
-        s.setMediaPlaybackRequiresUserGesture(false);   // 站内音乐要能自动接播
+        s.setMediaPlaybackRequiresUserGesture(false);
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
@@ -81,12 +88,8 @@ public class MainActivity extends Activity {
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setUserAgentString(s.getUserAgentString() + " FishTempleApp/" + BuildConfig.VERSION_NAME);
 
-        // 网易云官方播放器是跨域 iframe，需要第三方 cookie 才能沿用浏览器里的登录态
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            cm.setAcceptThirdPartyCookies(webView, true);
-        }
 
         webView.addJavascriptInterface(new NativeBridge(), "FTNative");
         webView.setWebViewClient(new SiteClient());
@@ -95,7 +98,80 @@ public class MainActivity extends Activity {
 
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true);
 
-        webView.loadUrl(BuildConfig.APP_URL);
+        startLocalServer();
+    }
+
+    /* ---------------- 本机服务 ---------------- */
+
+    private void startLocalServer() {
+        webView.loadDataWithBaseURL(null, loadingHtml(), "text/html", "utf-8", null);
+        new Thread(() -> {
+            try {
+                File dataDir = new File(getFilesDir(), "data");
+                if (!dataDir.exists() && !dataDir.mkdirs()) throw new IOException("建不了数据目录");
+                seedData(dataDir);
+
+                AssetManager assets = getAssets();
+                SiteServer.SiteSource source = path -> {
+                    try (InputStream in = assets.open(ASSET_ROOT + path)) {
+                        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(64 * 1024);
+                        byte[] buf = new byte[16 * 1024];
+                        int n;
+                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                        return out.toByteArray();
+                    } catch (IOException e) {
+                        return null;
+                    }
+                };
+
+                LocalAuth auth = new LocalAuth(dataDir);
+                server = new SiteServer(source, auth, dataDir);
+                server.start();
+                port = server.port();
+                runOnUiThread(() -> webView.loadUrl("http://127.0.0.1:" + port + "/index.html#/"));
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(MainActivity.this);
+                    b.setTitle("启动失败");
+                    b.setMessage("本地服务没能起来：\n" + e.getMessage());
+                    b.setPositiveButton("重试", (d, w) -> startLocalServer());
+                    b.setNegativeButton("退出", (d, w) -> finish());
+                    b.setCancelable(false);
+                    b.show();
+                });
+            }
+        }, "boot").start();
+    }
+
+    /** 第一次启动：把 APK 里的内容清单播种到应用私有目录 */
+    private void seedData(File dataDir) {
+        AssetManager assets = getAssets();
+        try {
+            String[] names = assets.list(ASSET_ROOT + "/data");
+            if (names == null) return;
+            for (String name : names) {
+                if (!name.endsWith(".json")) continue;
+                File dst = new File(dataDir, name);
+                if (dst.exists()) continue;
+                try (InputStream in = assets.open(ASSET_ROOT + "/data/" + name);
+                     OutputStream out = new FileOutputStream(dst)) {
+                    byte[] buf = new byte[16 * 1024];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
+            }
+        } catch (IOException ignored) {
+            // 播种失败不致命：服务端读不到就用空数据，界面照样能开
+        }
+    }
+
+    private String loadingHtml() {
+        return "<!doctype html><meta charset='utf-8'><title>鱼の灵庙</title>"
+                + "<style>html,body{height:100%;margin:0;background:#121316;color:#EFEDE6;"
+                + "font-family:system-ui,'Noto Sans SC',sans-serif;display:grid;place-items:center}"
+                + "b{display:block;font-size:30px;letter-spacing:-.02em}"
+                + "i{display:block;margin-top:10px;font:12px ui-monospace,monospace;color:#8d8b84;font-style:normal}"
+                + "</style><div style='text-align:center'><b>鱼の灵庙</b><i>本地服务启动中…</i></div>";
     }
 
     /* ---------------- 页面加载 ---------------- */
@@ -130,22 +206,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 决定一个链接是「站内继续」还是「甩给浏览器」 */
+    /** 站内链接（本机服务）留在 WebView，站外的交系统浏览器 */
     private boolean route(Uri uri) {
-        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         if (!scheme.equals("http") && !scheme.equals("https")) {
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
             } catch (ActivityNotFoundException ignored) { }
             return true;
         }
-        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
-        // 站内 + 网易云播放器（iframe 里的二次跳转）留在 WebView
-        if (host.equals(Uri.parse(BuildConfig.APP_URL).getHost())
-                || host.endsWith("music.163.com")
-                || host.endsWith("music.126.net")) {
-            return false;
-        }
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+        if (host.equals("127.0.0.1") || host.equals("localhost")) return false;
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, uri));
         } catch (ActivityNotFoundException e) {
@@ -154,16 +225,13 @@ public class MainActivity extends Activity {
         return true;
     }
 
-    /* ---------------- 上传（论坛发图） ---------------- */
+    /* ---------------- 上传 ---------------- */
 
     private class SiteChromeClient extends WebChromeClient {
         @Override
-        public boolean onShowFileChooser(WebView view,
-                                         android.webkit.ValueCallback<Uri[]> callback,
+        public boolean onShowFileChooser(WebView view, android.webkit.ValueCallback<Uri[]> callback,
                                          FileChooserParams params) {
-            if (fileChooserCallback != null) {
-                fileChooserCallback.onReceiveValue(null);
-            }
+            if (fileChooserCallback != null) fileChooserCallback.onReceiveValue(null);
             fileChooserCallback = callback;
             try {
                 startActivityForResult(params.createIntent(), REQ_FILE);
@@ -212,9 +280,6 @@ public class MainActivity extends Activity {
                 DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
                 req.setMimeType(mimetype);
                 req.addRequestHeader("User-Agent", userAgent);
-                // 站内下载要带 cookie，否则登录态资源会 401
-                String cookie = CookieManager.getInstance().getCookie(url);
-                if (cookie != null) req.addRequestHeader("Cookie", cookie);
                 String name = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype);
                 req.setTitle(name);
                 req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
@@ -223,16 +288,14 @@ public class MainActivity extends Activity {
                 dm.enqueue(req);
                 toast("开始下载：" + name);
             } catch (Exception e) {
-                // 有些 CDN 不允许 DownloadManager 直接取（需要 referer 等），退回浏览器
                 toast("下载失败，试试在浏览器里打开");
             }
         }
     }
 
-    /* ---------------- JS 桥（给 blob: 导出用） ---------------- */
+    /* ---------------- JS 桥（blob 导出） ---------------- */
 
     private class NativeBridge {
-        /** 把 base64 存进「下载」目录；返回是否成功 */
         @JavascriptInterface
         public boolean saveFile(String name, String mime, String base64) {
             try {
@@ -281,13 +344,13 @@ public class MainActivity extends Activity {
         public void reload() {
             runOnUiThread(() -> {
                 loadFailed = false;
-                webView.loadUrl(BuildConfig.APP_URL);
+                if (port > 0) webView.loadUrl("http://127.0.0.1:" + port + "/index.html#/");
             });
         }
 
         @JavascriptInterface
         public String homeUrl() {
-            return BuildConfig.APP_URL;
+            return port > 0 ? "http://127.0.0.1:" + port + "/" : "";
         }
     }
 
@@ -296,19 +359,14 @@ public class MainActivity extends Activity {
     private void showOffline() {
         if (loadFailed) return;
         loadFailed = true;
-        String html = readRawAsset();
-        if (html == null) return;
-        html = html.replace("{{URL}}", BuildConfig.APP_URL);
-        webView.loadDataWithBaseURL(BuildConfig.APP_URL, html, "text/html", "utf-8", null);
-    }
-
-    private String readRawAsset() {
         try (InputStream in = getResources().openRawResource(R.raw.offline)) {
             byte[] buf = new byte[in.available()];
             int n = in.read(buf);
-            return n > 0 ? new String(buf, 0, n, "UTF-8") : null;
+            String html = new String(buf, 0, n, "UTF-8")
+                    .replace("{{URL}}", port > 0 ? "http://127.0.0.1:" + port + "/" : "本机服务");
+            webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
         } catch (Exception e) {
-            return null;
+            webView.loadDataWithBaseURL(null, loadingHtml(), "text/html", "utf-8", null);
         }
     }
 
@@ -325,6 +383,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (server != null) server.stop();
         if (webView != null) {
             webView.setWebChromeClient(null);
             webView.destroy();
@@ -337,11 +396,7 @@ public class MainActivity extends Activity {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
-    /**
-     * 页内注入：拦掉 <a download href="blob:..."> 的点击，转成 base64 交给原生保存。
-     * 浏览器里这行<a download>由浏览器自己处理；WebView 不实现它，点了会静默没反应，
-     * 而站内的导出（zip / tierlist 图 / 分离出的音频）全是这条路。
-     */
+    /** 拦掉 <a download href="blob:...">，转成 base64 交给原生保存 */
     private static final String INJECT_DOWNLOAD_BRIDGE =
             "(function(){" +
             "  if (window.__FT_DL__) return; window.__FT_DL__ = true;" +

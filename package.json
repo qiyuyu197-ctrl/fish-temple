@@ -14,6 +14,7 @@
     "verify:auth": "node tools/verify-auth.mjs",
     "verify:netease-login": "node tools/verify-netease-login.mjs",
     "verify:pwa": "node tools/verify-pwa.mjs",
+    "verify:android": "node tools/verify-android-server.mjs",
     "responsive": "node tools/responsive.mjs",
     "pwa:sw": "node tools/gen-service-worker.mjs",
     "pwa:icons": "python tools/make-app-icons.py",

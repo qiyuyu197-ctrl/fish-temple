@@ -72,3 +72,6 @@ assets/models/*.part
 pv/
 # 鎺掕姒滄垚缁╋紙杩愯鏈熸暟鎹紱绾夸笂瀛樺湪 Blobs 閲岋級
 data/leaderboards/
+
+# 安卓版打包时生成的站点副本（由 gradle bundleSite 任务同步）
+app/android/app/src/main/assets/site/
