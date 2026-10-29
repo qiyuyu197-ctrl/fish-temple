@@ -111,7 +111,10 @@ git push origin app-v1.0.0
 
 - 数据在 `%APPDATA%\FishTemple\data`（菜单 → 文件 → 打开数据目录）
 - 完整版解压 520MB / zip 386MB；`--lite` 版本解压 284MB / zip 119MB（没有相册图）
-- 只支持 Windows x64；登录（Auth0）因为 origin 是 `fish://app`，暂时用不了
+- 只支持 Windows x64
+- **账号**：桌面版用自己的本机账号（邮箱 + 密码，第一个注册的是站长），不用 Auth0 ——
+  `fish://app` 这种 origin 没法做 Auth0 回调。密码 scrypt 加盐，令牌 30 天有效
+- **网易云登录**：音乐台里可以扫码登录，登录后能读我的歌单 / 云盘 / 每日推荐
 
 构建、目录结构、踩过的坑都写在 **[desktop/README.md](desktop/README.md)**。
 

@@ -34,15 +34,29 @@ export function authConfig() {
   const domain = String(process.env.AUTH0_DOMAIN || '').trim().replace(/\/+$/, '');
   const clientId = String(process.env.AUTH0_CLIENT_ID || '').trim();
   const audience = String(process.env.AUTH0_AUDIENCE || '').trim();
+  // 本地账号系统：桌面版 / 自建服务用（详见 auth-local.mjs）。
+  // 它和 Auth0 互斥而不是叠加：开了本地就不再期望有 Auth0。
+  const local = String(process.env.FT_LOCAL_AUTH || '') === '1';
   const owners = String(process.env.OWNER_EMAILS || '')
     .split(/[,\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
   return {
-    enabled: !!(domain && clientId),
+    enabled: local || !!(domain && clientId),
+    local,
+    mode: local ? 'local' : (domain && clientId ? 'auth0' : 'off'),
     domain: domain || null,
     clientId: clientId || null,
     audience: audience || null,
     owners,
   };
+}
+
+/**
+ * 本地账号的令牌校验函数由服务端在启动时注入（auth-local.mjs 的 verifyLocalToken）。
+ * 这样 auth.mjs 不需要知道数据目录在哪，两边保持单向依赖。
+ */
+let localVerifier = null;
+export function setLocalVerifier(fn) {
+  localVerifier = typeof fn === 'function' ? fn : null;
 }
 
 /** 允许把 domain 写成 http://127.0.0.1:PORT —— 自检里用本地模拟 IdP 走完全同一条代码路径 */
@@ -146,7 +160,9 @@ export function roleFor(claims, cfg = authConfig()) {
   return listed && verified ? 'owner' : 'member';
 }
 
-/** 把 claims 整理成客户端要用的用户对象 */
+/**
+ * 把 claims 整理成客户端要用的用户对象
+ */
 export function userFromClaims(claims, cfg = authConfig()) {
   return {
     sub: String(claims.sub || ''),
@@ -158,6 +174,19 @@ export function userFromClaims(claims, cfg = authConfig()) {
   };
 }
 
+/** 本地账号的 claims 已经是可信的（自己签的），直接整理，不再二次判定角色 */
+function userFromLocalClaims(claims) {
+  return {
+    sub: String(claims.sub || ''),
+    email: String(claims.email || ''),
+    name: String(claims.name || claims.email || '').slice(0, 80),
+    picture: '',
+    verified: true,
+    role: claims.role === 'owner' ? 'owner' : 'member',
+    source: 'local',
+  };
+}
+
 /**
  * 从请求里取身份。返回 { ok:true, user, claims } 或 { ok:false, status, error }。
  * 认两种携带方式：`Authorization: Bearer <token>`（前端 fetch）
@@ -165,7 +194,7 @@ export function userFromClaims(claims, cfg = authConfig()) {
  */
 export async function authenticate(req) {
   const cfg = authConfig();
-  if (!cfg.enabled) return { ok: false, status: 501, error: '本站还没有配置账号功能（缺 AUTH0_DOMAIN / AUTH0_CLIENT_ID）' };
+  if (!cfg.enabled) return { ok: false, status: 501, error: '本站还没有配置账号功能（缺 AUTH0_DOMAIN / AUTH0_CLIENT_ID，或 FT_LOCAL_AUTH=1）' };
   const header = req.headers?.authorization || req.headers?.Authorization || '';
   let token = /^Bearer\s+(.+)$/i.test(header) ? header.replace(/^Bearer\s+/i, '').trim() : '';
   if (!token) {
@@ -174,6 +203,17 @@ export async function authenticate(req) {
     if (m) token = decodeURIComponent(m[1]);
   }
   if (!token) return { ok: false, status: 401, error: '需要登录' };
+
+  // 本地账号：令牌是自己签的，验完直接认
+  if (cfg.local && localVerifier) {
+    try {
+      const claims = localVerifier(token);
+      return { ok: true, user: userFromLocalClaims(claims), claims };
+    } catch (err) {
+      return { ok: false, status: 401, error: `登录状态无效：${err.message}` };
+    }
+  }
+
   try {
     const claims = await verifyToken(token, { cfg });
     return { ok: true, user: userFromClaims(claims, cfg), claims };

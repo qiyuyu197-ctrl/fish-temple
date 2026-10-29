@@ -235,7 +235,8 @@ export const Shell = {
    * 面板里有一个「注册 / 登录」切换：第一次用就是注册，之后用登录。
    */
   _openLocalAuthPanel() {
-    let register = false;
+    // 本机还没有任何账号（第一次用）：直接进"注册"，别让人先碰一次"邮箱或密码不对"
+    let register = Number(Auth.config.accounts || 0) === 0;
 
     const scrim = document.createElement('div');
     scrim.className = 'authpanel__scrim';

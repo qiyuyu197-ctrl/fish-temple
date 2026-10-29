@@ -38,8 +38,10 @@ const USER_DIR = app.getPath('userData');
 const DATA_DIR = path.join(USER_DIR, 'data');
 const STATE_FILE = path.join(USER_DIR, 'window-state.json');
 
-// ⚠️ 必须在 import server.mjs 之前：它在模块顶层就会读这个变量算 DATA_DIR
+// ⚠️ 必须在 import server.mjs 之前：它在模块顶层就会读这些变量
 process.env.FT_DATA_DIR = DATA_DIR;
+// 桌面版的 origin 是 fish://app，Auth0 不认这种回调地址 —— 走本站自己的账号系统
+process.env.FT_LOCAL_AUTH = '1';
 
 let mainWindow = null;
 let apiHandler = null;      // server.mjs 里的 handleApiRequest

@@ -189,6 +189,8 @@ function usableConfig(json) {
     origin,
     clientId,
     audience: typeof json?.audience === 'string' ? json.audience : '',
+    // 本地账号：本机已有几个账号（0 → 面板默认开"注册"）
+    accounts: Number(json?.accounts) || 0,
     // 服务端说启用了、但少了必要字段：如实说明，界面别装作能用
     incomplete: enabled && mode === 'auth0' && (!origin || !clientId),
   };

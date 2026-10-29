@@ -58,7 +58,8 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStorage } from './storage.mjs';
-import { authConfig, authenticate } from './auth.mjs';
+import { authConfig, authenticate, setLocalVerifier } from './auth.mjs';
+import { initLocalAuth, verifyLocalToken, registerLocal, loginLocal, localUserCount } from './auth-local.mjs';
 // 网易云扫码登录：协议层（eapi）与业务层（绑定 / 个人数据）分开，见两个文件顶部的长注释
 import {
   bindByCookie,
@@ -176,6 +177,19 @@ function storageFor(opts = {}) {
 function isLoopback(req) {
   const ip = String(req.socket?.remoteAddress || '');
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+/* ---------------- 本地账号系统 ----------------
+ * 桌面版 / 自建服务用：Auth0 要求 http(s) 回调地址，而桌面版的 origin 是 fish://app，
+ * 所以那一版走自己的账号（auth-local.mjs）。开了 FT_LOCAL_AUTH=1 才生效，
+ * 网站上的 Auth0 一条逻辑都不改。
+ */
+if (String(process.env.FT_LOCAL_AUTH || '') === '1') {
+  if (initLocalAuth({ dataDir: DATA_DIR })) {
+    setLocalVerifier(verifyLocalToken);
+  } else {
+    console.warn('[auth] 本地账号系统初始化失败，登录不可用');
+  }
 }
 
 const PORT = Number(process.argv[2] || process.env.PORT || 5173);
@@ -2962,12 +2976,46 @@ async function handleApi(req, res, url, opts = {}) {
     return ok(res, {
       ok: true,
       enabled: cfg.enabled,
+      // 'auth0' | 'local' | 'off' —— 前端据此决定登录面板长什么样
+      mode: cfg.mode,
+      local: cfg.local,
       domain: cfg.domain,
       clientId: cfg.clientId,
       audience: cfg.audience,
       // 只说明"有没有配站长白名单"，不暴露具体邮箱
       ownerConfigured: cfg.owners.length > 0,
+      // 本地账号：本机有几个账号（0 = 还没人注册，界面据此默认打开"注册"而不是"登录"）
+      accounts: cfg.local ? localUserCount() : undefined,
     });
+  }
+
+  /* ---------------- 本地账号（桌面版 / 自建服务） ----------------
+   * 只在 FT_LOCAL_AUTH=1 时可用；网站上的 Auth0 流程完全不经过这里。
+   */
+  if (seg[0] === 'auth' && seg[1] === 'local') {
+    const action = seg[2];
+    if (action === 'logout') return ok(res, { ok: true });
+
+    if (req.method === 'POST' && (action === 'register' || action === 'login')) {
+      const cfg = authConfig();
+      if (!cfg.local) return fail(res, 501, '本站没有启用本地账号（缺 FT_LOCAL_AUTH=1）');
+      let body;
+      try { body = (await readBody(req)) || {}; } catch (err) { return fail(res, 400, err.message); }
+      try {
+        const out = action === 'register' ? registerLocal(body) : loginLocal(body);
+        log(`\x1b[32mAUTH\x1b[0m ${action} ${out.user.email} · ${out.user.role}`);
+        return ok(res, {
+          ok: true,
+          token: out.token,
+          user: out.user,
+          // 30 天：和 auth-local.mjs 里的 SESSION_TTL_MS 对齐
+          expiresIn: 30 * 24 * 3600,
+        });
+      } catch (err) {
+        return fail(res, err.status || 400, err.message || '登录失败');
+      }
+    }
+    return fail(res, 404, '未知的本地账号接口');
   }
 
   // GET /api/auth/me —— 校验令牌并回当前身份（前端用它判断"我是不是站长"）

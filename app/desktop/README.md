@@ -37,9 +37,30 @@ FishTemple.exe
 | 事情 | 在哪 |
 | --- | --- |
 | 你的文章 / 公告 / 播放历史 / 论坛数据 | `%APPDATA%\FishTemple\data`（菜单 → 文件 → 打开数据目录） |
+| 账号（邮箱 + scrypt 哈希后的密码） | `%APPDATA%\FishTemple\data\auth\users.json` |
 | 窗口大小与位置 | `%APPDATA%\FishTemple\window-state.json` |
 | 启动失败时的诊断 | `%APPDATA%\FishTemple\startup-error.log` |
 | 卸载 | 删掉解压出来的目录 + `%APPDATA%\FishTemple` 即可，没有注册表项 |
+
+## 账号与网易云登录
+
+**本站账号**：桌面版不复用网站的 Auth0，而是自带一套本机账号（`auth-local.mjs`）：
+
+- 顶栏「登录」→ 面板里填邮箱 + 密码，第一次就是注册（面板上有「没有账号？注册一个」切换）
+- 密码用 `scrypt` 加盐哈希后存在本机，令牌是 HMAC-SHA256 签名的无状态串，有效期 30 天
+- **第一个注册的账号自动是站长**，之后注册的是普通成员
+- 登录之后：论坛发帖、发布控制台写入、个人资料、站长后台都能用
+- 忘了密码：删掉 `data/auth/users.json`（所有账号一起清掉）。本地账号不做邮箱验证和找回密码，
+  这是刻意的取舍 —— 没有邮件服务，说"已发送验证邮件"才是骗人
+
+**网易云登录**：音乐台右上角的账号面板里可以扫码登录（`/api/netease/login/*`）。
+它是**第三方登录**，扫码后本站会替你保管一份网易云凭据（AES-256-GCM 加密）。
+据公开反馈，第三方客户端登录有被网易云判异常（临时冻结）的风险，所以面板里默认有一段风险提示，
+介意的话用小号。登录后能读「我的歌单 / 云盘 / 每日推荐」，播放走带签名的音频链路。
+
+> 网站（Netlify / 自建 VPS）那一边**没有改**：配了 `AUTH0_DOMAIN` + `AUTH0_CLIENT_ID`
+> 就还是 Auth0；没有配、又设了 `FT_LOCAL_AUTH=1` 才会启用这套本地账号。
+> 桌面版启动时自己设了 `FT_LOCAL_AUTH=1`，所以它永远走本地账号。
 
 ## 打包出来的东西长什么样
 
@@ -102,6 +123,6 @@ CI（[`.github/workflows/desktop.yml`](../../.github/workflows/desktop.yml)）�
   想要小就用 `--lite`：站点部分 286MB → 51MB，成品解压 284MB / zip 119MB。
 - **不放 `C:\Program Files`**：便携版没有安装程序，数据在 `%APPDATA%`，但内容读取假设目录可读；
   放系统目录里改内容会失败。
-- **登录（Auth0）**：回调地址按页面 origin 拼，桌面版是 `fish://app`，Auth0 不认这种协议 ——
-  所以登录在桌面版里不可用。发布、论坛这类本机写入不受影响（`writable: true`）。
+- **账号**：桌面版用的是**本站自己的账号系统**（不是 Auth0）。原因见下节。
+  数据在 `%APPDATA%\FishTemple\data\auth\users.json`，忘记密码只能删掉这个文件重来。
 - **没有自动更新**：站点内容更新要重新下载 zip。
