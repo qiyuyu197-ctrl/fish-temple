@@ -2,16 +2,30 @@ name: Deploy to GitHub Pages
 
 # 把站点发布到 GitHub Pages（免费、不会因为流量额度被暂停）。
 #
-# 为什么是手动触发：仓库里还有 tools/ deploy/ netlify/ 这些开发与部署用的东西，
-# 发布一次会把约 300MB 的插画摆到公网上；这种事应该由你亲手点一下，
-# 而不是每次推代码都自动发生。
+# 什么时候跑：main 上**站点内容**变了就会自动发；只动 tools/ deploy/ app/ 的提交不触发。
+# 也可以手动 Actions → Deploy to GitHub Pages → Run workflow。
 #
-# 用途：Netlify 那边的额度用尽 / 想换个免费地址时，
-#   1. Actions → Deploy to GitHub Pages → Run workflow
-#   2. 得到 https://<用户名>.github.io/<仓库名>/
-#   3. 重新跑一次 Android APK 工作流，app_url 填这个地址（或把它写进仓库变量 APP_URL）
+# 用途：Netlify 那边的额度用尽 / 想换个免费地址时。
+#   Pages 地址是 https://<用户名>.github.io/<仓库名>/ ，
+#   Android APK 默认就指向它（想改见 app/README.md 的「站点地址」）。
+#
+# 发布的内容：站点运行时需要的东西（约 300MB，主要是插画）。
+# tools/ deploy/ netlify/ app/ 这些开发与部署用的目录不上公网 —— 见下面的 rsync。
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'sw.js'
+      - 'offline.html'
+      - 'manifest.webmanifest'
+      - '.nojekyll'
+      - 'src/**'
+      - 'styles/**'
+      - 'data/**'
+      - 'assets/**'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
