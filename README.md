@@ -77,11 +77,12 @@ git tag app-v1.1.0 && git push origin app-v1.1.0   # 自动构建并挂到 Relea
 
 **③ Windows 桌面版** —— 到 [Releases](../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，
 解压双击 `FishTemple.exe`，不装 Node、不装运行时。
-这次是**真的能断网用**：站点、相册、`server.mjs` 全打进安装目录，Electron 在
-`127.0.0.1` 上把服务跑起来，`/api/*` 照常工作。数据写在 `%APPDATA%\FishTemple\data`。
+**纯本地**：没有本地端口、没有后台服务进程，页面走 `fish://app/` 由主进程直接读盘，
+`/api/*` 也在同一进程里调 `server.mjs` 的 `handleApiRequest` —— 拔网线全站照常。
+数据写在 `%APPDATA%\FishTemple\data`。
 
 ```bash
-git tag desktop-v1.0.0 && git push origin desktop-v1.0.0   # 自动构建并挂到 Release
+git tag desktop-v1.1.0 && git push origin desktop-v1.1.0   # 自动构建并挂到 Release
 ```
 
 完整版解压 520MB、zip 386MB（236MB 是相册图）；手动跑工作流勾 **lite** 是解压 284MB / zip 119MB。
