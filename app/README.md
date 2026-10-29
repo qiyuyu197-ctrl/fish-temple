@@ -109,7 +109,7 @@ git push origin app-v1.0.0
 `127.0.0.1` 的随机端口上把服务跑起来 —— 断网也能用，`/api/*` 全都在。
 
 - 数据在 `%APPDATA%\FishTemple\data`（菜单 → 文件 → 打开数据目录）
-- 完整版解压 520MB / zip 约 300MB；`--lite` 版本约 120MB（没有相册图）
+- 完整版解压 520MB / zip 386MB；`--lite` 版本解压 284MB / zip 119MB（没有相册图）
 - 只支持 Windows x64；登录（Auth0）因为端口每次不同，暂时用不了
 
 构建、目录结构、踩过的坑（asar 里 spawn 不到、`type: module` 丢失）都写在
@@ -143,7 +143,8 @@ gradle -p app/android assembleDebug -PappUrl=https://example.com/
 Netlify 的免费额度被限流时站点会 503（App 也打不开，会停在兜底页）。两条路：
 
 - **恢复原来的站点**：处理好 Netlify 那边的额度，App 不用重装。
-- **换到 GitHub Pages**（免费、不按流量暂停）：见下面。
+- **换到 GitHub Pages**（免费、不按流量暂停）：本仓库已经切过去了，地址是
+  `https://qiyuyu197-ctrl.github.io/fish-temple/`。新仓库才需要做下面这一步。
 
 **第一次要手动开一下 Pages**（仓库设置需要管理员权限，工作流自己开不了）：
 
@@ -156,6 +157,10 @@ Netlify 的免费额度被限流时站点会 503（App 也打不开，会停在�
 
 > 这个工作流故意只发布站点运行时需要的东西（`tools/`、`deploy/`、`app/` 都不上公网），
 > 所以仓库里那些开发脚本不会跟着暴露出去。
+
+> ⚠️ **Pages 在国内的访问质量很差**（实测并行拉 10 个 JS 文件要 10 秒上下、还会偶发失败）。
+> 站点是 76 个请求的模块图，首屏会卡在启动画面上。给国内用户发 APK 时建议换成
+> 自己的域名（Cloudflare Pages / VPS + Caddy），或者等 Netlify 恢复额度后把 `APP_URL` 改回去。
 
 ---
 

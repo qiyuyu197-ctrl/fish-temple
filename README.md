@@ -84,7 +84,7 @@ git tag app-v1.1.0 && git push origin app-v1.1.0   # 自动构建并挂到 Relea
 git tag desktop-v1.0.0 && git push origin desktop-v1.0.0   # 自动构建并挂到 Release
 ```
 
-完整版解压 520MB、zip 约 300MB（236MB 是相册图）；手动跑工作流勾 **lite** 可出约 120MB 的精简版。
+完整版解压 520MB、zip 386MB（236MB 是相册图）；手动跑工作流勾 **lite** 是解压 284MB / zip 119MB。
 细节见 **[app/desktop/README.md](app/desktop/README.md)**。
 
 > 两点实话：APK 是「壳 + 线上站点」，**必须联网**（仓库里 288MB 主要是插画，模型还不在仓库里）；

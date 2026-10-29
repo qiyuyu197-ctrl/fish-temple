@@ -79,7 +79,8 @@ CI（[`.github/workflows/desktop.yml`](../../.github/workflows/desktop.yml)）�
 ## 已知限制
 
 - **只有 Windows x64**：加 macOS / Linux 只是给 packager 多传两个参数，但没在真机上验过，不敢直接发。
-- **体积**：完整版解压 520MB、zip 约 300MB，其中 236MB 是相册图。想要小就用 `--lite`。
+- **体积**：完整版解压 520MB、zip 386MB，其中 236MB 是相册图。
+  想要小就用 `--lite`：站点部分 286MB → 51MB，成品解压 284MB / zip 119MB。
 - **不放 `C:\Program Files`**：便携版没有安装程序，写数据靠 `%APPDATA%`，但相对路径的内容读取
   仍假设目录可写；放系统目录里改内容会失败。
 - **登录（Auth0）**：回调地址是按当前页面 `origin` 拼的，桌面版的 origin 是
