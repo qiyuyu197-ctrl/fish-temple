@@ -31,6 +31,7 @@ import { initLyricsUI } from './ui/lyrics.js';
 import { ListeningStage } from './ui/listening-stage.js';
 import { initWaveRow } from './ui/wave-row.js';
 import { Boot } from './ui/boot.js';
+import { initPWA } from './ui/pwa.js';
 
 import home from './views/home.js';
 import logs from './views/logs.js';
@@ -217,7 +218,12 @@ async function boot() {
 
   // 12) 关闭启动动画
   await Boot.run();
+
+  // 13) 装到主屏之后的那层壳：Service Worker / 离线 / 新版本提示
+  //     放在最后：它只影响"第二次打开"，不该抢启动的路径
+  initPWA();
 }
+
 
 document.addEventListener('DOMContentLoaded', () => {
   boot().catch((err) => {

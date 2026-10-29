@@ -8,10 +8,16 @@
     "start": "node server.mjs",
     "netlify:dev": "node tools/netlify-dev.mjs 5199",
     "verify": "node tools/verify.mjs",
+    "verify:pdf": "node tools/verify-pdf.mjs",
     "verify:playback": "node tools/verify-playback.mjs",
     "verify:deploy": "node tools/verify-deploy.mjs",
     "verify:auth": "node tools/verify-auth.mjs",
-    "responsive": "node tools/responsive.mjs"
+    "verify:netease-login": "node tools/verify-netease-login.mjs",
+    "verify:pwa": "node tools/verify-pwa.mjs",
+    "responsive": "node tools/responsive.mjs",
+    "pwa:sw": "node tools/gen-service-worker.mjs",
+    "pwa:icons": "python tools/make-app-icons.py",
+    "pwa:shots": "node tools/pwa-shots.mjs"
   },
   "dependencies": {
     "@netlify/blobs": ">=7.0.0"

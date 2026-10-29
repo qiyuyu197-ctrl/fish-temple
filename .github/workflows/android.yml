@@ -1,0 +1,123 @@
+name: Android APK
+
+# 打一个能装的 APK，挂到 GitHub Release 上 —— 这就是"从 GitHub 下载 App"的入口。
+#
+# 什么时候跑：
+#   · 推一个 app-v* 标签（如 app-v1.0.0）→ 构建并发布到 Release
+#   · 手动 Actions → Run workflow → 只留构建产物（Artifacts），不发版
+#
+# 站点地址（App 打开哪个网址）的优先级：
+#   1. 手动触发时填的 app_url
+#   2. 仓库变量 APP_URL（Settings → Secrets and variables → Actions → Variables）
+#   3. 仓库对应的 GitHub Pages 地址
+# 站点搬家只改这个变量、重跑一次即可，不用改代码。
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: 'App 打开的站点地址（留空则用仓库变量 APP_URL / Pages 地址）'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'app-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v4
+
+      - name: 解析版本号与站点地址
+        id: v
+        run: |
+          set -eu
+          DEFAULT_URL="${{ vars.APP_URL }}"
+          if [ -z "$DEFAULT_URL" ]; then
+            DEFAULT_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          fi
+          INPUT_URL="${{ inputs.app_url }}"
+          if [ -z "$INPUT_URL" ]; then INPUT_URL="$DEFAULT_URL"; fi
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#app-v}"
+          else
+            VERSION="1.0.0-dev.${GITHUB_RUN_NUMBER}"
+          fi
+
+          echo "url=$INPUT_URL"   >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "版本 $VERSION（code ${GITHUB_RUN_NUMBER}）→ $INPUT_URL"
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: 确认 Android SDK 34
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+          echo "ANDROID_HOME=$ANDROID_HOME"; ls "$ANDROID_HOME/platforms" || true
+
+      # 签名密钥必须跨构建稳定，否则新版本装不上去（会报"签名不一致"）。
+      # 这里把 debug keystore 缓存起来复用；想要正式签名时再换成自己的 keystore + secrets。
+      - name: 复用签名密钥
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
+      - name: 构建 APK
+        run: |
+          gradle -p app/android assembleDebug --no-daemon --stacktrace \
+            -PappUrl="${{ steps.v.outputs.url }}" \
+            -PappVersionName="${{ steps.v.outputs.version }}" \
+            -PappVersionCode="${{ steps.v.outputs.code }}"
+
+      - name: 整理产物
+        run: |
+          set -eu
+          mkdir -p dist
+          cp app/android/app/build/outputs/apk/debug/app-debug.apk \
+             "dist/fish-temple-${{ steps.v.outputs.version }}.apk"
+          ls -lh dist
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: fish-temple-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: 发布到 Release
+        if: startsWith(github.ref, 'refs/tags/app-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: 鱼の灵庙 ${{ steps.v.outputs.version }}
+          files: dist/*.apk
+          body: |
+            ## 鱼の灵庙 ${{ steps.v.outputs.version }}
+
+            安卓安装包（侧载，未上架商店）。下载下面的 `.apk`，在手机上点开安装。
+            首次安装需要在系统设置里允许「安装未知来源应用」。
+
+            - App 打开的是：${{ steps.v.outputs.url }}
+            - 站点有更新时 **不需要**重新装 APK，App 每次打开都是最新的网页。
+            - 需要 Android 7.0（API 24）及以上。

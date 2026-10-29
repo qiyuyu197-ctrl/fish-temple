@@ -45,13 +45,49 @@ python -m http.server 5173
 
 ---
 
+## 装成 App
+
+站点可以装到手机上用，两种形态都**不走应用商店**：
+
+**① PWA（推荐，零配置）** —— 手机浏览器打开站点，菜单里「安装应用 / 添加到主屏幕」。
+装完是独立窗口，外壳、样式、脚本、内容清单和看过的图片都会缓存，**断网也能打开**；
+音乐搜索 / Pixiv / 论坛这些要服务器的东西断网时照常提示离线。
+
+```bash
+# 改过 src/ styles/ data/ 之后，重算 sw.js 的版本指纹
+npm run pwa:sw
+
+# 自检（本机需要 Edge / Chrome）：图标档位 / SW 接管 / Chromium 判定可安装 / 断网重开
+npm run verify:pwa -- http://127.0.0.1:5173
+```
+
+**② Android APK** —— 到 [Releases](../../releases) 下载 `.apk` 装上。
+它是个**没有地址栏的 WebView**（`app/android/`，纯原生 Java、无 AndroidX），
+只补浏览器缺的那几件：站外链接交给系统浏览器、`blob:` 导出能落到「下载」目录、
+论坛选图、返回键、打不开时的本地兜底页。站点更新不用重发 APK。
+
+```bash
+git tag app-v1.0.0 && git push origin app-v1.0.0   # 自动构建并挂到 Release
+```
+
+要改 App 打开的地址：仓库变量 `APP_URL`（或手动跑工作流时填），**不用改代码**。
+细节、限制与排错见 **[app/README.md](app/README.md)**。
+
+> 两点实话：APK 是「壳 + 线上站点」，**必须联网**（仓库里 288MB 主要是插画，模型还不在仓库里）；
+> iOS 的后台音频会被系统挂起，这在网页层解决不了。
+
+---
+
 ## 目录结构
 
 ```
 .
 ├── index.html              页面骨架：顶栏 / 播报条 / 视图容器 / 播放条 / 命令面板
 ├── start.cmd               Windows 双击启动（切到脚本目录 + 检查 Node.js 后跑 server.mjs）
-├── manifest.webmanifest    PWA 清单：名称 / 图标 / 主题色 / iOS 全屏声明
+├── manifest.webmanifest    PWA 清单：名称 / 图标（192 / 512 / maskable）/ 快捷方式 / 安装面板截图
+├── sw.js                   Service Worker（**由 tools/gen-service-worker.mjs 生成**，别手改）
+├── offline.html            断网兜底页（可点「重新连接」）
+├── app/                    装成 App：README + Android 壳工程（见「装成 App」一节）
 ├── server.mjs              本地服务器 + 全部 /api 实现（导出 handleApiRequest，Netlify Function 复用的就是它）
 ├── auth.mjs                Auth0 令牌校验（RS256 + JWKS，只用 node:crypto）+ 角色判定（站长 / 普通成员）
 ├── storage.mjs             内容存储双驱动：本地写 data/ 文件，线上写 Netlify Blobs
@@ -62,7 +98,9 @@ python -m http.server 5173
 │       └── api.mjs         Netlify Function（v2：export default + config.path）：把 /api/* 交给 server.mjs 的 handleApiRequest
 ├── .github/
 │   └── workflows/
-│       └── season-roll.yml 每季自动换季：AniList → anime.json + 封面 → commit（失败开 issue）
+│       ├── season-roll.yml 每季自动换季：AniList → anime.json + 封面 → commit（失败开 issue）
+│       ├── android.yml     构建 Android APK → 挂到 GitHub Release（tag `app-v*`）
+│       └── pages.yml       手动发布到 GitHub Pages（Netlify 额度用尽时的备胎）
 ├── design/                 设计与取舍笔记（不参与构建，供人读）
 │   ├── endfield-adoption.md 全站 endfield 层的采纳范围与取舍
 │   ├── forum-comments.md    论坛评论（楼中楼 / 图片 / 表态）的设计与状态表

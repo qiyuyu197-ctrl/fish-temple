@@ -1,0 +1,19 @@
+// 安卓壳工程的入口（不是站点的一部分）
+// 构建：gradle -p app/android assembleDebug
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'fish-temple'
+include ':app'

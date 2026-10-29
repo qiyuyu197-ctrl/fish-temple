@@ -1,0 +1,59 @@
+/**
+ * app/build.gradle — 安卓壳（WebView + 原生小补丁）
+ * ------------------------------------------------------------------
+ * 这个壳不打包站点资源：它只是把线上站点装进一个没有地址栏的窗口。
+ * 所以站点更新不用重新发 APK —— 代价是必须联网，且首次打开要等网络。
+ *
+ * 想换首页地址（比如站点从 GitHub Pages 挪回 Netlify）：
+ *   gradle -p app/android assembleDebug -PappUrl=https://你的域名/
+ * 或者改下面这个默认值。
+ */
+def rawUrl = (project.findProperty('appUrl') ?: 'https://qiyuyu197-ctrl.github.io/fish-temple/').toString()
+def appUrl = rawUrl.endsWith('/') ? rawUrl : rawUrl + '/'     // 相对路径要靠结尾的斜杠
+def appVersionName = (project.findProperty('appVersionName') ?: '1.0.0').toString()
+def appVersionCode = (project.findProperty('appVersionCode') ?: '1') as Integer
+
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.qiyuyu.fishtemple'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.qiyuyu.fishtemple'
+        minSdk 24                  // WebView 的现代特性从 7.0 起比较稳
+        targetSdk 34
+        versionCode appVersionCode
+        versionName appVersionName
+        // 首页地址：编译期常量，MainActivity 直接读
+        buildConfigField 'String', 'APP_URL', '"' + appUrl + '"'
+        resourceConfigurations += ['zh', 'en']
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        debug {
+            // 侧载用：debug 签名即可安装，不需要 keystore
+        }
+        release {
+            minifyEnabled false
+            // 没配密钥时回落到 debug 签名，至少产物能装（上架商店要换成正式签名）
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

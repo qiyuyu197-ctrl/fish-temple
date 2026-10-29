@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="paper">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>离线 · FISH 鱼の灵庙</title>
+<meta name="robots" content="noindex" />
+<meta name="theme-color" content="#EFEDE6" />
+<style>
+  /* 离线兜底页：不依赖任何外部样式与字体，断网时也能立刻画出来 */
+  :root {
+    --ink: #121316;
+    --paper: #EFEDE6;
+    --signal: #E5BE00;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    place-items: center;
+    padding: 28px calc(20px + env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom))
+             calc(20px + env(safe-area-inset-left));
+    background: var(--ink);
+    color: var(--paper);
+    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap { width: min(520px, 100%); }
+  .tag {
+    display: inline-flex; align-items: center; gap: 8px;
+    font: 600 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+    color: var(--signal); margin-bottom: 18px;
+  }
+  .tag::before { content: ""; width: 26px; height: 2px; background: var(--signal); }
+  h1 {
+    margin: 0 0 10px;
+    font: 800 clamp(34px, 11vw, 64px)/0.95 system-ui, sans-serif;
+    letter-spacing: -.03em;
+  }
+  h1 em {
+    display: block;
+    color: transparent;
+    -webkit-text-stroke: 1.5px var(--paper);
+    font-style: normal;
+  }
+  p { margin: 0 0 8px; line-height: 1.75; font-size: 14px; color: #c9c7bf; }
+  .rows { margin: 26px 0 24px; border-top: 1px solid #2b2d33; }
+  .row {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 11px 0; border-bottom: 1px solid #2b2d33;
+    font: 12px/1.5 var(--mono); color: #8d8b84;
+  }
+  .row b { color: var(--paper); font-weight: 600; }
+  button {
+    appearance: none; cursor: pointer;
+    width: 100%; padding: 15px 18px;
+    border: 0; border-radius: 2px;
+    background: var(--signal); color: var(--ink);
+    font: 700 14px/1 system-ui, sans-serif; letter-spacing: .04em;
+  }
+  button:active { transform: translateY(1px); }
+  a.home {
+    display: inline-block; margin-top: 16px;
+    color: var(--paper); font: 12px/1 var(--mono);
+    text-decoration: none; border-bottom: 1px solid #55534c; padding-bottom: 3px;
+  }
+  .hint { margin-top: 22px; font: 11px/1.7 var(--mono); color: #6f6d66; }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <span class="tag">FISH TEMPLE / OFFLINE</span>
+    <h1>信号<em>中断了</em></h1>
+    <p>这台设备现在连不上网络。已经看过的页面还能从缓存里翻出来，但要取新内容就得等信号回来。</p>
+    <div class="rows">
+      <div class="row"><span>状态</span><b id="state">离线</b></div>
+      <div class="row"><span>缓存版本</span><b id="ver">—</b></div>
+      <div class="row"><span>时间</span><b id="now">—</b></div>
+    </div>
+    <button id="retry" type="button">重新连接</button>
+    <a class="home" id="home" href="./">← 回首页</a>
+    <p class="hint">装到主屏之后，断网也能打开已经缓存过的部分；音乐、论坛这类要联网的板块会自己显示离线提示。</p>
+  </main>
+  <script>
+    (function () {
+      var home = new URL('./', location.href);
+      document.getElementById('home').href = home.href;
+      document.getElementById('now').textContent = new Date().toLocaleString('zh-CN', { hour12: false });
+      document.getElementById('state').textContent = navigator.onLine ? '在线（内容未缓存）' : '离线';
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(function (reg) {
+          var v = document.getElementById('ver');
+          if (!reg || !reg.active) { v.textContent = '未启用'; return; }
+          var sw = reg.active;
+          v.textContent = (sw.scriptURL || '').split('/').pop() + ' · ' + (reg.scope || '');
+        }).catch(function () {});
+      }
+      document.getElementById('retry').addEventListener('click', function () {
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = '正在重试…';
+        fetch(home.href, { cache: 'no-store' }).then(function (r) {
+          if (r.ok) location.replace(home.href);
+          else throw new Error('HTTP ' + r.status);
+        }).catch(function () {
+          btn.disabled = false;
+          btn.textContent = '还是连不上，再试一次';
+          document.getElementById('state').textContent = '离线';
+        });
+      });
+      window.addEventListener('online', function () { location.reload(); });
+    })();
+  </script>
+</body>
+</html>

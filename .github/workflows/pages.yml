@@ -1,0 +1,64 @@
+name: Deploy to GitHub Pages
+
+# 把站点发布到 GitHub Pages（免费、不会因为流量额度被暂停）。
+#
+# 为什么是手动触发：仓库里还有 tools/ deploy/ netlify/ 这些开发与部署用的东西，
+# 发布一次会把约 300MB 的插画摆到公网上；这种事应该由你亲手点一下，
+# 而不是每次推代码都自动发生。
+#
+# 用途：Netlify 那边的额度用尽 / 想换个免费地址时，
+#   1. Actions → Deploy to GitHub Pages → Run workflow
+#   2. 得到 https://<用户名>.github.io/<仓库名>/
+#   3. 重新跑一次 Android APK 工作流，app_url 填这个地址（或把它写进仓库变量 APP_URL）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v4
+
+      - name: 打开 Pages（已开启时是空操作）
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: 组装要发布的目录
+        run: |
+          set -eu
+          mkdir -p _site
+          # 只发布站点运行时真正需要的东西：开发工具、部署脚本、安卓工程、截图都不上公网
+          rsync -a \
+            --exclude '.git' --exclude '.github' --exclude '.blobs-dev' --exclude '.shots' \
+            --exclude 'pv' --exclude 'tools' --exclude 'deploy' --exclude 'netlify' \
+            --exclude 'app' --exclude 'design' --exclude 'data/.backup' --exclude 'data/.cache' \
+            --exclude 'node_modules' --exclude '*.md' --exclude 'server.mjs' --exclude 'auth.mjs' \
+            --exclude 'storage.mjs' --exclude 'package.json' --exclude 'start.cmd' --exclude 'netlify.toml' \
+            ./ _site/
+          du -sh _site
+          # 没有它，Pages 会走 Jekyll：慢，而且会忽略下划线开头的目录
+          touch _site/.nojekyll
+
+      - name: 上传站点
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: 发布
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>连不上灵庙 · FISH 鱼の灵庙</title>
+<style>
+  /* App 内的兜底页：由 MainActivity 以 loadDataWithBaseURL 载入，不依赖任何外部资源 */
+  :root { --ink: #121316; --paper: #EFEDE6; --signal: #E5BE00; --mono: ui-monospace, Consolas, monospace; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; place-items: center; background: var(--ink); color: var(--paper);
+    padding: 28px calc(20px + env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom))
+             calc(20px + env(safe-area-inset-left));
+    font-family: system-ui, -apple-system, "Noto Sans SC", sans-serif;
+  }
+  .wrap { width: min(520px, 100%); }
+  .tag { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 18px;
+    font: 600 11px/1 var(--mono); letter-spacing: .16em; color: var(--signal); }
+  .tag::before { content: ""; width: 26px; height: 2px; background: var(--signal); }
+  h1 { margin: 0 0 12px; font-size: clamp(30px, 9vw, 52px); line-height: 1; letter-spacing: -.03em; }
+  p { margin: 0 0 10px; font-size: 14px; line-height: 1.75; color: #c9c7bf; }
+  code { font-family: var(--mono); font-size: 12px; color: #8d8b84; word-break: break-all; }
+  .url { margin: 18px 0 22px; padding: 12px 14px; border: 1px solid #2b2d33; background: #191a1e; }
+  button { appearance: none; width: 100%; padding: 15px 18px; border: 0; border-radius: 2px;
+    background: var(--signal); color: var(--ink); font: 700 14px/1 system-ui, sans-serif; }
+  button:active { transform: translateY(1px); }
+  .hint { margin-top: 14px; font: 11px/1.7 var(--mono); color: #6f6d66; }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <span class="tag">FISH TEMPLE / NO SIGNAL</span>
+    <h1>连不上<wbr />灵庙</h1>
+    <p>App 只是个壳，内容还在网站上。现在这台手机连不上那个地址，可能是网络断了，也可能站点暂时没开。</p>
+    <div class="url"><code>{{URL}}</code></div>
+    <button id="retry" type="button">重新连接</button>
+    <p class="hint">还是不行的话，用浏览器打开上面这个地址看看能不能访问 —— 能访问就说明是 App 的问题，把地址告诉站长。</p>
+  </main>
+  <script>
+    document.getElementById('retry').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = '正在重连…';
+      try {
+        if (window.FTNative && FTNative.reload) { FTNative.reload(); return; }
+      } catch (e) { /* 落回下面的兜底 */ }
+      setTimeout(function () {
+        location.href = '{{URL}}';
+      }, 150);
+    });
+  </script>
+</body>
+</html>
