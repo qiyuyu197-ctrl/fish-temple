@@ -43,6 +43,7 @@ const FILES = [
   // 服务端：/api/* 全靠这几个文件，缺一个音乐台就废了
   'server.mjs',
   'auth.mjs',
+  'auth-local.mjs',
   'storage.mjs',
   'netease-eapi.mjs',
   'netease-login.mjs',

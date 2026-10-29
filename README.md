@@ -81,8 +81,12 @@ git tag app-v1.1.0 && git push origin app-v1.1.0   # 自动构建并挂到 Relea
 `/api/*` 也在同一进程里调 `server.mjs` 的 `handleApiRequest` —— 拔网线全站照常。
 数据写在 `%APPDATA%\FishTemple\data`。
 
+它自带**本机账号系统**（邮箱 + 密码，第一个注册的是站长）和**网易云扫码登录** ——
+桌面版的 origin 是 `fish://app`，做不了 Auth0 回调，所以这一版走自己的账号（`auth-local.mjs`），
+网站那边配了 Auth0 就还是 Auth0，两边互不影响。
+
 ```bash
-git tag desktop-v1.1.0 && git push origin desktop-v1.1.0   # 自动构建并挂到 Release
+git tag desktop-v1.2.0 && git push origin desktop-v1.2.0   # 自动构建并挂到 Release
 ```
 
 完整版解压 520MB、zip 386MB（236MB 是相册图）；手动跑工作流勾 **lite** 是解压 284MB / zip 119MB。
@@ -105,6 +109,7 @@ git tag desktop-v1.1.0 && git push origin desktop-v1.1.0   # 自动构建并挂�
 ├── app/                    装成 App：README + Android 壳工程 + 桌面版（见「装成 App」一节）
 ├── server.mjs              本地服务器 + 全部 /api 实现（导出 handleApiRequest，Netlify Function 复用的就是它）
 ├── auth.mjs                Auth0 令牌校验（RS256 + JWKS，只用 node:crypto）+ 角色判定（站长 / 普通成员）
+├── auth-local.mjs          本机账号系统（scrypt 密码 + HMAC 令牌 + 首位注册即站长）：桌面版用它替代 Auth0
 ├── storage.mjs             内容存储双驱动：本地写 data/ 文件，线上写 Netlify Blobs
 ├── package.json            只为函数声明 @netlify/blobs（站点本身仍零依赖；本地开发不需要装）
 ├── netlify.toml            Netlify 部署配置：发布根目录 / Functions 目录与打包 / 缓存头；函数路由由 config.path 声明，**故意不写 /api/* 重写**（见「部署」）
