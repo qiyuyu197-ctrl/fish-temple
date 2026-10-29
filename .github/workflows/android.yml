@@ -72,9 +72,17 @@ jobs:
 
       - name: 确认 Android SDK 34
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
-          echo "ANDROID_HOME=$ANDROID_HOME"; ls "$ANDROID_HOME/platforms" || true
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager || true)"; fi
+          echo "sdkmanager=$SDKMANAGER"
+          echo "before: $(ls "$ANDROID_HOME/platforms" 2>/dev/null | tr '\n' ' ')"
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+          fi
+          echo "after:  $(ls "$ANDROID_HOME/platforms" 2>/dev/null | tr '\n' ' ')"
+          java -version 2>&1 | head -2
+          gradle --version 2>&1 | grep -E 'Gradle |JVM ' || true
 
       # 签名密钥必须跨构建稳定，否则新版本装不上去（会报"签名不一致"）。
       # 这里把 debug keystore 缓存起来复用；想要正式签名时再换成自己的 keystore + secrets。
@@ -85,11 +93,22 @@ jobs:
           key: android-debug-keystore-v1
 
       - name: 构建 APK
+        id: build
         run: |
+          set -o pipefail
           gradle -p app/android assembleDebug --no-daemon --stacktrace \
             -PappUrl="${{ steps.v.outputs.url }}" \
             -PappVersionName="${{ steps.v.outputs.version }}" \
-            -PappVersionCode="${{ steps.v.outputs.code }}"
+            -PappVersionCode="${{ steps.v.outputs.code }}" 2>&1 | tee gradle-build.log
+
+      # 构建失败时，把日志尾部贴成一条 check-run 注解：
+      # 公开仓库的注解不需要登录就能读，排查时不用来回要日志。
+      - name: 失败时贴日志尾部
+        if: failure()
+        run: |
+          if [ ! -f gradle-build.log ]; then echo "::warning::没有 gradle-build.log"; exit 0; fi
+          MSG=$(tail -c 3500 gradle-build.log | sed 's/%/%25/g' | sed 's/\r//g' | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=Gradle 构建失败::${MSG}"
 
       - name: 整理产物
         run: |
