@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 和 styles/tokens.css 的 --paper / --ink-100 保持一致 -->
+    <!-- 和 styles/tokens.css 里 paper / ink-100 两个令牌保持一致；
+         注意：XML 注释里不能出现连续两个短横线，所以这里不写 CSS 变量名 -->
     <color name="paper">#EFEDE6</color>
     <color name="ink">#121316</color>
     <color name="signal">#E5BE00</color>
