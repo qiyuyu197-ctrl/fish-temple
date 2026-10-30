@@ -95,38 +95,46 @@ final class NeteaseAccount {
      * 这里升级成 identity.json；老用户保留原 deviceId，其余字段补生成。
      */
     private void loadOrCreateIdentity() throws IOException {
-        File identityFile = new File(dir, "identity.json");
-        JSONObject identity = null;
-        if (identityFile.isFile()) {
-            try {
-                identity = new JSONObject(new String(Files.readAllBytes(identityFile.toPath()), StandardCharsets.UTF_8));
-            } catch (Exception ignored) { /* 文件坏了就重建 */ }
-        }
-        if (identity == null) {
-            identity = new JSONObject();
-            File oldDev = new File(dir, "device.txt");
-            String oldId = "";
-            if (oldDev.isFile()) {
-                oldId = new String(Files.readAllBytes(oldDev.toPath()), StandardCharsets.UTF_8).trim();
+        try {
+            File identityFile = new File(dir, "identity.json");
+            JSONObject identity = null;
+            if (identityFile.isFile()) {
+                try {
+                    identity = new JSONObject(new String(Files.readAllBytes(identityFile.toPath()), StandardCharsets.UTF_8));
+                } catch (Exception ignored) { /* 文件坏了就重建 */ }
             }
-            identity.put("deviceId", oldId.matches("[0-9a-fA-F]{20,64}") ? oldId : randomDeviceId());
-            identity.put("_ntes_nuid", hex(randomBytes(32)));
-            identity.put("_ntes_nnid", identity.getString("_ntes_nuid") + "," + System.currentTimeMillis());
-            identity.put("WNMCID", randomWnmcid());
-            Files.write(identityFile.toPath(), identity.toString().getBytes(StandardCharsets.UTF_8));
-        }
-        deviceId = identity.optString("deviceId", "");
-        nuid = identity.optString("_ntes_nuid", "");
-        nnid = identity.optString("_ntes_nnid", "");
-        wnmcid = identity.optString("WNMCID", "");
-        // 旧文件只缺字段时补齐，不要因为一个身份文件把整个本地服务拦在启动页
-        boolean changed = false;
-        if (deviceId.isEmpty()) { deviceId = randomDeviceId(); identity.put("deviceId", deviceId); changed = true; }
-        if (nuid.isEmpty()) { nuid = hex(randomBytes(32)); identity.put("_ntes_nuid", nuid); changed = true; }
-        if (nnid.isEmpty()) { nnid = nuid + "," + System.currentTimeMillis(); identity.put("_ntes_nnid", nnid); changed = true; }
-        if (wnmcid.isEmpty()) { wnmcid = randomWnmcid(); identity.put("WNMCID", wnmcid); changed = true; }
-        if (changed) {
-            Files.write(identityFile.toPath(), identity.toString().getBytes(StandardCharsets.UTF_8));
+            if (identity == null) {
+                identity = new JSONObject();
+                File oldDev = new File(dir, "device.txt");
+                String oldId = "";
+                if (oldDev.isFile()) {
+                    oldId = new String(Files.readAllBytes(oldDev.toPath()), StandardCharsets.UTF_8).trim();
+                }
+                identity.put("deviceId", oldId.matches("[0-9a-fA-F]{20,64}") ? oldId : randomDeviceId());
+                identity.put("_ntes_nuid", hex(randomBytes(32)));
+                identity.put("_ntes_nnid", identity.getString("_ntes_nuid") + "," + System.currentTimeMillis());
+                identity.put("WNMCID", randomWnmcid());
+                Files.write(identityFile.toPath(), identity.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            deviceId = identity.optString("deviceId", "");
+            nuid = identity.optString("_ntes_nuid", "");
+            nnid = identity.optString("_ntes_nnid", "");
+            wnmcid = identity.optString("WNMCID", "");
+            // 旧文件只缺字段时补齐，不要因为一个身份文件把整个本地服务拦在启动页
+            boolean changed = false;
+            if (deviceId.isEmpty()) { deviceId = randomDeviceId(); identity.put("deviceId", deviceId); changed = true; }
+            if (nuid.isEmpty()) { nuid = hex(randomBytes(32)); identity.put("_ntes_nuid", nuid); changed = true; }
+            if (nnid.isEmpty()) { nnid = nuid + "," + System.currentTimeMillis(); identity.put("_ntes_nnid", nnid); changed = true; }
+            if (wnmcid.isEmpty()) { wnmcid = randomWnmcid(); identity.put("WNMCID", wnmcid); changed = true; }
+            if (changed) {
+                Files.write(identityFile.toPath(), identity.toString().getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            // Android 的 org.json 把 JSONException 当受检异常；这里统一折成 IOException，
+            // 让构造函数保持只抛 IOException（SiteServer 那边不用改）。
+            throw new IOException("设备身份初始化失败：" + e.getMessage(), e);
         }
     }
 
