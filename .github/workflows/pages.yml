@@ -57,10 +57,13 @@ jobs:
           set -eu
           mkdir -p _site
           # 只发布站点运行时真正需要的东西：开发工具、部署脚本、安卓工程、截图都不上公网
+          # 注意：排除项要写**根目录锚定**的 `/tools`、`/app` 等。rsync 的 `tools`
+          # 会匹配任意层级的同名目录，连 `src/plugins/tools/` 一起排掉 —— 那会让
+          # 站点的工具台模块 404、整站卡在启动画面。
           rsync -a \
             --exclude '.git' --exclude '.github' --exclude '.blobs-dev' --exclude '.shots' \
-            --exclude 'pv' --exclude 'tools' --exclude 'deploy' --exclude 'netlify' \
-            --exclude 'app' --exclude 'design' --exclude 'data/.backup' --exclude 'data/.cache' \
+            --exclude '/pv' --exclude '/tools' --exclude '/deploy' --exclude '/netlify' \
+            --exclude '/app' --exclude '/design' --exclude 'data/.backup' --exclude 'data/.cache' \
             --exclude 'node_modules' --exclude '*.md' --exclude 'server.mjs' --exclude 'auth.mjs' \
             --exclude 'storage.mjs' --exclude 'package.json' --exclude 'start.cmd' --exclude 'netlify.toml' \
             ./ _site/

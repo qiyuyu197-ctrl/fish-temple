@@ -106,6 +106,30 @@ async function main() {
     return r.result?.value;
   };
 
+  /** 轮询到条件成立（部署到 Pages 时首屏要等网络，固定 sleep 会误判） */
+  const waitFor = async (expr, { timeout = 30000, interval = 250 } = {}) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      try {
+        if (await evaluate(expr)) return true;
+      } catch { /* 页面还没就绪 */ }
+      await sleep(interval);
+    }
+    return false;
+  };
+
+  const waitHeroOrientation = (portrait, timeout = 20000) => waitFor(`(() => {
+    const i = document.getElementById('heroMediaImg');
+    if (!i || !i.naturalWidth) return false;
+    return ${portrait ? 'i.naturalHeight > i.naturalWidth' : 'i.naturalWidth > i.naturalHeight'};
+  })()`, { timeout });
+
+  const waitStageOrientation = (portrait, timeout = 20000) => waitFor(`(() => {
+    const i = document.getElementById('lsArchive');
+    if (!i || i.hidden || !i.naturalWidth) return false;
+    return ${portrait ? 'i.naturalHeight > i.naturalWidth' : 'i.naturalWidth > i.naturalHeight'};
+  })()`, { timeout });
+
   await send('Runtime.enable');
   await send('Page.enable');
 
@@ -146,7 +170,14 @@ async function main() {
   // 手机竖屏 → 首页竖图
   await viewport(390, 844);
   await send('Page.navigate', { url: `${BASE}/#/` });
-  await sleep(3200);
+  const booted = await waitFor(`!!window.Terminal && document.documentElement.dataset.booted === '1'`, { timeout: 45000 });
+  check('页面启动完成（部署到 Pages 时多等网络）', booted === true);
+  const heroLoaded = await waitFor(`(() => {
+    const i = document.getElementById('heroMediaImg');
+    return !!(i && i.naturalWidth > 0 && document.getElementById('hero')?.classList.contains('is-media'));
+  })()`, { timeout: 30000 });
+  check('首屏横幅图片加载完成', heroLoaded === true);
+  await waitHeroOrientation(true);
   const mobile = await heroInfo();
   check('手机竖屏：首页横幅用竖图', mobile.h > mobile.w, `${mobile.w}×${mobile.h} · ${mobile.src}`);
   check('手机竖屏：hero 本身是一块高高的区域', mobile.box[1] > mobile.box[0], `hero=${mobile.box.join('×')}`);
@@ -158,35 +189,36 @@ async function main() {
 
   // 转成横屏 → 换横图
   await viewport(844, 390);
-  await sleep(1500);
+  await waitHeroOrientation(false);
   const mobileLand = await heroInfo();
   check('手机横屏：首页横幅换成横图', mobileLand.w > mobileLand.h, `${mobileLand.w}×${mobileLand.h} · ${mobileLand.src}`);
 
   // 转回竖屏 → 换回竖图
   await viewport(390, 844);
-  await sleep(1500);
+  await waitHeroOrientation(true);
   const mobileBack = await heroInfo();
   check('转回竖屏：首页横幅换回竖图', mobileBack.h > mobileBack.w, `${mobileBack.w}×${mobileBack.h} · ${mobileBack.src}`);
 
   // 桌面 → 横图
   await viewport(1440, 900, false);
-  await sleep(1500);
+  await waitHeroOrientation(false);
   const desktop = await heroInfo();
   check('桌面宽屏：首页横幅用横图', desktop.w > desktop.h, `${desktop.w}×${desktop.h} · ${desktop.src}`);
 
   // 沉浸舞台：塞一首占位曲目，切到相册背景
   await viewport(390, 844);
   await sleep(600);
-  const stageOpened = await evaluate(`(async () => {
+  const stageOpened = await evaluate(`(() => {
     localStorage.setItem('ft.terminal.stageBackdrop', 'archive');
     localStorage.removeItem('ft.terminal.stageBackdropPin');
     const P = window.Terminal.Player;
     if (!P.current) P.add({ id: 'backdrop-probe', title: 'BACKDROP PROBE', artist: 'LOCAL', provider: 'local' });
     window.Terminal.ListeningStage.open();
-    await new Promise((r) => setTimeout(r, 1600));
-    return !!document.querySelector('.lstage.is-open');
+    return true;
   })()`);
-  check('沉浸舞台能打开', stageOpened === true);
+  const stageOpen = await waitFor(`!!document.querySelector('.lstage.is-open')`, { timeout: 15000 });
+  check('沉浸舞台能打开', stageOpened === true && stageOpen === true);
+  await waitStageOrientation(true);
 
   const stageMobile = await stageInfo();
   check('手机竖屏：舞台相册背景用竖图', stageMobile.h > stageMobile.w,
@@ -198,14 +230,14 @@ async function main() {
 
   // 舞台转横屏 → 换横图
   await viewport(844, 390);
-  await sleep(1600);
+  await waitStageOrientation(false);
   const stageLand = await stageInfo();
   check('手机横屏：舞台相册背景换成横图', stageLand.w > stageLand.h,
     `${stageLand.w}×${stageLand.h} · ${stageLand.src}`);
 
   // 转回竖屏 → 换回竖图
   await viewport(390, 844);
-  await sleep(1600);
+  await waitStageOrientation(true);
   const stageBack = await stageInfo();
   check('转回竖屏：舞台相册背景换回竖图', stageBack.h > stageBack.w,
     `${stageBack.w}×${stageBack.h} · ${stageBack.src}`);
@@ -216,7 +248,7 @@ async function main() {
   const pinned = await evaluate(`localStorage.getItem('ft.terminal.stageBackdropPin') || ''`);
   check('舞台「固定」把当前背景写进本地存储', normalizeUrl(pinned) === stageBack.src, pinned || '—');
   await viewport(844, 390);
-  await sleep(1600);
+  await sleep(1200);
   const stagePinned = await stageInfo();
   check('固定后转屏不换图（固定优先于横竖自适应）', stagePinned.src === stageBack.src,
     `${stagePinned.src} / 固定 ${stageBack.src}`);
