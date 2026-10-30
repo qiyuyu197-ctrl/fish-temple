@@ -65,10 +65,10 @@ npm run verify:pwa -- http://127.0.0.1:5173
 从 2.0 起它也是**纯本地**的：站点打进 APK（约 290MB），启动时在本机 `127.0.0.1`
 起一个只给自己用的小服务（`SiteServer.java`），账号是本机账号（`LocalAuth.java`）。
 网易云**搜索 / 试听 / 歌词**和 **Pixiv 抽卡**在 2.1 里用 Java 重做了代理，能直接用；
-**扫码登录**还没有（要 eapi 加密 + 二维码编码器），接口会明确回 501。
+**扫码登录 / 我的歌单**在 2.2、**云盘 / 每日推荐 / 登录态音频**在 2.3 补上（需先绑定账号）。
 
 ```bash
-git tag app-v2.1.0 && git push origin app-v2.1.0   # 自动构建并挂到 Release
+git tag app-v2.3.1 && git push origin app-v2.3.1   # 自动构建并挂到 Release
 
 node tools/verify-android-server.mjs               # 不用模拟器：在电脑上跑 Java 那套本地服务自检
 ```
