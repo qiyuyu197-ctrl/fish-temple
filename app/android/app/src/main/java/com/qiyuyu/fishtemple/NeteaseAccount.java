@@ -574,4 +574,164 @@ final class NeteaseAccount {
             return Integer.toHexString(s.hashCode());
         }
     }
+
+    /* ---------------- 云盘 / 每日推荐 / 登录态音频 ---------------- */
+
+    static final class Bin {
+        int status = 200;
+        String type = "audio/mpeg";
+        byte[] body = new byte[0];
+        String error;
+    }
+
+    /** GET /api/netease/login/cloud */
+    Out cloud(String sub, int limit, int offset) throws Exception {
+        Map<String, String> b = readBinding(sub);
+        if (!b.containsKey("MUSIC_U")) return Out.fail(403, "还没有绑定网易云账号");
+        HttpResult r = weapi("/api/v1/cloud/get", Json.obj("limit", limit, "offset", offset), b);
+        JSONArray data = r.body.optJSONArray("data");
+        JSONArray out = new JSONArray();
+        if (data != null) {
+            for (int i = 0; i < data.length(); i++) {
+                JSONObject it = data.getJSONObject(i);
+                String sid = it.optString("songId", it.optString("id", ""));
+                if (sid.isEmpty()) continue;
+                JSONObject song = new JSONObject()
+                        .put("id", sid)
+                        .put("name", it.optString("songName", it.optString("name", "云盘曲目")))
+                        .put("artists", new JSONArray().put(it.optString("artist", "")))
+                        .put("album", it.optString("album", ""))
+                        .put("cover", it.optString("cover", ""))
+                        .put("duration", 0)
+                        .put("fee", 0)
+                        .put("cloud", true)
+                        .put("audio", audioUrl(sub, sid));
+                out.put(song);
+            }
+        }
+        return Out.ok(Json.obj("ok", Boolean.TRUE, "count", out.length(), "songs", Json.raw(out.toString())));
+    }
+
+    /** GET /api/netease/login/recommend */
+    Out recommend(String sub, int limit) throws Exception {
+        Map<String, String> b = readBinding(sub);
+        if (!b.containsKey("MUSIC_U")) return Out.fail(403, "还没有绑定网易云账号");
+        HttpResult r = weapi("/api/v1/discovery/recommend/songs", Json.obj("limit", limit), b);
+        JSONArray out = new JSONArray();
+        JSONObject data = r.body.optJSONObject("data");
+        JSONArray list = data == null ? r.body.optJSONArray("recommend") : data.optJSONArray("dailySongs");
+        if (list != null) {
+            for (int i = 0; i < list.length() && i < limit; i++) {
+                JSONObject s = shape(list.getJSONObject(i));
+                s.put("audio", audioUrl(sub, s.optString("id", "")));
+                out.put(s);
+            }
+        }
+        return Out.ok(Json.obj("ok", Boolean.TRUE, "count", out.length(), "songs", Json.raw(out.toString())));
+    }
+
+    /** POST /api/netease/login/urls —— 给一批曲目换登录态地址 */
+    Out urls(String sub, JSONArray ids, String level) throws Exception {
+        Map<String, String> b = readBinding(sub);
+        if (!b.containsKey("MUSIC_U")) return Out.fail(403, "还没有绑定网易云账号");
+        JSONObject out = new JSONObject();
+        for (int i = 0; i < ids.length(); i++) {
+            String id = ids.optString(i, "");
+            if (!id.matches("\\d+")) continue;
+            String url = resolveLogged(id, b, level);
+            if (url != null) out.put(id, url);
+        }
+        return Out.ok(Json.obj("ok", Boolean.TRUE, "urls", Json.raw(out.toString())));
+    }
+
+    /** 给 `<audio>` 用的地址：媒体元素带不了 Bearer，所以签名放进 query */
+    String audioUrl(String sub, String id) throws Exception {
+        long exp = System.currentTimeMillis() + 6 * 3600 * 1000;
+        return "/api/netease/login/audio?id=" + URLEncoder.encode(id, "UTF-8")
+                + "&t=" + signState(sub, id, exp, "");
+    }
+
+    /** GET /api/netease/login/audio?id=&t= —— 用登录态解析地址并转发音频 */
+    Bin audio(String sub, String id, String token, String range) throws Exception {
+        if (!String.valueOf(id).matches("\\d+")) {
+            Bin bad = new Bin();
+            bad.status = 400;
+            bad.error = "缺少合法的曲目 id";
+            return bad;
+        }
+        if (token != null && !token.isEmpty()) {
+            String[] parts = verifyState(token);
+            if (!parts[0].equals(sub) || !parts[1].equals(id)) {
+                Bin bad = new Bin();
+                bad.status = 403;
+                bad.error = "音频签名不匹配";
+                return bad;
+            }
+        }
+        Map<String, String> b = readBinding(sub);
+        if (!b.containsKey("MUSIC_U")) {
+            Bin bad = new Bin();
+            bad.status = 403;
+            bad.error = "还没有绑定网易云账号";
+            return bad;
+        }
+        String url = resolveLogged(id, b, "exhigh");
+        if (url == null) {
+            Bin bad = new Bin();
+            bad.status = 404;
+            bad.error = "这首拿不到登录态音频（版权/会员限制）";
+            return bad;
+        }
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(20000);
+        c.setRequestProperty("User-Agent", UA_PC);
+        c.setRequestProperty("Referer", "https://music.163.com/");
+        if (range != null && !range.isEmpty()) c.setRequestProperty("Range", range);
+        Bin r = new Bin();
+        r.status = c.getResponseCode();
+        String type = c.getContentType();
+        if (type != null) r.type = type;
+        InputStream in = r.status >= 400 ? c.getErrorStream() : c.getInputStream();
+        r.body = in == null ? new byte[0] : readAll(in);
+        c.disconnect();
+        return r;
+    }
+
+    /** `<audio>` 带不了 Bearer：靠签名 token 认出是谁，再走 audio() */
+    Bin audioByToken(String id, String token, String range) throws Exception {
+        String sub;
+        try {
+            String[] parts = verifyState(token);
+            sub = parts[0];
+            if (!parts[1].equals(id)) throw new IllegalArgumentException("曲目不匹配");
+        } catch (Exception e) {
+            Bin bad = new Bin();
+            bad.status = 403;
+            bad.error = "音频签名无效：" + e.getMessage();
+            return bad;
+        }
+        return audio(sub, id, "", range);
+    }
+
+    private String resolveLogged(String id, Map<String, String> cookie, String level) {
+        try {
+            HttpResult r = eapi("/api/song/enhance/player/url/v1",
+                    Json.obj("ids", "[\"" + id + "\"]", "level", level == null ? "exhigh" : level, "encodeType", "flac"), cookie);
+            JSONArray d = r.body.optJSONArray("data");
+            if (d != null && d.length() > 0) {
+                String u = d.getJSONObject(0).optString("url", "");
+                if (!u.isEmpty()) return u.replaceFirst("^http://", "https://");
+            }
+        } catch (Exception ignored) { }
+        try {
+            HttpResult r = weapi("/api/song/enhance/player/url", Json.obj("ids", "[" + id + "]", "br", 128000), cookie);
+            JSONArray d = r.body.optJSONArray("data");
+            if (d != null && d.length() > 0) {
+                String u = d.getJSONObject(0).optString("url", "");
+                if (!u.isEmpty()) return u.replaceFirst("^http://", "https://");
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
 }

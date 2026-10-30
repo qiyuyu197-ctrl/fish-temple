@@ -207,7 +207,7 @@ final class SiteServer {
         try {
             // 网易云账号链路（扫码 / 绑定 / 我的歌单）：要本站 token 认人
             if (path.startsWith("/api/netease/login/")) {
-                handleNeteaseLogin(method, path, query, bearer, body, out);
+                handleNeteaseLogin(method, path, query, bearer, headers, body, out);
                 return;
             }
 
@@ -312,7 +312,8 @@ final class SiteServer {
 
     /* ---------------- 网易云账号 ---------------- */
 
-    private void handleNeteaseLogin(String method, String path, String query, String bearer, byte[] body, OutputStream out)
+    private void handleNeteaseLogin(String method, String path, String query, String bearer,
+                                    Map<String, String> headers, byte[] body, OutputStream out)
             throws IOException {
         if (bearer.isEmpty()) { json(out, 401, Json.obj("ok", Boolean.FALSE, "error", "需要先登录本站账号")); return; }
         Map<String, String> claims;
@@ -329,6 +330,18 @@ final class SiteServer {
 
         NeteaseAccount.Out r;
         try {
+            // 音频流走签名 token（<audio> 带不了 Authorization）
+            if (path.equals("/api/netease/login/audio")) {
+                Map<String, String> aq = parseQuery(query);
+                NeteaseAccount.Bin bin = netease.audioByToken(aq.getOrDefault("id", ""), aq.getOrDefault("t", ""),
+                        headers.getOrDefault("range", ""));
+                if (bin.error != null) {
+                    json(out, bin.status, Json.obj("ok", Boolean.FALSE, "error", bin.error));
+                } else {
+                    send(out, bin.status, bin.type, bin.body);
+                }
+                return;
+            }
             switch (action) {
                 case "status": r = netease.status(sub, owner); break;
                 case "qr": r = netease.qr(sub); break;
@@ -348,6 +361,27 @@ final class SiteServer {
                     break;
                 }
                 case "logout": r = netease.logout(sub); break;
+                case "cloud": {
+                    int limit = 200, offset = 0;
+                    try { limit = Math.min(1000, Math.max(1, Integer.parseInt(q.getOrDefault("limit", "200")))); } catch (NumberFormatException ignored) { }
+                    try { offset = Math.max(0, Integer.parseInt(q.getOrDefault("offset", "0"))); } catch (NumberFormatException ignored) { }
+                    r = netease.cloud(sub, limit, offset);
+                    break;
+                }
+                case "recommend": {
+                    int limit = 30;
+                    try { limit = Math.min(100, Math.max(1, Integer.parseInt(q.getOrDefault("limit", "30")))); } catch (NumberFormatException ignored) { }
+                    r = netease.recommend(sub, limit);
+                    break;
+                }
+                case "urls": {
+                    Map<String, String> in = Json.parseFlat(new String(body, StandardCharsets.UTF_8));
+                    org.json.JSONArray ids = new org.json.JSONArray();
+                    String raw = in.getOrDefault("ids", "");
+                    for (String s : raw.replaceAll("[\\[\\]\"\\s]", "").split(",")) if (s.matches("\\d+")) ids.put(s);
+                    r = netease.urls(sub, ids, in.getOrDefault("level", "exhigh"));
+                    break;
+                }
                 default:
                     r = NeteaseAccount.Out.fail(501,
                             "移动版暂不支持这个网易云接口（" + action + "）：云盘 / 每日推荐 / 登录态音频需要更多 eapi 调用");
