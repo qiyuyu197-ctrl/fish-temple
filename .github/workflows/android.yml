@@ -90,12 +90,14 @@ jobs:
             $LITE 2>&1 | tee android-build.log
 
       # 失败时把日志尾部贴成 check-run 注解：公开仓库不用登录就能读。
+      # 编译错误（error: ...）在 tail 之外，单独 grep 出来；否则只剩 Gradle 堆栈。
       - name: 失败时贴日志尾部
         if: failure()
         run: |
           if [ ! -f android-build.log ]; then echo "::warning::没有 android-build.log"; exit 0; fi
-          MSG=$(tail -c 3500 android-build.log | sed 's/%/%25/g' | sed 's/\r//g' | sed ':a;N;$!ba;s/\n/%0A/g')
-          echo "::error title=Gradle 构建失败::${MSG}"
+          ERRS=$(grep -n -E "error:|FAILURE:|What went wrong|Execution failed|> Task .*FAILED" android-build.log | tail -40 | sed 's/%/%25/g' | sed 's/\r//g' | sed ':a;N;$!ba;s/\n/%0A/g' || true)
+          MSG=$(tail -c 2500 android-build.log | sed 's/%/%25/g' | sed 's/\r//g' | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=Gradle 构建失败::${ERRS}%0A---- tail ----%0A${MSG}"
 
       - name: 整理产物
         run: |

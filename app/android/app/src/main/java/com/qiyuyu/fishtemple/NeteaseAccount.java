@@ -553,7 +553,21 @@ final class NeteaseAccount {
         for (Map.Entry<String, String> e : cookie.entrySet()) {
             if (e.getValue() == null || e.getValue().isEmpty()) continue;
             if (sb.length() > 0) sb.append("; ");
-            sb.append(e.getKey()).append('=').append(e.getValue());
+            sb.append(e.getKey()).append('=').append(cookieValue(e.getValue()));
+        }
+        return sb.toString();
+    }
+
+    /** 和桌面版 cookieToString 的 encodeURIComponent 保持一致：逗号 / 斜杠 / 等号都要转义 */
+    private static String cookieValue(String raw) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : raw.getBytes(StandardCharsets.UTF_8)) {
+            int c = b & 0xff;
+            boolean safe = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                    || c == '-' || c == '_' || c == '.' || c == '!' || c == '~'
+                    || c == '*' || c == '\'' || c == '(' || c == ')';
+            if (safe) sb.append((char) c);
+            else sb.append('%').append(String.format("%02X", c));
         }
         return sb.toString();
     }
