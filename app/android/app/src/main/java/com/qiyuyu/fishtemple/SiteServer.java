@@ -43,6 +43,7 @@ final class SiteServer {
     private final SiteSource source;
     private final LocalAuth auth;
     private final File dataDir;
+    private final RemoteApi remote;
     private final ServerSocket socket;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -50,6 +51,7 @@ final class SiteServer {
         this.source = source;
         this.auth = auth;
         this.dataDir = dataDir;
+        this.remote = new RemoteApi(new File(dataDir, ".cache"));
         this.socket = new ServerSocket();
         this.socket.setReuseAddress(true);
         this.socket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0));
@@ -126,7 +128,7 @@ final class SiteServer {
             path = urlDecode(path);
 
             if (path.startsWith("/api/")) {
-                handleApi(method, path, headers, body, out);
+                handleApi(method, path, query, headers, body, out);
             } else {
                 handleStatic(path, out);
             }
@@ -195,7 +197,7 @@ final class SiteServer {
 
     /* ---------------- /api/* ---------------- */
 
-    private void handleApi(String method, String path, Map<String, String> headers, byte[] body, OutputStream out)
+    private void handleApi(String method, String path, String query, Map<String, String> headers, byte[] body, OutputStream out)
             throws IOException {
         String bearer = headers.getOrDefault("authorization", "");
         if (bearer.toLowerCase(Locale.ROOT).startsWith("bearer ")) bearer = bearer.substring(7).trim();
@@ -283,6 +285,13 @@ final class SiteServer {
                     json(out, 501, Json.obj("ok", Boolean.FALSE,
                             "error", "移动版是纯本地：暂不支持在手机上发布内容（桌面版可以）"));
                 }
+                return;
+            }
+
+            // 外网代理（网易云匿名搜索/试听、Pixiv 抽卡与图片）
+            if (remote.handles(path)) {
+                RemoteApi.Result r = remote.handle(method, path, query);
+                send(out, r.status, r.type, "HEAD".equalsIgnoreCase(method) ? new byte[0] : r.body);
                 return;
             }
 

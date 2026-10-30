@@ -64,10 +64,11 @@ npm run verify:pwa -- http://127.0.0.1:5173
 **② Android APK** —— 到 [Releases](../../releases) 下载 `.apk` 装上（[最新一版](../../releases/latest)）。
 从 2.0 起它也是**纯本地**的：站点打进 APK（约 290MB），启动时在本机 `127.0.0.1`
 起一个只给自己用的小服务（`SiteServer.java`），账号是本机账号（`LocalAuth.java`）。
-断网能看相册、文章、工具、扫雷；网易云 / Pixiv 这类要外网代理的功能会明确显示离线。
+网易云**搜索 / 试听 / 歌词**和 **Pixiv 抽卡**在 2.1 里用 Java 重做了代理，能直接用；
+**扫码登录**还没有（要 eapi 加密 + 二维码编码器），接口会明确回 501。
 
 ```bash
-git tag app-v2.0.0 && git push origin app-v2.0.0   # 自动构建并挂到 Release
+git tag app-v2.1.0 && git push origin app-v2.1.0   # 自动构建并挂到 Release
 
 node tools/verify-android-server.mjs               # 不用模拟器：在电脑上跑 Java 那套本地服务自检
 ```

@@ -90,9 +90,19 @@ Chromium 判定可安装、**断网重开外壳还在**、断网切板块、接�
 数据存在 App 私有目录（`files/data/auth/users.tsv`），密码 PBKDF2-SHA256 加盐，
 不进任何服务器。
 
-**做不到的（如实写在界面里）**：网易云搜索 / 扫码登录、Pixiv 抽卡。
-这些要访问外网代理，而代理逻辑在 `server.mjs`（加密 eapi + 转发），安卓没有 Node 跑它 ——
-相关接口会回 503，音乐台显示 `PROXY OFFLINE`，不会静默失败。
+**能用的外网功能**（Java 里重做了一遍匿名代理，`RemoteApi.java`）：
+
+| 接口 | 说明 |
+| --- | --- |
+| `/api/netease/search` | 三个公开入口依次回退（和 `server.mjs` 一样） |
+| `/api/netease/song` · `lyric` · `playable` | 详情 / 行级歌词 + 译文 / 能否播放 |
+| `/api/netease/audio` | 跟 302 到 CDN 的音频流（HEAD 也支持，`<audio>` 能判断 404） |
+| `/api/netease/playlist` | 公开歌单（v6，含 trackIds） |
+| `/api/pixiv/random` · `image` · `illust` | 抽卡（lolicon）+ 图片代理 + 磁盘缓存 |
+
+**做不到的那一件**：网易云**扫码登录**（`/api/netease/login/*`）。
+那一套要 eapi 加密（AES + RSA-noPadding）、扫码状态机和二维码编码器，安卓端还没实现，
+接口会如实回 501 并说明原因 —— 不会假装能用。公开搜索/试听不受影响。
 
 **怎么验**（不用模拟器）：这套本地服务不碰 Android API，可以在电脑上跑真测试 ——
 
@@ -100,8 +110,8 @@ Chromium 判定可安装、**断网重开外壳还在**、断网切板块、接�
 node tools/verify-android-server.mjs
 ```
 
-它用 javac 编译 `Json/LocalAuth/SiteServer`，起服务，再用真浏览器走一遍
-启动 / health / 注册登录 / 内容覆盖层 / 离线降级，最后截图。当前 9 项全过。
+它用 javac 编译 `Json/LocalAuth/SiteServer/RemoteApi`，起服务，再用真浏览器走一遍
+启动 / health / 注册登录 / 内容覆盖层 / 网易云搜索试听 / Pixiv 抽卡，最后截图。当前 15 项全过。
 
 **发版**
 

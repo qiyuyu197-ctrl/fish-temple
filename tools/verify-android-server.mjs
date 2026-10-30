@@ -59,9 +59,20 @@ if (!jdk) {
 
 const classes = await mkdtemp(path.join(os.tmpdir(), 'ft-android-classes-'));
 const dataDir = await mkdtemp(path.join(os.tmpdir(), 'ft-android-data-'));
-const javaSrc = ['Json.java', 'LocalAuth.java', 'SiteServer.java'].map((f) => path.join(SRC_DIR, f));
+const javaSrc = ['Json.java', 'LocalAuth.java', 'SiteServer.java', 'RemoteApi.java'].map((f) => path.join(SRC_DIR, f));
 
-const compiled = spawnSync(jdk.javac, ['-encoding', 'UTF-8', '-d', classes, ...javaSrc, HARNESS], { encoding: 'utf8' });
+// RemoteApi 用 org.json（Android 自带，JDK 没有）—— 测试时临时抓一个官方 jar 进 classpath。
+const jsonJar = path.join(os.tmpdir(), 'ft-json-20240303.jar');
+if (!existsSync(jsonJar)) {
+  const res = await fetch('https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar');
+  if (!res.ok) {
+    console.error(`拉不到 org.json jar（HTTP ${res.status}）`);
+    process.exit(2);
+  }
+  await writeFile(jsonJar, Buffer.from(await res.arrayBuffer()));
+}
+
+const compiled = spawnSync(jdk.javac, ['-encoding', 'UTF-8', '-cp', jsonJar, '-d', classes, ...javaSrc, HARNESS], { encoding: 'utf8' });
 if (compiled.status !== 0) {
   console.error('编译失败：\n' + (compiled.stderr || compiled.stdout));
   process.exit(1);
@@ -69,7 +80,8 @@ if (compiled.status !== 0) {
 
 /* ---------- 起服务 ---------- */
 
-const child = spawn(jdk.java, ['-cp', classes, 'com.qiyuyu.fishtemple.TestHarness', ROOT, dataDir], {
+const child = spawn(jdk.java, ['-cp', `${classes}${process.platform === 'win32' ? ';' : ':'}${jsonJar}`,
+  'com.qiyuyu.fishtemple.TestHarness', ROOT, dataDir], {
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,
 });
@@ -198,8 +210,35 @@ try {
   const publish = await evalJS(`fetch('/api/content/posts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => ({ status: r.status, ok: r.ok }))`);
   publish?.status === 501 ? ok('在手机端发内容会被明确拒绝（501 + 说明）') : bad('在手机端发内容会被明确拒绝', JSON.stringify(publish));
 
-  const ne = await evalJS(`fetch('/api/netease/search?keywords=test').then(r => ({ status: r.status })).catch(() => ({ status: 0 }))`);
-  ne?.status === 503 ? ok('网易云代理接口回 503（纯本地模式的已知边界）') : bad('网易云代理接口回 503', JSON.stringify(ne));
+  const ne = await evalJS(`fetch('/api/netease/search?keywords=' + encodeURIComponent('夜航星') + '&limit=5').then(r => r.json()).catch(e => ({ error: String(e) }))`);
+  if (ne?.ok && ne.songs?.length) ok('网易云搜索（Java 代理）', `via=${ne.via} · ${ne.songs.length} 首`);
+  else bad('网易云搜索（Java 代理）', JSON.stringify(ne).slice(0, 200));
+
+  const firstId = ne?.songs?.[0]?.id;
+  if (firstId) {
+    const detail = await evalJS(`fetch('/api/netease/song?id=${firstId}').then(r => r.json()).catch(e => ({ error: String(e) }))`);
+    detail?.ok ? ok('曲目详情', detail.songs?.[0]?.name || '') : bad('曲目详情', JSON.stringify(detail).slice(0, 160));
+
+    const lyric = await evalJS(`fetch('/api/netease/lyric?id=${firstId}').then(r => r.json()).catch(e => ({ error: String(e) }))`);
+    lyric?.ok ? ok('歌词（行级 LRC）', `${(lyric.lrc || '').length} 字`) : bad('歌词（行级 LRC）', JSON.stringify(lyric).slice(0, 160));
+
+    const audio = await evalJS(`fetch('/api/netease/audio?id=${firstId}', { method: 'HEAD' }).then(r => ({ status: r.status, type: r.headers.get('content-type') })).catch(e => ({ error: String(e) }))`);
+    audio?.status === 200 ? ok('音频可解析（HEAD）', audio.type || '') : bad('音频可解析（HEAD）', JSON.stringify(audio));
+  } else {
+    bad('曲目详情 / 歌词 / 音频', '搜索没有结果，跳过');
+  }
+
+  const pixiv = await evalJS(`fetch('/api/pixiv/random?num=3').then(r => r.json()).catch(e => ({ error: String(e) }))`);
+  if (pixiv?.ok && pixiv.items?.length) {
+    ok('Pixiv 抽卡（Java 代理）', `${pixiv.items.length} 张`);
+    const img = await evalJS(`fetch(${JSON.stringify(pixiv.items[0].url)}).then(r => ({ status: r.status, type: r.headers.get('content-type') })).catch(e => ({ error: String(e) }))`);
+    img?.status === 200 && /image/.test(img.type || '') ? ok('Pixiv 图片代理 + 缓存', img.type) : bad('Pixiv 图片代理 + 缓存', JSON.stringify(img));
+  } else {
+    bad('Pixiv 抽卡（Java 代理）', JSON.stringify(pixiv).slice(0, 200));
+  }
+
+  const loginApi = await evalJS(`fetch('/api/netease/login/status').then(r => ({ status: r.status })).catch(() => ({ status: 0 }))`);
+  loginApi?.status === 501 ? ok('网易云账号登录明确回 501（没实现的部分不假装可用）') : bad('网易云账号登录明确回 501', JSON.stringify(loginApi));
 
   const neteasePanel = await evalJS(`(async () => {
     location.hash = '#/music';
