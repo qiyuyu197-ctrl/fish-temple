@@ -23,6 +23,12 @@ import { pumpVisualizer } from './miniaudio.js';
 import { createSceneLayer, nextSceneId, sceneName, SCENES } from './stage-scenes.js';
 import { loadManifest } from '../plugins/stage.js';
 import { openBackgroundPicker } from './background-picker.js';
+import {
+  splitBackdropPools,
+  chooseBackdropPool,
+  photoOrientation,
+  prefersPortraitBackdrop,
+} from './backdrop-pool.js';
 
 const ICON_EXPAND = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" stroke="currentColor" stroke-width="1.7"/></svg>';
 const ICON_CLOSE = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19" stroke="currentColor" stroke-width="1.7"/></svg>';
@@ -45,7 +51,9 @@ const state = {
   beatTimer: 0,
   backdrop: 'cover',
   archiveUrl: '',
-  archivePool: null,
+  archivePools: null,
+  archiveOrientation: '',
+  resizeTimer: 0,
   bgPinned: '',
   bgPickerBusy: false,
   seek: null,
@@ -176,7 +184,7 @@ function build() {
         <span class="lstage__topline" aria-hidden="true"></span>
         <span id="lsTopSource">STANDBY</span>
       </div>
-      <button class="lstage__queuebtn lstage__bgbtn" id="lsBgBtn" type="button" title="切换背景：封面 / 相册横图 / 关闭 (B)" aria-label="切换背景">
+      <button class="lstage__queuebtn lstage__bgbtn" id="lsBgBtn" type="button" title="切换背景：封面 / 相册插画 / 关闭 (B)" aria-label="切换背景">
         <span class="mono" id="lsBgName">COVER</span>
       </button>
       <button class="lstage__queuebtn lstage__bgbtn" id="lsBgShuffle" type="button" title="换一张相册背景 (R)" aria-label="换一张相册背景">
@@ -482,7 +490,7 @@ function startParallax() {
   };
 }
 
-/* ---------------- 背景：封面模糊 / 相册横图 / 关闭 ---------------- */
+/* ---------------- 背景：封面模糊 / 相册插画 / 关闭 ---------------- */
 
 const BG_KEY = 'ft.terminal.stageBackdrop';
 const BG_PIN_KEY = 'ft.terminal.stageBackdropPin';
@@ -579,26 +587,37 @@ const preloadImage = (src) => new Promise((resolve, reject) => {
   img.src = src;
 });
 
-/** 从相册清单里抽一张横图（和首页 「RANDOM ARCHIVE」 同一个池子） */
+async function ensureArchivePools() {
+  if (!state.archivePools) {
+    const items = await loadManifest('data/album.json');
+    state.archivePools = splitBackdropPools(items);
+  }
+  return state.archivePools;
+}
+
+/** 舞台当前想要的方向：手机 / 竖屏 → 竖图，桌面 → 横图 */
+function wantArchiveOrientation() {
+  return prefersPortraitBackdrop(state.el) ? 'portrait' : 'landscape';
+}
+
+/** 从相册清单里抽一张背景（和首页「RANDOM ARCHIVE」同一个池子；手机优先竖图） */
 async function loadArchivePhoto({ force = false } = {}) {
   // 固定优先：只要钉着就直接用那张；失败就自动解钉、退回随机
   if (state.bgPinned && !force) {
     try {
       await preloadImage(state.bgPinned);
       state.archiveUrl = state.bgPinned;
+      const known = state.archivePools?.all.find((it) => it.url === state.bgPinned);
+      state.archiveOrientation = photoOrientation(known) || '';
       return true;
     } catch {
       writeBgPin('');
     }
   }
   try {
-    if (!state.archivePool) {
-      const items = await loadManifest('data/album.json');
-      const all = (items || []).filter((it) => it?.url);
-      const landscape = all.filter((it) => it.width && it.height && it.width >= it.height * 1.2);
-      state.archivePool = landscape.length ? landscape : all;
-    }
-    const pool = state.archivePool;
+    const pools = await ensureArchivePools();
+    const chosen = chooseBackdropPool(pools, { portrait: wantArchiveOrientation() === 'portrait' });
+    const pool = chosen.pool;
     if (!pool.length) return false;
     let pick = pool[Math.floor(Math.random() * pool.length)];
     // 换图时尽量别抽到刚看过的那张
@@ -607,10 +626,26 @@ async function loadArchivePhoto({ force = false } = {}) {
     }
     await preloadImage(pick.url);
     state.archiveUrl = pick.url;
+    state.archiveOrientation = photoOrientation(pick);
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * 舞台是整屏的，转屏 / 改窗口后宽高比会变：相册背景跟着换一张同方向的。
+ * 固定状态不动（那是用户明确选的）。防抖，避免手机地址栏收起也触发换图。
+ */
+function onStageResize() {
+  if (!state.open) return;
+  clearTimeout(state.resizeTimer);
+  state.resizeTimer = setTimeout(() => {
+    state.resizeTimer = 0;
+    if (!state.open || state.backdrop !== 'archive' || state.bgPinned) return;
+    if (!state.archiveOrientation || state.archiveOrientation === wantArchiveOrientation()) return;
+    void loadArchivePhoto({ force: true }).then((ok) => { if (ok) paintBackdrop(); });
+  }, 260);
 }
 
 async function cycleBackdrop() {
@@ -620,11 +655,11 @@ async function cycleBackdrop() {
     const ok = await loadArchivePhoto();
     if (!ok) {
       state.backdrop = storeBackdropMode('cover');
-      stageToast('相册里没有可用横图，先退回封面背景');
+      stageToast('相册里还没有可用的背景，先退回封面');
       paintBackdrop();
       return;
     }
-    stageToast('背景：相册横图（RANDOM ARCHIVE）');
+    stageToast('背景：相册插画（RANDOM ARCHIVE）');
   } else if (next === 'off') {
     stageToast('背景：关闭');
   } else {
@@ -640,7 +675,7 @@ async function shuffleArchive() {
   const ok = await loadArchivePhoto({ force: true });
   if (!ok) {
     state.backdrop = storeBackdropMode('cover');
-    stageToast('相册里没有可用横图，先退回封面背景');
+    stageToast('相册里还没有可用的背景，先退回封面');
     paintBackdrop();
     return;
   }
@@ -670,6 +705,7 @@ async function chooseBackgroundFromLibrary() {
     }
     const saved = writeBgPin(photo.url);
     state.archiveUrl = photo.url;
+    state.archiveOrientation = photoOrientation(photo);
     state.backdrop = storeBackdropMode('archive');
     paintBackdrop();
     if (!saved) stageToast('背景已换；图太大，只在本次打开有效', 'err');
@@ -982,20 +1018,29 @@ export function openListeningStage() {
   state.sceneLayer.start();
   paintSceneLabel();
 
-  // 背景：沿用上次的选择；相册模式首次需要抽一张（固定优先）
+  // 背景：沿用上次的选择；相册模式首次需要抽一张（固定优先）。
+  // 重新打开舞台时如果横竖方向变了（手机竖屏 ↔ 桌面宽屏），也换一张对应的。
   state.backdrop = readBackdropMode();
   state.bgPinned = readBgPin();
   paintBackdrop();
-  if (state.backdrop === 'archive' && !state.archiveUrl) {
-    void loadArchivePhoto().then((ok) => {
-      if (ok) paintBackdrop();
-      else {
-        state.backdrop = storeBackdropMode('cover');
-        paintBackdrop();
-        stageToast('相册里没有可用横图，已退回封面背景');
-      }
-    });
+  if (state.backdrop === 'archive') {
+    const wrongOrientation = !state.bgPinned && state.archiveOrientation
+      && state.archiveOrientation !== wantArchiveOrientation();
+    if (!state.archiveUrl || wrongOrientation) {
+      void loadArchivePhoto({ force: !!state.archiveUrl }).then((ok) => {
+        if (ok) paintBackdrop();
+        else {
+          state.backdrop = storeBackdropMode('cover');
+          paintBackdrop();
+          stageToast('相册里还没有可用的背景，已退回封面');
+        }
+      });
+    }
   }
+
+  // 转屏 / 改窗口：相册背景跟着换同方向的一张（固定状态除外）
+  window.addEventListener('resize', onStageResize);
+  window.addEventListener('orientationchange', onStageResize);
 
   document.addEventListener('keydown', onKey);
   // 焦点落在对话框本身：屏幕阅读器会报出「沉浸式听歌舞台」，
@@ -1015,6 +1060,10 @@ export function closeListeningStage() {
   state.stopWave = null;
   state.offs.forEach((off) => off?.());
   state.offs = [];
+  window.removeEventListener('resize', onStageResize);
+  window.removeEventListener('orientationchange', onStageResize);
+  clearTimeout(state.resizeTimer);
+  state.resizeTimer = 0;
   document.removeEventListener('keydown', onKey);
   document.querySelectorAll('.topbar, .ticker, #view, .footer, .miniplayer').forEach((el) => { el.inert = false; });
   if (!document.querySelector('.lyricfull')) document.body.classList.remove('is-locked');

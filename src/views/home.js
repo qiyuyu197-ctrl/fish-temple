@@ -15,12 +15,18 @@ import { bus } from '../core/bus.js';
 import { newsItem, postCard, sectionHead, statBlock, emptyState, lyricBox, waveRow } from '../ui/bits.js';
 import { Toast } from '../ui/toast.js';
 import { openBackgroundPicker } from '../ui/background-picker.js';
+import {
+  splitBackdropPools,
+  chooseBackdropPool,
+  photoOrientation,
+  prefersPortraitBackdrop,
+} from '../ui/backdrop-pool.js';
 
 let offArt = null;
 
 // 首屏横幅：桌面挑横图，手机挑竖图；数据加载完后缓存两套候选池。
-// 手机全幅是一块很高的区域，竖图比横图更完整、更少裁切。
-const HERO_MOBILE_MQ = '(max-width: 680px)';
+// 判断交给 ui/backdrop-pool.js：先看 hero 自己的比例，再看窄屏 / 触屏，
+// 所以 App 里的 WebView 只要首屏是一块高高的区域就会拿到竖图。
 let heroPools = null;
 let heroLastUrl = '';
 
@@ -226,37 +232,33 @@ export default {
      * 桌面从相册里挑横图，手机挑竖图；图片只做背景，标题/正文/按钮
      * 浮在上层。换图时先预加载，旧图不闪掉；横竖都没有时才回退到全量。 */
     let heroSeq = 0;
+    // 信息条只认横 / 竖两种口径；接近方形的图按当前屏幕方向记
+    const orientationLabel = (photo, portrait) => {
+      const o = photoOrientation(photo);
+      if (o === 'portrait' || o === 'landscape') return o;
+      return portrait ? 'portrait' : 'landscape';
+    };
     const pickHeroPhoto = async () => {
       if (!heroPools) {
         try {
           const items = await loadManifest('data/album.json');
-          const all = items.filter((it) => it.url);
-          heroPools = {
-            all,
-            landscape: all.filter((it) => it.width && it.height && it.width >= it.height * 1.2),
-            portrait: all.filter((it) => it.width && it.height && it.height >= it.width * 1.15),
-          };
+          heroPools = splitBackdropPools(items);
         } catch {
-          heroPools = { all: [], landscape: [], portrait: [] };
+          heroPools = splitBackdropPools([]);
         }
       }
-      const mobile = window.matchMedia(HERO_MOBILE_MQ).matches;
-      const preferred = mobile ? heroPools.portrait : heroPools.landscape;
-      const pool = preferred.length ? preferred : heroPools.all;
+      const portrait = prefersPortraitBackdrop($('#hero'));
+      const chosen = chooseBackdropPool(heroPools, { portrait });
+      const pool = chosen.pool;
       // 固定优先：只要还钉着，就直接用那一张（换一张时走 forceRandom 临时绕开）
       if (heroPinned && !heroForceRandom) {
         const p = heroPinned;
-        const o = p.width && p.height && p.height > p.width ? 'portrait' : 'landscape';
-        return { photo: p, count: pool.length, orientation: o, pinned: true };
+        return { photo: p, count: pool.length, orientation: orientationLabel(p, portrait), pinned: true };
       }
       if (!pool.length) {
         const cur = Stage.current;
         if (cur?.url) {
-          return {
-            photo: cur,
-            count: 1,
-            orientation: cur.width && cur.height && cur.height > cur.width ? 'portrait' : 'landscape',
-          };
+          return { photo: cur, count: 1, orientation: orientationLabel(cur, portrait) };
         }
         return null;
       }
@@ -265,8 +267,12 @@ export default {
         pick = pool[Math.floor(Math.random() * pool.length)];
       }
       heroLastUrl = pick.url;
-      const orientation = pick.width && pick.height && pick.height > pick.width ? 'portrait' : 'landscape';
-      return { photo: pick, count: pool.length, orientation };
+      return {
+        photo: pick,
+        count: pool.length,
+        orientation: orientationLabel(pick, portrait),
+        fallback: chosen.fallback,
+      };
     };
 
     // 照片从浏览器顶端开始，顶栏 / 跑马灯压在照片上时切成透明文字态；
@@ -514,13 +520,25 @@ export default {
     };
     window.addEventListener('keydown', onHeroKey);
 
-    // 手机竖屏选竖图，桌面 / 横屏选横图；跨过断点时换一张对应的。
-    const heroMq = window.matchMedia(HERO_MOBILE_MQ);
-    const onHeroMq = () => {
-      if (heroLoading) heroOrientationPending = true;
-      else loadHeroPhoto();
+    // 手机竖屏选竖图，桌面 / 横屏选横图。这里盯的是 hero 自己的尺寸，
+    // 而不是只监听一个宽度断点：App 的 WebView 转屏 / 改窗口后，只要容器
+    // 从“宽”变成“高”，就换一张对应方向的图（固定状态除外）。
+    let heroResizeTimer = 0;
+    const syncHeroOrientation = () => {
+      if (!heroEl || !heroCurrent || heroPinned) return;
+      const portrait = prefersPortraitBackdrop(heroEl);
+      if (orientationLabel(heroCurrent, portrait) === (portrait ? 'portrait' : 'landscape')) return;
+      if (heroLoading) { heroOrientationPending = true; return; }
+      void loadHeroPhoto();
     };
-    heroMq.addEventListener('change', onHeroMq);
+    const onHeroResize = () => {
+      clearTimeout(heroResizeTimer);
+      heroResizeTimer = setTimeout(syncHeroOrientation, 240);
+    };
+    const heroRO = typeof ResizeObserver === 'function' ? new ResizeObserver(onHeroResize) : null;
+    heroRO?.observe(heroEl);
+    window.addEventListener('resize', onHeroResize);
+    window.addEventListener('orientationchange', onHeroResize);
 
     offArt = bus.on('art:change', paintStage);
 
@@ -547,7 +565,10 @@ export default {
       offMediaParallax?.();
       offPlayerState?.();
       offPlayerTrack?.();
-      heroMq.removeEventListener('change', onHeroMq);
+      clearTimeout(heroResizeTimer);
+      heroRO?.disconnect();
+      window.removeEventListener('resize', onHeroResize);
+      window.removeEventListener('orientationchange', onHeroResize);
       window.removeEventListener('keydown', onHeroKey);
       window.removeEventListener('scroll', syncTopbar);
       window.removeEventListener('resize', syncTopbar);

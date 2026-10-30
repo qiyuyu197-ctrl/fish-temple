@@ -2015,7 +2015,7 @@ body.has-docked-embed .miniplayer { padding-right: calc(340px + var(--gutter)); 
   opacity: 0.13; transform: scale(1.08);
 }
 [data-scheme="dark"] .lstage__backdrop { opacity: 0.24; filter: grayscale(0.7) contrast(1.25) blur(46px) brightness(0.7); }
-/* 相册横图（首页 RANDOM ARCHIVE 同一个池子）：彩色、低透明，盖一层纸色 scrim 保证字可读 */
+/* 相册插画（首页 RANDOM ARCHIVE 同一个池子，手机会优先竖图）：彩色、低透明，盖一层纸色 scrim 保证字可读 */
 .lstage__backdrop.is-archive {
   background-image:
     linear-gradient(to bottom,
@@ -2037,7 +2037,7 @@ body.has-docked-embed .miniplayer { padding-right: calc(340px + var(--gutter)); 
   opacity: 0.62;
 }
 .lstage__backdrop.is-off { opacity: 0; }
-/* 相册横图：独立 <img> 铺底，避免和背景层的层叠/滤镜打架 */
+/* 相册插画：独立 <img> 铺底，避免和背景层的层叠/滤镜打架；竖图 / 横图都走 cover */
 .lstage__archive {
   position: absolute; inset: -6% 0; z-index: 0; width: 100%; height: 112%;
   object-fit: cover; object-position: center; pointer-events: none;
@@ -2976,7 +2976,7 @@ body.has-docked-embed .miniplayer { padding-right: calc(340px + var(--gutter)); 
 /* ============================================================
    17 首屏：整块相册横幅
    ------------------------------------------------------------
-   相册里只挑横图，铺满整块 hero 做底；标题、正文、按钮浮在上层。
+   按屏幕方向挑横图 / 竖图，铺满整块 hero 做底；标题、正文、按钮浮在上层。
    图片先预加载再淡入，失败时保留旧图 / 退回纸色，不闪白。
    ============================================================ */
 

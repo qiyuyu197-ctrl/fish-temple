@@ -10,7 +10,7 @@
  * 所以这个脚本只做一件事：**串行 + 隔离 + 汇总**。
  *   · 自己起两个服务（本地形态的 server.mjs、部署形态的 netlify-dev.mjs），
  *     跑完就杀掉，绝不占用你正在用的 5173；
- *   · 六套严格串行，套件之间留冷却时间，等上一个浏览器进程彻底退出；
+ *   · 七套严格串行，套件之间留冷却时间，等上一个浏览器进程彻底退出；
  *   · 每套的输出实时转发给你看，同时留一份尾部，失败时原样贴出来（不吞细节）；
  *   · 结束时一张汇总表 + 总耗时，任何一套失败则本进程退出码 1。
  *
@@ -53,6 +53,7 @@ function parseArgs(argv) {
 const SUITES = [
   { id: 'verify', file: 'verify.mjs', title: '全站自检（路由/交互/内容/网易云/Markdown）', needsBase: true },
   { id: 'verify-playback', file: 'verify-playback.mjs', title: '播放链路 + 移动端', needsBase: true },
+  { id: 'verify-backdrop', file: 'verify-backdrop.mjs', title: '首页 / 播放器背景：手机竖图 · 桌面横图 · 转屏重选', needsBase: true },
   { id: 'verify-auth', file: 'verify-auth.mjs', title: '账号 / 权限 / 论坛（API 层，自带模拟 IdP）', needsBase: false },
   { id: 'verify-deploy', file: 'verify-deploy.mjs', title: '部署形态（serverless + Blobs）', needsBase: true },
   { id: 'verify-forum-ui', file: 'verify-forum-ui.mjs', title: '账号 / 论坛界面（真浏览器，自带模拟 IdP）', needsBase: false },

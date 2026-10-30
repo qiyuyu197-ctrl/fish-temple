@@ -10,6 +10,7 @@
     "verify": "node tools/verify.mjs",
     "verify:pdf": "node tools/verify-pdf.mjs",
     "verify:playback": "node tools/verify-playback.mjs",
+    "verify:backdrop": "node tools/verify-backdrop.mjs",
     "verify:deploy": "node tools/verify-deploy.mjs",
     "verify:auth": "node tools/verify-auth.mjs",
     "verify:netease-login": "node tools/verify-netease-login.mjs",
