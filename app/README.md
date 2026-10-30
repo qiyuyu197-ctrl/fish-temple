@@ -5,7 +5,7 @@
 | 形态 | 怎么拿到 | 谁的活 |
 | --- | --- | --- |
 | **PWA**（推荐先试） | 手机浏览器打开站点 → 菜单里「安装应用 / 添加到主屏幕」 | 已经在仓库里了，部署上去就生效 |
-| **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[2.3.1](../../../releases/download/app-v2.3.1/fish-temple-android-full-2.3.1.apk)，约 289MB） | GitHub Actions 自动构建，见下面的「发版」 |
+| **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[2.3.2](../../../releases/download/app-v2.3.2/fish-temple-android-full-2.3.2.apk)，约 289MB） | GitHub Actions 自动构建，见下面的「发版」 |
 | **Windows 桌面版** | 到 [Releases](../../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，解压双击 `FishTemple.exe` | 断网可用，站点和 server.mjs 都在包里，见 [desktop/README.md](desktop/README.md) |
 
 三者都不上架应用商店：PWA 不需要，APK 与桌面版都是直接下载。

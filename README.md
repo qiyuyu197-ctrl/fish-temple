@@ -68,7 +68,7 @@ npm run verify:pwa -- http://127.0.0.1:5173
 **扫码登录 / 我的歌单**在 2.2、**云盘 / 每日推荐 / 登录态音频**在 2.3 补上（需先绑定账号）。
 
 ```bash
-git tag app-v2.3.1 && git push origin app-v2.3.1   # 自动构建并挂到 Release
+git tag app-v2.3.2 && git push origin app-v2.3.2   # 自动构建并挂到 Release
 
 node tools/verify-android-server.mjs               # 不用模拟器：在电脑上跑 Java 那套本地服务自检
 ```
