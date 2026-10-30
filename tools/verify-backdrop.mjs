@@ -27,6 +27,12 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = (process.argv[2] || 'http://127.0.0.1:5173').replace(/\/+$/, '');
+
+/** 部署在公网（Pages）时资源慢得多：等启动 / 等图的超时放宽到 2 分钟 */
+const REMOTE = !/^(https?:\/\/)?(127\.0\.0\.1|localhost)([:/]|$)/.test(BASE);
+const BOOT_MS = REMOTE ? 120000 : 60000;
+const IMAGE_MS = REMOTE ? 120000 : 20000;
+const UI_MS = REMOTE ? 60000 : 15000;
 const OUT = path.join(ROOT, '.shots');
 
 const BROWSER = [
@@ -118,13 +124,13 @@ async function main() {
     return false;
   };
 
-  const waitHeroOrientation = (portrait, timeout = 20000) => waitFor(`(() => {
+  const waitHeroOrientation = (portrait, timeout = IMAGE_MS) => waitFor(`(() => {
     const i = document.getElementById('heroMediaImg');
     if (!i || !i.naturalWidth) return false;
     return ${portrait ? 'i.naturalHeight > i.naturalWidth' : 'i.naturalWidth > i.naturalHeight'};
   })()`, { timeout });
 
-  const waitStageOrientation = (portrait, timeout = 20000) => waitFor(`(() => {
+  const waitStageOrientation = (portrait, timeout = IMAGE_MS) => waitFor(`(() => {
     const i = document.getElementById('lsArchive');
     if (!i || i.hidden || !i.naturalWidth) return false;
     return ${portrait ? 'i.naturalHeight > i.naturalWidth' : 'i.naturalWidth > i.naturalHeight'};
@@ -170,12 +176,12 @@ async function main() {
   // 手机竖屏 → 首页竖图
   await viewport(390, 844);
   await send('Page.navigate', { url: `${BASE}/#/` });
-  const booted = await waitFor(`!!window.Terminal && document.documentElement.dataset.booted === '1'`, { timeout: 45000 });
+  const booted = await waitFor(`!!window.Terminal && document.documentElement.dataset.booted === '1'`, { timeout: BOOT_MS });
   check('页面启动完成（部署到 Pages 时多等网络）', booted === true);
   const heroLoaded = await waitFor(`(() => {
     const i = document.getElementById('heroMediaImg');
     return !!(i && i.naturalWidth > 0 && document.getElementById('hero')?.classList.contains('is-media'));
-  })()`, { timeout: 30000 });
+  })()`, { timeout: IMAGE_MS });
   check('首屏横幅图片加载完成', heroLoaded === true);
   await waitHeroOrientation(true);
   const mobile = await heroInfo();
@@ -216,7 +222,7 @@ async function main() {
     window.Terminal.ListeningStage.open();
     return true;
   })()`);
-  const stageOpen = await waitFor(`!!document.querySelector('.lstage.is-open')`, { timeout: 15000 });
+  const stageOpen = await waitFor(`!!document.querySelector('.lstage.is-open')`, { timeout: UI_MS });
   check('沉浸舞台能打开', stageOpened === true && stageOpen === true);
   await waitStageOrientation(true);
 
