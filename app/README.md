@@ -100,9 +100,21 @@ Chromium 判定可安装、**断网重开外壳还在**、断网切板块、接�
 | `/api/netease/playlist` | 公开歌单（v6，含 trackIds） |
 | `/api/pixiv/random` · `image` · `illust` | 抽卡（lolicon）+ 图片代理 + 磁盘缓存 |
 
-**做不到的那一件**：网易云**扫码登录**（`/api/netease/login/*`）。
-那一套要 eapi 加密（AES + RSA-noPadding）、扫码状态机和二维码编码器，安卓端还没实现，
-接口会如实回 501 并说明原因 —— 不会假装能用。公开搜索/试听不受影响。
+**网易云账号（扫码登录）**：`NeteaseAccount.java` 把桌面版那套加密重写了一遍 ——
+weapi（AES-CBC×2 + RSA 无填充）用来拿扫码 key，eapi（AES-ECB + MD5 摘要）用来轮询确认。
+二维码用 ZXing core 生成 SVG（唯一新增的依赖，约 500KB，纯 Java）。
+
+| 接口 | 说明 |
+| --- | --- |
+| `/api/netease/login/status` | 登录开关 + 当前本站账号绑没绑 |
+| `/api/netease/login/qr` | 向网易云要 unikey，返回 key + `qrSvg` |
+| `/api/netease/login/qr/check` | 轮询：801 等待 / 802 已扫 / 803 成功 / 800 过期 / 8821 风控 |
+| `/api/netease/login/cookie` | 手动粘 `MUSIC_U` 的兜底 |
+| `/api/netease/login/playlists` · `playlist` | 我的歌单 / 歌单详情（带登录态） |
+| `/api/netease/login/logout` | 解绑 |
+
+**还没做的**：云盘、每日推荐、登录态音频（`/cloud` `/recommend` `/urls` `/audio`）——
+它们要更多 eapi 调用，接口会明确回 501，不会假装能用。
 
 **怎么验**（不用模拟器）：这套本地服务不碰 Android API，可以在电脑上跑真测试 ——
 
@@ -110,8 +122,10 @@ Chromium 判定可安装、**断网重开外壳还在**、断网切板块、接�
 node tools/verify-android-server.mjs
 ```
 
-它用 javac 编译 `Json/LocalAuth/SiteServer/RemoteApi`，起服务，再用真浏览器走一遍
-启动 / health / 注册登录 / 内容覆盖层 / 网易云搜索试听 / Pixiv 抽卡，最后截图。当前 15 项全过。
+它用 javac 编译 `Json/LocalAuth/SiteServer/RemoteApi/NeteaseAccount/QrSvg`，起服务，
+再用真浏览器走一遍启动 / health / 注册登录 / 内容覆盖层 / 网易云搜索试听 /
+Pixiv 抽卡 / 扫码 key + 二维码 + eapi 轮询（真实请求网易云，回到 `waiting 801`）。
+当前 18 项全过。
 
 **发版**
 

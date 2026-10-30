@@ -44,6 +44,7 @@ final class SiteServer {
     private final LocalAuth auth;
     private final File dataDir;
     private final RemoteApi remote;
+    private final NeteaseAccount netease;
     private final ServerSocket socket;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -52,6 +53,7 @@ final class SiteServer {
         this.auth = auth;
         this.dataDir = dataDir;
         this.remote = new RemoteApi(new File(dataDir, ".cache"));
+        this.netease = new NeteaseAccount(dataDir);
         this.socket = new ServerSocket();
         this.socket.setReuseAddress(true);
         this.socket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0));
@@ -203,6 +205,12 @@ final class SiteServer {
         if (bearer.toLowerCase(Locale.ROOT).startsWith("bearer ")) bearer = bearer.substring(7).trim();
 
         try {
+            // 网易云账号链路（扫码 / 绑定 / 我的歌单）：要本站 token 认人
+            if (path.startsWith("/api/netease/login/")) {
+                handleNeteaseLogin(method, path, query, bearer, body, out);
+                return;
+            }
+
             if (path.equals("/api/health")) {
                 json(out, 200, Json.obj(
                         "ok", Boolean.TRUE,
@@ -213,8 +221,8 @@ final class SiteServer {
                         "storage", "app",
                         "dataDir", dataDir.getAbsolutePath(),
                         "auth", Json.raw(Json.obj("enabled", Boolean.TRUE, "mode", "local", "accounts", auth.count())),
-                        "features", Json.raw(Json.obj("netease", Boolean.FALSE, "pixiv", Boolean.FALSE,
-                                "note", "移动端是纯本地版：需要外网代理的功能不可用"))));
+                        "features", Json.raw(Json.obj("netease", Boolean.TRUE, "neteaseLogin", Boolean.TRUE, "pixiv", Boolean.TRUE,
+                                "note", "移动端内置 Java 代理：网易云匿名搜索/试听、扫码登录、Pixiv 抽卡"))));
                 return;
             }
 
@@ -300,6 +308,68 @@ final class SiteServer {
         } catch (RuntimeException e) {
             json(out, 500, Json.obj("ok", Boolean.FALSE, "error", String.valueOf(e.getMessage())));
         }
+    }
+
+    /* ---------------- 网易云账号 ---------------- */
+
+    private void handleNeteaseLogin(String method, String path, String query, String bearer, byte[] body, OutputStream out)
+            throws IOException {
+        if (bearer.isEmpty()) { json(out, 401, Json.obj("ok", Boolean.FALSE, "error", "需要先登录本站账号")); return; }
+        Map<String, String> claims;
+        try {
+            claims = auth.verify(bearer);
+        } catch (RuntimeException e) {
+            json(out, 401, Json.obj("ok", Boolean.FALSE, "error", "登录状态无效：" + e.getMessage()));
+            return;
+        }
+        String sub = claims.get("sub");
+        boolean owner = "owner".equals(claims.get("role"));
+        Map<String, String> q = parseQuery(query);
+        String action = path.substring("/api/netease/login/".length());
+
+        NeteaseAccount.Out r;
+        try {
+            switch (action) {
+                case "status": r = netease.status(sub, owner); break;
+                case "qr": r = netease.qr(sub); break;
+                case "qr/check":
+                    r = netease.checkQr(sub, q.getOrDefault("key", ""), q.getOrDefault("state", ""));
+                    break;
+                case "cookie": {
+                    Map<String, String> in = Json.parseFlat(new String(body, StandardCharsets.UTF_8));
+                    r = netease.bindCookie(sub, in.getOrDefault("cookie", ""));
+                    break;
+                }
+                case "playlists": r = netease.playlists(sub); break;
+                case "playlist": {
+                    int limit = 300;
+                    try { limit = Math.min(1000, Math.max(1, Integer.parseInt(q.getOrDefault("limit", "300")))); } catch (NumberFormatException ignored) { }
+                    r = netease.playlist(sub, q.getOrDefault("id", ""), limit);
+                    break;
+                }
+                case "logout": r = netease.logout(sub); break;
+                default:
+                    r = NeteaseAccount.Out.fail(501,
+                            "移动版暂不支持这个网易云接口（" + action + "）：云盘 / 每日推荐 / 登录态音频需要更多 eapi 调用");
+            }
+        } catch (Exception e) {
+            r = NeteaseAccount.Out.fail(502, "网易云请求失败：" + e.getMessage());
+        }
+        send(out, r.status, "application/json; charset=utf-8", r.json.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Map<String, String> parseQuery(String raw) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (raw == null || raw.isEmpty()) return out;
+        for (String pair : raw.split("&")) {
+            int eq = pair.indexOf('=');
+            try {
+                String k = eq < 0 ? pair : pair.substring(0, eq);
+                String v = eq < 0 ? "" : pair.substring(eq + 1);
+                out.put(java.net.URLDecoder.decode(k, "UTF-8"), java.net.URLDecoder.decode(v, "UTF-8"));
+            } catch (Exception ignored) { }
+        }
+        return out;
     }
 
     private static void json(OutputStream out, int status, String body) throws IOException {

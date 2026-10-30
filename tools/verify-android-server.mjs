@@ -59,20 +59,31 @@ if (!jdk) {
 
 const classes = await mkdtemp(path.join(os.tmpdir(), 'ft-android-classes-'));
 const dataDir = await mkdtemp(path.join(os.tmpdir(), 'ft-android-data-'));
-const javaSrc = ['Json.java', 'LocalAuth.java', 'SiteServer.java', 'RemoteApi.java'].map((f) => path.join(SRC_DIR, f));
+const javaSrc = ['Json.java', 'LocalAuth.java', 'SiteServer.java', 'RemoteApi.java', 'NeteaseAccount.java', 'QrSvg.java']
+  .map((f) => path.join(SRC_DIR, f));
 
-// RemoteApi 用 org.json（Android 自带，JDK 没有）—— 测试时临时抓一个官方 jar 进 classpath。
-const jsonJar = path.join(os.tmpdir(), 'ft-json-20240303.jar');
-if (!existsSync(jsonJar)) {
-  const res = await fetch('https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar');
-  if (!res.ok) {
-    console.error(`拉不到 org.json jar（HTTP ${res.status}）`);
-    process.exit(2);
+// Android 自带、JDK 没有的两个包：org.json 与 ZXing（扫码登录画二维码用）。
+// 测试时临时抓官方 jar 进 classpath —— 和 App 里 Gradle 拿到的完全是同一份实现。
+const JARS = [
+  ['org.json 20240303', 'https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar', 'ft-json-20240303.jar'],
+  ['ZXing core 3.5.3', 'https://repo.maven.apache.org/maven2/com/google/zxing/core/3.5.3/core-3.5.3.jar', 'ft-zxing-core-3.5.3.jar'],
+];
+const jarPaths = [];
+for (const [label, url, name] of JARS) {
+  const dest = path.join(os.tmpdir(), name);
+  if (!existsSync(dest)) {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error(`拉不到 ${label}（HTTP ${res.status}）`);
+      process.exit(2);
+    }
+    await writeFile(dest, Buffer.from(await res.arrayBuffer()));
   }
-  await writeFile(jsonJar, Buffer.from(await res.arrayBuffer()));
+  jarPaths.push(dest);
 }
+const CP = jarPaths.join(process.platform === 'win32' ? ';' : ':');
 
-const compiled = spawnSync(jdk.javac, ['-encoding', 'UTF-8', '-cp', jsonJar, '-d', classes, ...javaSrc, HARNESS], { encoding: 'utf8' });
+const compiled = spawnSync(jdk.javac, ['-encoding', 'UTF-8', '-cp', CP, '-d', classes, ...javaSrc, HARNESS], { encoding: 'utf8' });
 if (compiled.status !== 0) {
   console.error('编译失败：\n' + (compiled.stderr || compiled.stdout));
   process.exit(1);
@@ -80,7 +91,7 @@ if (compiled.status !== 0) {
 
 /* ---------- 起服务 ---------- */
 
-const child = spawn(jdk.java, ['-cp', `${classes}${process.platform === 'win32' ? ';' : ':'}${jsonJar}`,
+const child = spawn(jdk.java, ['-cp', `${classes}${process.platform === 'win32' ? ';' : ':'}${CP}`,
   'com.qiyuyu.fishtemple.TestHarness', ROOT, dataDir], {
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,
@@ -237,8 +248,27 @@ try {
     bad('Pixiv 抽卡（Java 代理）', JSON.stringify(pixiv).slice(0, 200));
   }
 
-  const loginApi = await evalJS(`fetch('/api/netease/login/status').then(r => ({ status: r.status })).catch(() => ({ status: 0 }))`);
-  loginApi?.status === 501 ? ok('网易云账号登录明确回 501（没实现的部分不假装可用）') : bad('网易云账号登录明确回 501', JSON.stringify(loginApi));
+  const loginStatus = await evalJS(`window.Terminal.Auth.api('/netease/login/status').then(r => ({ status: r.status, data: r.data }))`);
+  loginStatus?.data?.ok && loginStatus.data.enabled && loginStatus.data.canBind
+    ? ok('网易云登录状态（需本站账号）', `mode=${loginStatus.data.mode} bound=${!!loginStatus.data.bound}`)
+    : bad('网易云登录状态（需本站账号）', JSON.stringify(loginStatus).slice(0, 200));
+
+  const qr = await evalJS(`window.Terminal.Auth.api('/netease/login/qr', { method: 'POST' }).then(r => ({ status: r.status, data: r.data }))`);
+  const qrOk = qr?.data?.ok && qr.data.key && /^<svg/.test(qr.data.qrSvg || '');
+  qrOk ? ok('扫码：向网易云要到 key 并画出二维码', `key=${String(qr.data.key).slice(0, 6)}… svg ${qr.data.qrSvg.length} 字`)
+    : bad('扫码：向网易云要到 key 并画出二维码', JSON.stringify(qr).slice(0, 240));
+
+  if (qrOk) {
+    const chk = await evalJS(`window.Terminal.Auth.api('/netease/login/qr/check?key=' + encodeURIComponent(${JSON.stringify(qr.data.key)}) + '&state=' + encodeURIComponent(${JSON.stringify(qr.data.state)}))
+      .then(r => ({ status: r.status, data: r.data }))`);
+    const st = chk?.data?.status;
+    ['waiting', 'scanned', 'expired', 'confirmed', 'risk'].includes(st)
+      ? ok('扫码：轮询状态机可用（eapi 加密链路通了）', `${st} / code ${chk.data.code}`)
+      : bad('扫码：轮询状态机可用（eapi 加密链路通了）', JSON.stringify(chk).slice(0, 240));
+  }
+
+  const badCookie = await evalJS(`window.Terminal.Auth.api('/netease/login/cookie', { method: 'POST', body: { cookie: 'MUSIC_U=too-short' } }).then(r => ({ status: r.status, ok: r.ok }))`);
+  badCookie?.status === 400 ? ok('手动绑定：明显无效的 MUSIC_U 会被拒绝（400）') : bad('手动绑定：明显无效的 MUSIC_U 会被拒绝', JSON.stringify(badCookie));
 
   const neteasePanel = await evalJS(`(async () => {
     location.hash = '#/music';
