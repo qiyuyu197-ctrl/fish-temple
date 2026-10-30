@@ -193,6 +193,13 @@ async function main() {
     await fs.writeFile(path.join(OUT, 'verify-backdrop-mobile-home.png'), Buffer.from(shot.data, 'base64'));
   }
 
+  // Android WebView 有时把 layout viewport 报成 980px：只要屏幕还是竖的，就不该退回横图
+  await viewport(980, 1600, true);
+  await waitHeroOrientation(true);
+  const wideMobile = await heroInfo();
+  check('980px 竖屏（WebView 极端视口）：首页仍用竖图', wideMobile.h > wideMobile.w,
+    `${wideMobile.w}×${wideMobile.h} · ${wideMobile.src} · hero=${wideMobile.box.join('×')}`);
+
   // 转成横屏 → 换横图
   await viewport(844, 390);
   await waitHeroOrientation(false);

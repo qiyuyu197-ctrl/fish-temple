@@ -41,7 +41,7 @@ import java.util.Map;
  *            POST 到 interfacepc.music.163.com/eapi/...
  *
  * 只做「扫码登录 + 绑定 + 我的歌单」：
- *   1. POST /api/netease/login/qr           → weapi unikey，拿 key，生成二维码（ZXing）
+ *   1. POST /api/netease/login/qr           → eapi unikey(type=3)，拿 key，生成二维码（ZXing）
  *   2. GET  /api/netease/login/qr/check     → eapi client/login，801/802/803/800
  *   3. 803 时把 MUSIC_U 存本地（按本站账号 sub 分开存）
  *   4. GET  /api/netease/login/playlists    → weapi user/playlist
@@ -72,6 +72,10 @@ final class NeteaseAccount {
     private final SecureRandom rnd = new SecureRandom();
     private String secret;
     private String deviceId;
+    /** 和桌面版 createIdentity() 同一套设备指纹：少了它们，扫码在网易云看来就是一台没装过 App 的裸设备 */
+    private String nuid;
+    private String nnid;
+    private String wnmcid;
 
     NeteaseAccount(File dataDir) throws IOException {
         dir = new File(dataDir, "netease");
@@ -83,13 +87,80 @@ final class NeteaseAccount {
             secret = hex(randomBytes(32));
             Files.write(secretFile.toPath(), secret.getBytes(StandardCharsets.UTF_8));
         }
-        File devFile = new File(dir, "device.txt");
-        if (devFile.isFile()) {
-            deviceId = new String(Files.readAllBytes(devFile.toPath()), StandardCharsets.UTF_8).trim();
-        } else {
-            deviceId = hex(randomBytes(16));
-            Files.write(devFile.toPath(), deviceId.getBytes(StandardCharsets.UTF_8));
+        loadOrCreateIdentity();
+    }
+
+    /**
+     * 设备身份要跨请求、跨重启稳定。旧版只存了一个 deviceId（device.txt），
+     * 这里升级成 identity.json；老用户保留原 deviceId，其余字段补生成。
+     */
+    private void loadOrCreateIdentity() throws IOException {
+        File identityFile = new File(dir, "identity.json");
+        JSONObject identity = null;
+        if (identityFile.isFile()) {
+            try {
+                identity = new JSONObject(new String(Files.readAllBytes(identityFile.toPath()), StandardCharsets.UTF_8));
+            } catch (Exception ignored) { /* 文件坏了就重建 */ }
         }
+        if (identity == null) {
+            identity = new JSONObject();
+            File oldDev = new File(dir, "device.txt");
+            String oldId = "";
+            if (oldDev.isFile()) {
+                oldId = new String(Files.readAllBytes(oldDev.toPath()), StandardCharsets.UTF_8).trim();
+            }
+            identity.put("deviceId", oldId.matches("[0-9a-fA-F]{20,64}") ? oldId : randomDeviceId());
+            identity.put("_ntes_nuid", hex(randomBytes(32)));
+            identity.put("_ntes_nnid", identity.getString("_ntes_nuid") + "," + System.currentTimeMillis());
+            identity.put("WNMCID", randomWnmcid());
+            Files.write(identityFile.toPath(), identity.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        deviceId = identity.optString("deviceId", "");
+        nuid = identity.optString("_ntes_nuid", "");
+        nnid = identity.optString("_ntes_nnid", "");
+        wnmcid = identity.optString("WNMCID", "");
+        // 旧文件只缺字段时补齐，不要因为一个身份文件把整个本地服务拦在启动页
+        boolean changed = false;
+        if (deviceId.isEmpty()) { deviceId = randomDeviceId(); identity.put("deviceId", deviceId); changed = true; }
+        if (nuid.isEmpty()) { nuid = hex(randomBytes(32)); identity.put("_ntes_nuid", nuid); changed = true; }
+        if (nnid.isEmpty()) { nnid = nuid + "," + System.currentTimeMillis(); identity.put("_ntes_nnid", nnid); changed = true; }
+        if (wnmcid.isEmpty()) { wnmcid = randomWnmcid(); identity.put("WNMCID", wnmcid); changed = true; }
+        if (changed) {
+            Files.write(identityFile.toPath(), identity.toString().getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    /** 官网 / 上游客户端用的设备号形状：52 位大写十六进制。 */
+    private String randomDeviceId() {
+        String pool = "0123456789ABCDEF";
+        StringBuilder sb = new StringBuilder(52);
+        for (int i = 0; i < 52; i++) sb.append(pool.charAt(rnd.nextInt(16)));
+        return sb.toString();
+    }
+
+    /** WNMCID 形状：6 个小写字母 + .时间戳.01.0 */
+    private String randomWnmcid() {
+        String letters = "abcdefghijklmnopqrstuvwxyz";
+        StringBuilder sb = new StringBuilder(6);
+        for (int i = 0; i < 6; i++) sb.append(letters.charAt(rnd.nextInt(26)));
+        return sb + "." + System.currentTimeMillis() + ".01.0";
+    }
+
+    /** 扫码两步（unikey / client-login）必须共用这一份身份 */
+    private Map<String, String> identityCookie() {
+        Map<String, String> c = new LinkedHashMap<>();
+        c.put("__remember_me", "true");
+        c.put("ntes_kaola_ad", "1");
+        c.put("_ntes_nuid", nuid);
+        c.put("_ntes_nnid", nnid);
+        c.put("WNMCID", wnmcid);
+        c.put("WEVNSM", "1.0.0");
+        c.put("osver", "Microsoft-Windows-10-Professional-build-19045-64bit");
+        c.put("deviceId", deviceId);
+        c.put("os", "pc");
+        c.put("channel", "netease");
+        c.put("appver", "3.1.17.204416");
+        return c;
     }
 
     /* ---------------- 绑定存储 ---------------- */
@@ -165,13 +236,11 @@ final class NeteaseAccount {
 
     /** POST /api/netease/login/qr */
     Out qr(String sub) throws Exception {
-        Map<String, String> cookie = new LinkedHashMap<>();
-        cookie.put("os", "pc");
-        cookie.put("appver", "3.1.17.204416");
-        cookie.put("osver", "Microsoft-Windows-10-Professional-build-19045-64bit");
-        cookie.put("channel", "netease");
+        // 上游 / 桌面版都是用 eapi 的 unikey（type=3），和后续 client-login 同一套身份。
+        // 旧版走 weapi(type=1)、只带 4 个字段，扫码确认后经常只回 803 不下发 MUSIC_U。
+        Map<String, String> cookie = identityCookie();
 
-        HttpResult res = weapi("/api/login/qrcode/unikey", Json.obj("type", 1), cookie);
+        HttpResult res = eapi("/api/login/qrcode/unikey", Json.obj("type", 3), cookie);
         JSONObject body = res.body;
         int code = body.optInt("code", 0);
         String key = body.optString("unikey", "");
@@ -197,11 +266,8 @@ final class NeteaseAccount {
             return Out.ok(Json.obj("ok", Boolean.TRUE, "status", "expired", "code", 800, "message", "二维码已过期，请重新生成"));
         }
 
-        Map<String, String> cookie = new LinkedHashMap<>();
-        cookie.put("os", "pc");
-        cookie.put("appver", "3.1.17.204416");
-        cookie.put("osver", "Microsoft-Windows-10-Professional-build-19045-64bit");
-        cookie.put("channel", "netease");
+        // 轮询必须沿用要码时那台设备：同一份 deviceId / _ntes_nuid / WNMCID + 那一轮的 NMTID
+        Map<String, String> cookie = identityCookie();
         if (parts.length > 3 && !parts[3].isEmpty()) cookie.put("NMTID", parts[3]);
 
         HttpResult res = eapi("/api/login/qrcode/client/login", Json.obj("key", key, "type", 3), cookie);

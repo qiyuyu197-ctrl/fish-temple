@@ -2,12 +2,14 @@
  * ui/backdrop-pool.js — 首页横幅 / 沉浸舞台共用的「横竖图池」
  * ==================================================================
  * 同一个相册，桌面用横图、手机用竖图。判断顺序：
- *   1. 先看**容器自己的比例** —— 最终裁切发生在这里，最不会骗人；
- *   2. 容器还没量出来时，退到窄屏 / 触屏竖屏媒体查询；
- *   3. 最后才用视口宽高比兜底。
+ *   1. 手机 / 触屏竖屏 → 竖图（**先不看容器**）；
+ *   2. 窄屏，或 App / 手机 UA + 竖屏 → 竖图；
+ *   3. 桌面：再看容器自己的比例（最终裁切发生在这里）；
+ *   4. 最后用视口宽高比兜底。
  *
- * 第 1 条是这次针对 App 的关键：WebView 上报的视口宽度有时和预期不一样，
- * 只要首屏 / 舞台本身是一块高高的区域，就会拿到竖图；桌面窗口宽，仍然是横图。
+ * 第 1、2 条是这次针对 App 的关键：Android WebView 有时把 layout viewport
+ * 报成 980px，容器也量得偏宽；只看容器比例会把手机误判成桌面。桌面窗口宽，
+ * 没有触屏 / 手机 UA，仍然按容器走横图。
  */
 
 const MOBILE_MAX = 820;
@@ -53,15 +55,22 @@ export function chooseBackdropPool(pools, { portrait } = {}) {
  * @param {Element} [el] 背景容器（首页 hero / 沉浸舞台根节点）
  */
 export function prefersPortraitBackdrop(el) {
+  // 手机 / 触屏竖屏永远优先竖图，先不看容器：
+  // Android WebView 有时把 layout viewport 量成 980px，容器比例会把手机误判成桌面。
+  try {
+    if (window.matchMedia('(pointer: coarse)').matches
+      && window.matchMedia('(orientation: portrait)').matches) return true;
+    if (window.matchMedia(BACKDROP_MOBILE_MQ).matches) return true;
+    // 最后一道保险：App / 手机 UA + 竖屏。某些 Android WebView 会把 layout viewport
+    // 报成 980px，pointer 也可能不是 coarse；UA 不会说谎。
+    if (/(FishTempleApp|Android|iPhone|iPod)/i.test(navigator.userAgent || '')
+      && window.matchMedia('(orientation: portrait)').matches) return true;
+  } catch { /* 老 WebView 没有 matchMedia 也能继续走下面的兜底 */ }
+
   const rect = el?.getBoundingClientRect?.();
   if (rect && rect.width >= 120 && rect.height >= 120) {
     if (rect.height > rect.width * 1.04) return true;
     if (rect.width > rect.height * 1.04) return false;
   }
-  try {
-    if (window.matchMedia(BACKDROP_MOBILE_MQ).matches) return true;
-    if (window.matchMedia('(pointer: coarse)').matches
-      && window.matchMedia('(orientation: portrait)').matches) return true;
-  } catch { /* 老 WebView 没有 matchMedia 也能继续走下面的兜底 */ }
   return window.innerHeight > window.innerWidth;
 }
