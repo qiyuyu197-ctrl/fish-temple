@@ -5,7 +5,7 @@
 | 形态 | 怎么拿到 | 谁的活 |
 | --- | --- | --- |
 | **PWA**（推荐先试） | 手机浏览器打开站点 → 菜单里「安装应用 / 添加到主屏幕」 | 已经在仓库里了，部署上去就生效 |
-| **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[2.3.2](../../../releases/download/app-v2.3.2/fish-temple-android-full-2.3.2.apk)，约 289MB） | GitHub Actions 自动构建，见下面的「发版」 |
+| **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[2.3.3](../../../releases/download/app-v2.3.3/fish-temple-android-full-2.3.3.apk)，约 289MB） | GitHub Actions 自动构建，见下面的「发版」 |
 | **Windows 桌面版** | 到 [Releases](../../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，解压双击 `FishTemple.exe` | 断网可用，站点和 server.mjs 都在包里，见 [desktop/README.md](desktop/README.md) |
 
 三者都不上架应用商店：PWA 不需要，APK 与桌面版都是直接下载。
@@ -100,8 +100,11 @@ Chromium 判定可安装、**断网重开外壳还在**、断网切板块、接�
 | `/api/netease/playlist` | 公开歌单（v6，含 trackIds） |
 | `/api/pixiv/random` · `image` · `illust` | 抽卡（lolicon）+ 图片代理 + 磁盘缓存 |
 
-**网易云账号（扫码登录）**：`NeteaseAccount.java` 把桌面版那套加密重写了一遍 ——
-weapi（AES-CBC×2 + RSA 无填充）用来拿扫码 key，eapi（AES-ECB + MD5 摘要）用来轮询确认。
+**网易云账号（扫码 + 官方网页登录）**：`NeteaseAccount.java` 把桌面版那套加密重写了一遍 ——
+weapi（AES-CBC×2 + RSA 无填充）和 eapi（AES-ECB + MD5 摘要）都带完整设备身份
+（`_ntes_nuid` / `_ntes_nnid` / `WNMCID` / `NMTID`）。2.3.3 起如果第三方扫码在 803 拿不到
+`MUSIC_U`，可以在 App 内打开**网易云官方登录页**，登录后由原生从 WebView 的 CookieManager
+取 `MUSIC_U` 直接绑定；扫码、账号密码、验证码都由网易云自己的页面完成。
 二维码用 ZXing core 生成 SVG（唯一新增的依赖，约 500KB，纯 Java）。
 
 | 接口 | 说明 |
@@ -113,8 +116,8 @@ weapi（AES-CBC×2 + RSA 无填充）用来拿扫码 key，eapi（AES-ECB + MD5 
 | `/api/netease/login/playlists` · `playlist` | 我的歌单 / 歌单详情（带登录态） |
 | `/api/netease/login/logout` | 解绑 |
 
-**还没做的**：云盘、每日推荐、登录态音频（`/cloud` `/recommend` `/urls` `/audio`）——
-它们要更多 eapi 调用，接口会明确回 501，不会假装能用。
+**2.3 已补上**：云盘、每日推荐、登录态音频（`/cloud` `/recommend` `/urls` `/audio`）；
+2.3.3 起官方网页登录是第三方扫码被风控时的兜底。
 
 **怎么验**（不用模拟器）：这套本地服务不碰 Android API，可以在电脑上跑真测试 ——
 
