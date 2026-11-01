@@ -229,21 +229,22 @@ const riskHTML = () => (state.riskNotice
 
 function qrBodyHTML() {
   return `
-    <p class="authpanel__lead">打开网易云 App → 左上角扫一扫，扫描下面的二维码。</p>
+    <p class="authpanel__lead">打开网易云 App → 左上角扫一扫；App 里也可以直接点「官方页面登录」。</p>
+    <div class="neacct__actions" id="neOfficialRow" hidden>
+      <button class="btn btn--sm btn--signal" id="neOfficialLogin" type="button">打开网易云官方登录页（推荐）</button>
+    </div>
     <div class="neacct__qr" id="neQrBox">
       <div class="neacct__qrph mono">正在生成二维码…</div>
     </div>
     <p class="neacct__status mono" id="neQrStatus">准备中…</p>
-    <div class="neacct__actions" id="neOfficialRow" hidden>
-      <button class="btn btn--sm btn--signal" id="neOfficialLogin" type="button">用网易云官方页面登录</button>
-    </div>
     <div class="neacct__actions">
       <button class="btn btn--sm" id="neQrRefresh" type="button">重新生成</button>
+      <button class="btn btn--sm" id="neQrFallback" type="button" hidden>改用本站二维码</button>
     </div>
     <p class="neacct__hint mono">
       手机提示「检测到当前设备环境异常 / 本次操作已拦截」时，那是<b>网易云自己的风控</b>，不是二维码坏了。
       先别再刷新（越点越像异常），隔一会儿或换网络再试；急用就走下面这条。
-      在 App 里也可以直接点「用网易云官方页面登录」，由网易云自己的页面扫码 / 账号密码登录。
+      在 App 里也可以直接点「官方页面登录」，由网易云自己的页面扫码 / 账号密码登录。
     </p>
     <details class="neacct__manual">
       <summary>扫码被拦？改用浏览器里的 MUSIC_U 连接</summary>
@@ -274,10 +275,25 @@ export async function openPanel() {
   panel = panelShell('连接网易云账号', qrBodyHTML());
   panel.querySelector('#neQrRefresh')?.addEventListener('click', () => { void beginQr(); });
   panel.querySelector('#neCookieGo')?.addEventListener('click', () => { void bindWithCookie(); });
-  // App 内才有 FTNative：打开网易云官方登录页，由原生取 MUSIC_U 走现有绑定接口
+  // App 内才有 FTNative：官方网页登录是主路径，第三方二维码降级为「备用」
   const officialRow = panel.querySelector('#neOfficialRow');
   if (officialRow && window.FTNative?.openNeteaseLogin) {
     officialRow.hidden = false;
+    const qrBox = panel.querySelector('#neQrBox');
+    const qrRefresh = panel.querySelector('#neQrRefresh');
+    const qrFallback = panel.querySelector('#neQrFallback');
+    if (qrBox) qrBox.hidden = true;
+    if (qrRefresh) qrRefresh.hidden = true;
+    if (qrFallback) {
+      qrFallback.hidden = false;
+      qrFallback.addEventListener('click', () => {
+        if (qrBox) qrBox.hidden = false;
+        if (qrRefresh) qrRefresh.hidden = false;
+        qrFallback.hidden = true;
+        void beginQr();
+      });
+    }
+    setQrStatus('点上面的「官方页面登录」；登录完成后会自动绑定', 'warn');
     panel.querySelector('#neOfficialLogin')?.addEventListener('click', async () => {
       const token = await Auth.token();
       if (!token) { Toast.show('先登录本站账号，再连网易云', 'err'); return; }
@@ -288,6 +304,7 @@ export async function openPanel() {
         Toast.show('打不开官方登录页，试试下面的 MUSIC_U', 'err');
       }
     });
+    return;
   }
   await beginQr();
 }
