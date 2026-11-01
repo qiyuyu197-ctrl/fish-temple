@@ -130,6 +130,11 @@ function bannerHTML(room) {
 }
 
 function panelHTML() {
+  const desktopLanNote = location.protocol === 'fish:'
+    ? `<div class="mr-card"><b class="mono">手机 / 另一台电脑加入</b>
+        <p class="mr-note">在电脑菜单「文件 → 局域网联机（手机加入）」里复制地址，发到同一 Wi-Fi 下的手机浏览器；
+        对方在网页里注册/登录一个<b>不同的本站账号</b>，再输入房间号即可。</p></div>`
+    : '';
   if (!Auth.enabled) {
     return `<div class="mr-card"><b class="mono">本站还没启用账号功能</b>
       <p class="mr-note">联机扫雷需要注册账号。当前部署没配 Auth0，所以联机不可用，单人扫雷照常。</p></div>`;
@@ -141,6 +146,7 @@ function panelHTML() {
   }
   if (!MineRoom.active) {
     return `
+      ${desktopLanNote}
       <div class="mr-card">
         <b class="mono">创建房间</b>
         <p class="mr-note">同一块棋盘，谁揭开的都同步给全房间（合作模式）。</p>
@@ -177,6 +183,7 @@ function panelHTML() {
         <button class="btn btn--sm" id="mrCopy">复制</button>
       </div>
       <p class="mr-note">把链接发给已注册的站友，他们打开就自动进这间房（没登录会先引导登录）。</p>
+      ${desktopLanNote}
     </div>
 
     <div class="mr-card">

@@ -82,12 +82,15 @@ node tools/verify-android-server.mjs               # 不用模拟器：在电脑
 `/api/*` 也在同一进程里调 `server.mjs` 的 `handleApiRequest` —— 拔网线全站照常。
 数据写在 `%APPDATA%\FishTemple\data`。
 
+**联机扫雷**：同一 Wi-Fi 下，电脑菜单「文件 → 局域网联机（手机加入）」会给出一个地址；
+手机浏览器打开、注册/登录另一个账号，再用房间号加入电脑上的房间。
+
 它自带**本机账号系统**（邮箱 + 密码，第一个注册的是站长）和**网易云扫码登录** ——
 桌面版的 origin 是 `fish://app`，做不了 Auth0 回调，所以这一版走自己的账号（`auth-local.mjs`），
 网站那边配了 Auth0 就还是 Auth0，两边互不影响。
 
 ```bash
-git tag desktop-v1.3.0 && git push origin desktop-v1.3.0   # 自动构建并挂到 Release
+git tag desktop-v1.4.0 && git push origin desktop-v1.4.0   # 自动构建并挂到 Release
 ```
 
 完整版解压 520MB、zip 386MB（236MB 是相册图）；手动跑工作流勾 **lite** 是解压 284MB / zip 119MB。

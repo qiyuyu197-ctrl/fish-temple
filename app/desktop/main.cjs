@@ -17,10 +17,13 @@
  * 真要用 WinUI/WPF 重写控件，那是另一个项目——这个仓库 3 万行 JS 全在界面上。
  */
 
-const { app, BrowserWindow, Menu, dialog, shell, session, protocol } = require('electron');
+const { app, BrowserWindow, Menu, dialog, shell, session, protocol, clipboard } = require('electron');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const http = require('node:http');
+const os = require('node:os');
+const { Readable } = require('node:stream');
 const { pathToFileURL } = require('node:url');
 
 const APP_NAME = '鱼の灵庙';
@@ -40,6 +43,10 @@ const STATE_FILE = path.join(USER_DIR, 'window-state.json');
 /** 首次启动自动建桌面快捷方式的标记（建过就不再打扰；删了可从菜单重建） */
 const SHORTCUT_FLAG = path.join(USER_DIR, 'desktop-shortcut-v1');
 const SHORTCUT_NAME = 'FISH 鱼の灵庙.lnk';
+/** 局域网联机：让手机 / 另一台电脑用浏览器加入同一个房间 */
+const LAN_PORT = 47822;
+let lanServer = null;
+let lanUrl = '';
 
 // ⚠️ 必须在 import server.mjs 之前：它在模块顶层就会读这些变量
 process.env.FT_DATA_DIR = DATA_DIR;
@@ -258,6 +265,152 @@ async function handleFishProtocol(request) {
   return serveStatic(url.pathname);
 }
 
+/* ---------------- 局域网联机（手机 / 另一台电脑用浏览器加入） ---------------- */
+
+/** 找一个可给局域网用的 IPv4（优先 192.168 / 10 / 172.16-31） */
+function lanIPv4() {
+  const found = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const n of list || []) {
+      if (n.internal) continue;
+      const fam = typeof n.family === 'string' ? n.family : (n.family === 4 ? 'IPv4' : '');
+      if (fam !== 'IPv4') continue;
+      if (/^169\.254\./.test(n.address)) continue;
+      found.push(n.address);
+    }
+  }
+  return found.find((a) => /^192\.168\./.test(a) || /^10\./.test(a) || /^172\.(1[6-9]|2\d|3[01])\./.test(a))
+    || found[0] || '';
+}
+
+async function pipeWebResponse(response, res) {
+  res.statusCode = response.status;
+  response.headers.forEach((value, key) => {
+    try { res.setHeader(key, value); } catch { /* 个别禁止的头跳过 */ }
+  });
+  if (!response.body) { res.end(); return; }
+  Readable.fromWeb(response.body).pipe(res);
+}
+
+/** 把 LAN 的 HTTP 请求映射到同一套静态文件 / apiHandler */
+async function handleLanRequest(req, res) {
+  try {
+    const url = new URL(req.url || '/', 'http://lan.invalid');
+
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      if (!apiHandler) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('API 未就绪'); return; }
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > 32 * 1024 * 1024) { res.writeHead(413); res.end('请求体太大'); return; }
+        chunks.push(chunk);
+      }
+      const body = Buffer.concat(chunks);
+      const headers = new Headers();
+      for (const key of ['content-type', 'authorization', 'cookie', 'range', 'user-agent', 'accept']) {
+        const value = req.headers[key];
+        if (value) headers.set(key, Array.isArray(value) ? value.join(',') : value);
+      }
+      const init = { method: req.method, headers };
+      if (req.method !== 'GET' && req.method !== 'HEAD' && body.length) {
+        init.body = body;
+        init.duplex = 'half';
+      }
+      const response = await apiHandler(
+        new Request(`http://lan.invalid${url.pathname}${url.search}`, init),
+        { serverless: false },
+      );
+      await pipeWebResponse(response, res);
+      return;
+    }
+
+    const range = req.headers.range;
+    if (range) {
+      const abs = path.resolve(path.join(SITE_DIR, decodeURIComponent(url.pathname)));
+      if (abs.startsWith(SITE_DIR + path.sep)) {
+        try {
+          const st = await fsp.stat(abs);
+          if (st.isFile()) {
+            await pipeWebResponse(await rangeResponse(abs, st.size, mimeOf(abs), range), res);
+            return;
+          }
+        } catch { /* 落到普通静态 */ }
+      }
+    }
+    await pipeWebResponse(await serveStatic(url.pathname), res);
+  } catch (err) {
+    console.error('[lan]', err);
+    if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ok: false, error: String(err?.message || err) }));
+  }
+}
+
+async function startLanServer() {
+  if (lanServer && lanUrl) return { url: lanUrl, port: lanServer.address().port };
+  const ip = lanIPv4();
+  if (!ip) throw new Error('没有找到局域网 IPv4 地址：先连上 Wi-Fi 或网线');
+
+  let lastErr = null;
+  for (let port = LAN_PORT; port < LAN_PORT + 12; port += 1) {
+    try {
+      const server = await new Promise((resolve, reject) => {
+        const s = http.createServer((req, res) => { void handleLanRequest(req, res); });
+        s.once('error', reject);
+        s.listen(port, '0.0.0.0', () => resolve(s));
+      });
+      lanServer = server;
+      lanUrl = `http://${ip}:${port}/`;
+      return { url: lanUrl, port };
+    } catch (err) {
+      lastErr = err;
+      if (err.code !== 'EADDRINUSE') throw err;
+    }
+  }
+  throw lastErr || new Error('局域网端口都被占用了');
+}
+
+function stopLanServer() {
+  if (!lanServer) { lanUrl = ''; return; }
+  const s = lanServer;
+  lanServer = null;
+  lanUrl = '';
+  try { s.closeAllConnections?.(); } catch { /* 老 Node 没有 */ }
+  try { s.close(); } catch { /* 已经关了 */ }
+}
+
+/**
+ * 菜单入口：开启后手机 / 另一台电脑在同一个 Wi-Fi 下打开这个地址，
+ * 注册/登录一个本站账号，就能用房间号加入同一间房（房间数据在这台电脑上）。
+ */
+async function showLanDialog() {
+  let info;
+  try {
+    info = await startLanServer();
+  } catch (err) {
+    dialog.showErrorBox('局域网联机', String(err?.message || err));
+    return;
+  }
+  const r = await showBox({
+    type: 'info',
+    title: '局域网联机',
+    message: `手机 / 另一台电脑在同一个 Wi-Fi 下打开：\n${info.url}`,
+    detail: [
+      '1. 手机浏览器打开上面的地址',
+      '2. 在页面里注册/登录一个本站账号（不要和电脑用同一个账号，否则算同一个玩家）',
+      '3. 回到扫雷 → 联机，输入电脑上房间号加入',
+      '',
+      '房间数据在这台电脑上；关掉联机服务或退出 App 后，手机就打不开了。',
+      '如果手机打不开：检查两台设备是否在同一 Wi-Fi，并允许 Windows 防火墙的「专用网络」。',
+    ].join('\n'),
+    buttons: ['复制地址', '停止联机', '好'],
+    defaultId: 0,
+    cancelId: 2,
+  });
+  if (r.response === 0) clipboard.writeText(info.url);
+  else if (r.response === 1) stopLanServer();
+}
+
 /* ---------------- 窗口 ---------------- */
 
 function createWindow() {
@@ -318,6 +471,7 @@ function buildMenu() {
       label: '文件',
       submenu: [
         { label: '创建桌面快捷方式', click: () => createDesktopShortcut({ interactive: true }) },
+        { label: '局域网联机（手机加入）', click: () => void showLanDialog() },
         { type: 'separator' },
         { label: '打开数据目录', click: () => shell.openPath(DATA_DIR) },
         { type: 'separator' },
@@ -496,6 +650,12 @@ if (!app.requestSingleInstanceLock()) {
       createWindow();
       // 绿色版没有安装器：首次启动把桌面快捷方式补上
       ensureDesktopShortcut();
+      // 可选：FishTemple.exe --lan 直接开启局域网联机（方便固定 IP / 快捷方式）
+      if (process.argv.includes('--lan')) {
+        startLanServer()
+          .then((info) => console.log(`[lan] ${info.url}`))
+          .catch((err) => console.error('[lan]', err));
+      }
     } catch (err) {
       const logFile = logCrash(err);
       dialog.showErrorBox('启动失败', `${String(err?.message || err)}\n\n诊断信息已写到：\n${logFile}`);
@@ -508,5 +668,6 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true;
     writeState();
+    stopLanServer();
   });
 }
