@@ -1019,6 +1019,32 @@ export const neteaseProvider = {
 
 /* ---------------- 初始化 ---------------- */
 
+/**
+ * 早期安卓版搜索没有批量详情接口，存进播放列表的网易云曲目 cover 是空的。
+ * 升级后补齐一次：只补缺封面的前 50 首，失败静默（离线时不影响播放）。
+ */
+function backfillCovers(tracks) {
+  const missing = [...new Set((tracks || [])
+    .filter((t) => t.provider === 'netease' && t.neteaseId && !t.cover)
+    .map((t) => String(t.neteaseId)))].slice(0, 50);
+  if (!missing.length) return;
+  void fetchSongs(missing).then((songs) => {
+    const covers = new Map();
+    for (const s of songs || []) if (s?.id && s.cover) covers.set(String(s.id), s.cover);
+    if (!covers.size) return;
+    let changed = false;
+    Player.tracks.forEach((t) => {
+      if (t.provider !== 'netease' || t.cover) return;
+      const c = covers.get(String(t.neteaseId));
+      if (c) { t.cover = c; changed = true; }
+    });
+    if (!changed) return;
+    savePlaylist(Player.tracks);
+    bus.emit('playlist:change', { tracks: Player.tracks, index: Player.index });
+    bus.emit('player:track', { track: Player.current, index: Player.index });
+  }).catch(() => { /* 补封面失败不影响播放 */ });
+}
+
 /** 用本地保存的网易云列表替换播放列表（默认行为：播放列表即网易云列表） */
 export function bootstrapPlaylist() {
   // 注册顺序即优先级：直放优先，官方外链播放器作为回退
@@ -1026,6 +1052,7 @@ export function bootstrapPlaylist() {
   Player.registerProvider(neteaseProvider);
   const saved = loadSavedPlaylist();
   Player.setTracks(saved);
+  backfillCovers(saved);
   return saved;
 }
 

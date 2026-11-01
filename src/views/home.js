@@ -569,9 +569,12 @@ export default {
     // 横幅：相册数据缓存过，通常第一帧后就能铺上。
     loadHeroPhoto();
 
-    // 下面那块小预览继续沿用 Stage 的随机逻辑。
-    if (Stage.history.length) paintStage();
-    else setTimeout(() => Stage.random({ silent: true }), 320);
+    // 下面那块小预览：手机竖屏优先竖图；从画廊带回来的横图 / 尺寸未知的图也换掉。
+    const stageOrientation = prefersPortraitBackdrop($('#hero')) ? 'portrait' : null;
+    const stageNeedsPortrait = stageOrientation === 'portrait'
+      && photoOrientation(Stage.current) !== 'portrait';
+    if (Stage.history.length && !stageNeedsPortrait) paintStage();
+    else setTimeout(() => Stage.random({ silent: true, orientation: stageOrientation }), 320);
 
     Motion.reveal(root);
     Motion.magnetic(root);

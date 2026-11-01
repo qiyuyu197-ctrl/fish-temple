@@ -34,6 +34,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 final class SiteServer {
 
+    /**
+     * 固定端口：WebView 的 localStorage / Cookie 按 origin 隔离，端口一变
+     * 就等于换了一个站点 —— 本站账号登录态、主题、播放列表全都会丢。
+     * 只要没被别的进程占用就始终用这个；被占了才退回随机端口（极少见）。
+     */
+    private static final int PREFERRED_PORT = 47821;
+
     /** 静态文件来源：Android 用 AssetManager，测试用磁盘目录 */
     interface SiteSource {
         /** @param path 以 / 开头，例如 /index.html；不存在返回 null */
@@ -54,9 +61,31 @@ final class SiteServer {
         this.dataDir = dataDir;
         this.remote = new RemoteApi(new File(dataDir, ".cache"));
         this.netease = new NeteaseAccount(dataDir);
-        this.socket = new ServerSocket();
-        this.socket.setReuseAddress(true);
-        this.socket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0));
+        this.socket = bindSocket();
+    }
+
+    private static ServerSocket bindSocket() throws IOException {
+        IOException last = null;
+        for (int i = 0; i < 8; i++) {
+            ServerSocket s = new ServerSocket();
+            try {
+                s.setReuseAddress(true);
+                s.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), PREFERRED_PORT));
+                return s;
+            } catch (IOException e) {
+                last = e;
+                try { s.close(); } catch (IOException ignored) { }
+                try { Thread.sleep(200); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        ServerSocket s = new ServerSocket();
+        s.setReuseAddress(true);
+        s.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0));
+        if (last != null) last.printStackTrace();
+        return s;
     }
 
     int port() { return socket.getLocalPort(); }

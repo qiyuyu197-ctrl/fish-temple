@@ -13,7 +13,9 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -93,6 +95,7 @@ final class RemoteApi {
             switch (path) {
                 case "/api/netease/search": return neteaseSearch(q);
                 case "/api/netease/song": return neteaseSongs(q);
+                case "/api/netease/songs": return neteaseSongsBatch(q);
                 case "/api/netease/lyric": return neteaseLyric(q);
                 case "/api/netease/playable": return neteasePlayable(q);
                 case "/api/netease/audio": return neteaseAudio(method, q);
@@ -120,7 +123,7 @@ final class RemoteApi {
         int limit = clampInt(q.get("limit"), 30, 1, 100);
         int offset = clampInt(q.get("offset"), 0, 0, 10000);
 
-        String cacheKey = "search|" + kw + "|" + limit + "|" + offset;
+        String cacheKey = "search2|" + kw + "|" + limit + "|" + offset;
         Result hit = fromCache(cacheKey, 5 * 60 * 1000);
         if (hit != null) return hit;
 
@@ -129,22 +132,24 @@ final class RemoteApi {
         int total = 0;
         String via = null;
 
-        // ① GET /api/search/get/web
+        // ① POST /api/cloudsearch/pc —— 这个入口带 al.picUrl（封面），优先用它。
+        // 旧的 search/get/web 只给 picId，不给 picUrl，搜出来的歌在 App 里会没有封面。
         try {
-            JSONObject data = getJson(NETEASE_ORIGIN + "/api/search/get/web?csrf_token=&s=" + enc
-                    + "&type=1&offset=" + offset + "&limit=" + limit, NETEASE_HEADERS);
+            JSONObject data = postForm(NETEASE_ORIGIN + "/api/cloudsearch/pc",
+                    "s=" + enc + "&type=1&offset=" + offset + "&limit=" + limit + "&total=true", NETEASE_HEADERS);
             songs = songsOf(data);
             total = data.optJSONObject("result") != null ? data.optJSONObject("result").optInt("songCount", songs.length()) : songs.length();
-            if (songs.length() > 0) via = "search/get/web·GET";
+            if (songs.length() > 0) via = "cloudsearch/pc·POST";
         } catch (Exception ignored) { }
 
-        // ② POST /api/cloudsearch/pc
+        // ② GET /api/search/get/web（无封面 / cloudsearch 不可用时兜底）
         if (songs.length() == 0) {
             try {
-                JSONObject data = postForm(NETEASE_ORIGIN + "/api/cloudsearch/pc",
-                        "s=" + enc + "&type=1&offset=" + offset + "&limit=" + limit + "&total=true", NETEASE_HEADERS);
-                JSONArray got = songsOf(data);
-                if (got.length() > 0) { songs = got; via = "cloudsearch/pc·POST"; total = got.length(); }
+                JSONObject data = getJson(NETEASE_ORIGIN + "/api/search/get/web?csrf_token=&s=" + enc
+                        + "&type=1&offset=" + offset + "&limit=" + limit, NETEASE_HEADERS);
+                songs = songsOf(data);
+                total = data.optJSONObject("result") != null ? data.optJSONObject("result").optInt("songCount", songs.length()) : songs.length();
+                if (songs.length() > 0) via = "search/get/web·GET";
             } catch (Exception ignored) { }
         }
 
@@ -167,7 +172,7 @@ final class RemoteApi {
     private Result neteaseSongs(Map<String, String> q) throws Exception {
         String id = q.getOrDefault("id", "").trim();
         if (!id.matches("\\d{4,12}")) return Result.fail(400, "缺少合法的曲目 id");
-        String cacheKey = "song|" + id;
+        String cacheKey = "song2|" + id;
         Result hit = fromCache(cacheKey, 30 * 60 * 1000);
         if (hit != null) return hit;
 
@@ -175,6 +180,39 @@ final class RemoteApi {
         JSONArray songs = new JSONArray();
         JSONArray raw = data.optJSONArray("songs");
         if (raw != null) for (int i = 0; i < raw.length(); i++) songs.put(shapeSong(raw.getJSONObject(i)));
+        if (songs.length() == 0) return Result.fail(404, "曲目不存在");
+        return store(cacheKey, Json.obj("ok", Boolean.TRUE, "songs", Json.raw(songs.toString())));
+    }
+
+    /**
+     * GET /api/netease/songs?ids=1,2,3 —— 批量曲目详情。
+     * 前端搜索在发现结果缺封面时会调这个接口补封面；没有它，App 里搜出来的歌全是空封面。
+     */
+    private Result neteaseSongsBatch(Map<String, String> q) throws Exception {
+        String raw = q.getOrDefault("ids", q.getOrDefault("id", ""));
+        List<String> ids = new ArrayList<>();
+        for (String part : raw.split(",")) {
+            String id = part.trim();
+            if (!id.matches("\\d{1,12}") || ids.contains(id)) continue;
+            ids.add(id);
+            if (ids.size() >= 50) break;
+        }
+        if (ids.isEmpty()) return Result.fail(400, "缺少合法的歌曲 id");
+
+        StringBuilder joined = new StringBuilder();
+        for (String id : ids) {
+            if (joined.length() > 0) joined.append(',');
+            joined.append(id);
+        }
+        String cacheKey = "songs2|" + joined;
+        Result hit = fromCache(cacheKey, 30 * 60 * 1000);
+        if (hit != null) return hit;
+
+        String enc = URLEncoder.encode("[" + joined + "]", "UTF-8");
+        JSONObject data = getJson(NETEASE_ORIGIN + "/api/song/detail?ids=" + enc, NETEASE_HEADERS);
+        JSONArray songs = new JSONArray();
+        JSONArray arr = data.optJSONArray("songs");
+        if (arr != null) for (int i = 0; i < arr.length(); i++) songs.put(shapeSong(arr.getJSONObject(i)));
         if (songs.length() == 0) return Result.fail(404, "曲目不存在");
         return store(cacheKey, Json.obj("ok", Boolean.TRUE, "songs", Json.raw(songs.toString())));
     }
@@ -328,12 +366,23 @@ final class RemoteApi {
             }
         }
         long dur = s.optLong("duration", s.optLong("dt", 0));
+        String cover = album == null ? "" : album.optString("picUrl", "");
+        if (cover.isEmpty() && artists != null) {
+            for (int i = 0; i < artists.length(); i++) {
+                JSONObject a = artists.getJSONObject(i);
+                String c = a.optString("picUrl", a.optString("img1v1Url", ""));
+                if (!c.isEmpty()) { cover = c; break; }
+            }
+        }
+        // 网易云 CDN 返回的封面常是 http://；App 的 network_security_config 禁止外部明文，
+        // WebView 会直接不加载。CDN 支持 https，这里统一升级。
+        if (cover.startsWith("http://")) cover = "https://" + cover.substring(7);
         JSONObject o = new JSONObject();
         o.put("id", s.optString("id", ""));
         o.put("name", s.optString("name", ""));
         o.put("artists", names);
         o.put("album", album == null ? "" : album.optString("name", ""));
-        o.put("cover", album == null ? "" : album.optString("picUrl", ""));
+        o.put("cover", cover);
         o.put("duration", Math.round(dur / 1000.0));
         o.put("fee", s.optInt("fee", 0));
         return o;

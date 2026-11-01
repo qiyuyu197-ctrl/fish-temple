@@ -208,6 +208,21 @@ async function main() {
     !!overscan && [overscan.l, overscan.r, overscan.t, overscan.b].every((v) => v >= 20),
     JSON.stringify(overscan));
 
+  // 首页下面那块「插画」预览也走 Stage；手机竖屏同样不应该给横图
+  await waitFor(`(() => {
+    const i = document.getElementById('homeStageImg');
+    return !!(i && i.naturalWidth > 0);
+  })()`, { timeout: IMAGE_MS });
+  const preview = await evaluate(`(() => {
+    const i = document.getElementById('homeStageImg');
+    return {
+      w: i?.naturalWidth || 0, h: i?.naturalHeight || 0,
+      src: (i?.currentSrc || '').replace(location.origin + '/', ''),
+    };
+  })()`);
+  check('首页「插画」预览：手机竖屏用竖图', preview.w > 0 && preview.h > preview.w,
+    `${preview.w}×${preview.h} · ${preview.src}`);
+
   // Android WebView 有时把 layout viewport 报成 980px：只要屏幕还是竖的，就不该退回横图
   await viewport(980, 1600, true);
   await waitHeroOrientation(true);

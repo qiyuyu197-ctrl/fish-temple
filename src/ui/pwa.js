@@ -44,6 +44,14 @@ export function initPWA() {
   if (!('serviceWorker' in navigator)) return;
   // file:// 下注册一定失败，安静跳过
   if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+  // App 内的站点文件就在 APK 里，不需要离线缓存；固定端口后 SW 反而会
+  // 一直先给旧壳，导致升级后界面/脚本还是上一版。顺手清掉旧的注册。
+  if (window.FTNative) {
+    try {
+      navigator.serviceWorker.getRegistrations?.().then((regs) => regs.forEach((r) => r.unregister())).catch(() => {});
+    } catch { /* 老 WebView 没有 getRegistrations */ }
+    return;
+  }
 
   const start = async () => {
     try {

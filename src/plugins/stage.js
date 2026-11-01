@@ -17,6 +17,7 @@
 import { Registry } from '../core/registry.js';
 import { PIXIV, API } from '../config/site.config.js';
 import { bus } from '../core/bus.js';
+import { photoOrientation } from '../ui/backdrop-pool.js';
 
 const HISTORY_MAX = 40;
 const HISTORY_KEY = 'ft.terminal.artHistory';
@@ -149,8 +150,14 @@ export function drawFromBag(key, list, count) {
 export function resetBag(key) { bags.delete(key); }
 
 /** 本地源：从整份清单里抽 count 张 —— 关键点是不能只取前几张 */
-async function fromLocal(provider, count = 12) {
+async function fromLocal(provider, count = 12, orientation = null) {
   const list = await loadManifest(provider?.file || 'data/gallery.json');
+  if (orientation) {
+    const filtered = list.filter((it) => photoOrientation(it) === orientation);
+    // 这个源没有该方向的图就交给下一个源，别硬塞一张反方向的
+    if (!filtered.length) return [];
+    return drawFromBag(`local:${provider?.id || 'local'}:${orientation}`, filtered, count);
+  }
   return drawFromBag(`local:${provider?.id || 'local'}`, list, count);
 }
 
@@ -211,9 +218,9 @@ function probe(url, timeout = 6000) {
   });
 }
 
-async function fetchFromProvider(provider, count = 12) {
+async function fetchFromProvider(provider, count = 12, orientation = null) {
   if (!provider) return [];
-  if (provider.kind === 'local') return fromLocal(provider, count);
+  if (provider.kind === 'local') return fromLocal(provider, count, orientation);
   if (provider.kind === 'remote') return fromRemote(provider);
   return [];
 }
@@ -270,22 +277,22 @@ export const Stage = {
   },
 
   /** 取一批候选图（带缓存） */
-  async candidates(providerId, count = 12) {
+  async candidates(providerId, count = 12, orientation = null) {
     const provider = Registry.getImageProvider(providerId);
     if (!provider) return [];
-    const key = `${providerId}:${count}`;
+    const key = `${providerId}:${count}:${orientation || 'all'}`;
     if (this.pool.has(key) && this.pool.get(key).length) return this.pool.get(key);
-    const items = await fetchFromProvider(provider, count);
+    const items = await fetchFromProvider(provider, count, orientation);
     if (items.length) this.pool.set(key, items);
     return items;
   },
 
   /**
    * 随机一张插画
-   * @param {{ provider?: string, count?: number, silent?: boolean }} opts
+   * @param {{ provider?: string, count?: number, silent?: boolean, orientation?: 'portrait'|'landscape'|null }} opts
    * @returns {Promise<object|null>} 图片对象
    */
-  async random({ provider = null, count = 12, silent = false } = {}) {
+  async random({ provider = null, count = 12, silent = false, orientation = null } = {}) {
     if (this.busy) return null;
     this.busy = true;
     bus.emit('art:loading', { provider });
@@ -320,9 +327,9 @@ export const Stage = {
         // 标注了 freshEachDraw 的远端源（pixiv）也不走缓存，每次都要没见过的；
         // 其余远端源才做池缓存，避免频繁打接口。
         let items;
-        if (p.kind === 'local') items = await fetchFromProvider(p, count).catch(() => []);
+        if (p.kind === 'local') items = await fetchFromProvider(p, count, orientation).catch(() => []);
         else if (p.freshEachDraw) items = await fromRemote(p, { exclude: seen }).catch(() => []);
-        else items = await this.candidates(p.id, count).catch(() => []);
+        else items = await this.candidates(p.id, count, orientation).catch(() => []);
         if (!items.length && p.kind === 'remote' && !p.freshEachDraw) {
           items = await fromRemote(p).catch(() => []);
         }
@@ -337,7 +344,7 @@ export const Stage = {
         // 这个池子快用完了就丢掉，下次重新拉一批，避免一直在这十几张里打转
         if (p.kind === 'remote' && items.length) {
           const used = items.filter((e) => recent.has(e.url)).length;
-          if (used >= items.length - 2) this.pool.delete(`${p.id}:${count}`);
+          if (used >= items.length - 2) this.pool.delete(`${p.id}:${count}:${orientation || 'all'}`);
         }
 
         // 打乱后逐个校验，最多试 4 个，避免慢源拖死体验。
@@ -372,7 +379,7 @@ export const Stage = {
           return record;
         }
         // 该源全部失败，清缓存后尝试下一个
-        this.pool.delete(`${p.id}:${count}`);
+        this.pool.delete(`${p.id}:${count}:${orientation || 'all'}`);
       }
 
       // 全部失败：回退历史
