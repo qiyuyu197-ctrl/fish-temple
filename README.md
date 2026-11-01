@@ -76,7 +76,8 @@ node tools/verify-android-server.mjs               # 不用模拟器：在电脑
 细节、限制与排错见 **[app/README.md](app/README.md)**。
 
 **③ Windows 桌面版** —— 到 [Releases](../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，
-解压双击 `FishTemple.exe`，不装 Node、不装运行时。
+解压双击 `FishTemple.exe`，不装 Node、不装运行时。**第一次启动会自动在桌面创建快捷方式**，
+删了可从菜单「文件 → 创建桌面快捷方式」重建。
 **纯本地**：没有本地端口、没有后台服务进程，页面走 `fish://app/` 由主进程直接读盘，
 `/api/*` 也在同一进程里调 `server.mjs` 的 `handleApiRequest` —— 拔网线全站照常。
 数据写在 `%APPDATA%\FishTemple\data`。
@@ -86,7 +87,7 @@ node tools/verify-android-server.mjs               # 不用模拟器：在电脑
 网站那边配了 Auth0 就还是 Auth0，两边互不影响。
 
 ```bash
-git tag desktop-v1.2.0 && git push origin desktop-v1.2.0   # 自动构建并挂到 Release
+git tag desktop-v1.3.0 && git push origin desktop-v1.3.0   # 自动构建并挂到 Release
 ```
 
 完整版解压 520MB、zip 386MB（236MB 是相册图）；手动跑工作流勾 **lite** 是解压 284MB / zip 119MB。

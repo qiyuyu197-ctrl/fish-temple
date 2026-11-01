@@ -37,6 +37,9 @@ const SITE_DIR = path.resolve(
 const USER_DIR = app.getPath('userData');
 const DATA_DIR = path.join(USER_DIR, 'data');
 const STATE_FILE = path.join(USER_DIR, 'window-state.json');
+/** 首次启动自动建桌面快捷方式的标记（建过就不再打扰；删了可从菜单重建） */
+const SHORTCUT_FLAG = path.join(USER_DIR, 'desktop-shortcut-v1');
+const SHORTCUT_NAME = 'FISH 鱼の灵庙.lnk';
 
 // ⚠️ 必须在 import server.mjs 之前：它在模块顶层就会读这些变量
 process.env.FT_DATA_DIR = DATA_DIR;
@@ -314,6 +317,8 @@ function buildMenu() {
     {
       label: '文件',
       submenu: [
+        { label: '创建桌面快捷方式', click: () => createDesktopShortcut({ interactive: true }) },
+        { type: 'separator' },
         { label: '打开数据目录', click: () => shell.openPath(DATA_DIR) },
         { type: 'separator' },
         { role: 'quit', label: '退出' },
@@ -368,6 +373,78 @@ function setupDownloads() {
   });
 }
 
+/* ---------------- 桌面快捷方式 ---------------- */
+
+function showBox(options) {
+  if (mainWindow && !mainWindow.isDestroyed()) return dialog.showMessageBox(mainWindow, options);
+  return dialog.showMessageBox(options);
+}
+
+/**
+ * 在桌面创建/覆盖「FISH 鱼の灵庙」快捷方式。
+ * 绿色版没有安装器，所以第一次启动时自动做一次；之后删了可以从
+ * 「文件 → 创建桌面快捷方式」重建，不会每次启动都烦你。
+ */
+function createDesktopShortcut({ interactive = false } = {}) {
+  if (process.platform !== 'win32') {
+    if (interactive) void showBox({ type: 'info', title: '桌面快捷方式', message: '这个功能只支持 Windows。' });
+    return false;
+  }
+  if (!app.isPackaged) {
+    if (interactive) void showBox({ type: 'info', title: '桌面快捷方式', message: '开发模式下不创建快捷方式；打包后的 FishTemple.exe 会自动创建。' });
+    return false;
+  }
+  const shortcutPath = path.join(app.getPath('desktop'), SHORTCUT_NAME);
+  try {
+    const ok = shell.writeShortcutLink(shortcutPath, 'create', {
+      target: process.execPath,
+      cwd: path.dirname(process.execPath),
+      description: `${APP_NAME} · 桌面版`,
+      icon: process.execPath,
+      iconIndex: 0,
+      appUserModelId: 'com.qiyuyu.fishtemple',
+    });
+    if (!ok) throw new Error('系统没有接受这个快捷方式');
+    try { fs.writeFileSync(SHORTCUT_FLAG, `${new Date().toISOString()}\n${shortcutPath}\n`, 'utf8'); } catch { /* 标记写不进去也不影响快捷方式 */ }
+    if (interactive) {
+      void showBox({
+        type: 'info',
+        title: '桌面快捷方式',
+        message: '已在桌面创建快捷方式',
+        detail: shortcutPath,
+        buttons: ['好'],
+      });
+    }
+    return true;
+  } catch (err) {
+    if (interactive) {
+      void showBox({
+        type: 'error',
+        title: '桌面快捷方式',
+        message: '创建失败',
+        detail: String(err?.message || err),
+        buttons: ['好'],
+      });
+    }
+    return false;
+  }
+}
+
+/** 首次启动自动建一次；已有快捷方式或已经建过就跳过 */
+function ensureDesktopShortcut() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  try {
+    if (fs.existsSync(SHORTCUT_FLAG)) return;
+    const shortcutPath = path.join(app.getPath('desktop'), SHORTCUT_NAME);
+    if (fs.existsSync(shortcutPath)) {
+      // 用户自己已经放了一个同名快捷方式：不覆盖，只记下“已处理”
+      fs.writeFileSync(SHORTCUT_FLAG, `existing\n${shortcutPath}\n`, 'utf8');
+      return;
+    }
+    createDesktopShortcut();
+  } catch { /* 没桌面权限 / OneDrive 路径异常：不阻塞启动 */ }
+}
+
 /* ---------------- 崩溃日志 ---------------- */
 
 function logCrash(err) {
@@ -417,6 +494,8 @@ if (!app.requestSingleInstanceLock()) {
       setupDownloads();
       buildMenu();
       createWindow();
+      // 绿色版没有安装器：首次启动把桌面快捷方式补上
+      ensureDesktopShortcut();
     } catch (err) {
       const logFile = logCrash(err);
       dialog.showErrorBox('启动失败', `${String(err?.message || err)}\n\n诊断信息已写到：\n${logFile}`);
