@@ -220,7 +220,9 @@ export default {
   mount(root) {
     // 英雄区视差：黄斜纹一层、照片一层，幅度都很小
     const offHeroParallax = Motion.parallax('#heroBg', 16);
-    const offMediaParallax = Motion.parallax('#heroMediaImg', 8);
+    // 手机上手指拖动也会触发 pointermove，照片只跟 4px；桌面留 8px
+    const mediaParallax = window.matchMedia?.('(pointer: coarse)').matches ? 4 : 8;
+    const offMediaParallax = Motion.parallax('#heroMediaImg', mediaParallax);
 
     // 数字滚动
     $$('.hero__stat b', root).forEach((el) => {
@@ -250,14 +252,23 @@ export default {
       const portrait = prefersPortraitBackdrop($('#hero'));
       const chosen = chooseBackdropPool(heroPools, { portrait });
       const pool = chosen.pool;
-      // 固定优先：只要还钉着，就直接用那一张（换一张时走 forceRandom 临时绕开）
+      // 固定优先：只要还钉着，就直接用那一张（换一张时走 forceRandom 临时绕开）。
+      // 但手机竖屏下固定的若是横图，固定让位于竖图 —— 否则「固定」会把横图永久留在手机上。
       if (heroPinned && !heroForceRandom) {
         const p = heroPinned;
-        return { photo: p, count: pool.length, orientation: orientationLabel(p, portrait), pinned: true };
+        if (portrait && photoOrientation(p) === 'landscape') {
+          heroPinned = null;
+          writePinnedHero(null);
+          Toast.show('手机竖屏下已取消固定的横图，改为竖图随机');
+        } else {
+          return { photo: p, count: pool.length, orientation: orientationLabel(p, portrait), pinned: true };
+        }
       }
       if (!pool.length) {
         const cur = Stage.current;
         if (cur?.url) {
+          // 相册清单没读出来时，也不在手机竖屏下拿横图兜底
+          if (portrait && photoOrientation(cur) === 'landscape') return null;
           return { photo: cur, count: 1, orientation: orientationLabel(cur, portrait) };
         }
         return null;
@@ -265,6 +276,10 @@ export default {
       let pick = pool[Math.floor(Math.random() * pool.length)];
       for (let i = 0; i < 6 && pick.url === heroLastUrl && pool.length > 1; i++) {
         pick = pool[Math.floor(Math.random() * pool.length)];
+      }
+      // 最后一道保险：池子回退到 all 时也别把横图放进手机竖屏
+      if (portrait && heroPools.portrait.length && photoOrientation(pick) !== 'portrait') {
+        pick = heroPools.portrait[Math.floor(Math.random() * heroPools.portrait.length)];
       }
       heroLastUrl = pick.url;
       return {
@@ -525,7 +540,9 @@ export default {
     // 从“宽”变成“高”，就换一张对应方向的图（固定状态除外）。
     let heroResizeTimer = 0;
     const syncHeroOrientation = () => {
-      if (!heroEl || !heroCurrent || heroPinned) return;
+      // 不要因为 heroPinned 就直接返回：横屏时固定的横图，转回竖屏要由
+      // pickHeroPhoto 里的「固定让位」逻辑解掉，否则会一直停在横图。
+      if (!heroEl || !heroCurrent) return;
       const portrait = prefersPortraitBackdrop(heroEl);
       if (orientationLabel(heroCurrent, portrait) === (portrait ? 'portrait' : 'landscape')) return;
       if (heroLoading) { heroOrientationPending = true; return; }

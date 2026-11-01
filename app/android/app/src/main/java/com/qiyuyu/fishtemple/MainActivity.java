@@ -2,20 +2,30 @@ package com.qiyuyu.fishtemple;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.Dialog;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.AssetManager;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.util.Base64;
+import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.JavascriptInterface;
@@ -26,13 +36,20 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 /**
@@ -49,8 +66,9 @@ import java.util.Locale;
  * 而 WebView 的 shouldInterceptRequest 拿不到请求体 —— 开一个本机 ServerSocket
  * 是既能复用现有前端、又不需要任何外部服务器的最短路径。
  *
- * 明确做不到的：需要外网代理的功能（网易云搜索/扫码登录、Pixiv 抽卡）。
- * 那套 eapi 加密代理在 server.mjs 里，安卓没条件跑 Node，接口会如实回 503。
+ * 网易云 / Pixiv 由 Java 里的 RemoteApi / NeteaseAccount 重做；第三方扫码如果
+ * 803 拿不到 MUSIC_U，还可以在 App 内打开网易云官方登录页，登录后由原生取
+ * Cookie 直接绑定 —— 扫码、账号密码、验证码都是网易云自己的页面在跑。
  */
 public class MainActivity extends Activity {
 
@@ -62,6 +80,8 @@ public class MainActivity extends Activity {
     private SiteServer server;
     private int port = 0;
     private boolean loadFailed = false;
+    /** 网易云官方网页登录浮层（扫码/账号密码都由网易云自己的页面完成） */
+    private Dialog neteaseLoginDialog;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -352,6 +372,186 @@ public class MainActivity extends Activity {
         public String homeUrl() {
             return port > 0 ? "http://127.0.0.1:" + port + "/" : "";
         }
+
+        /** 打开网易云官方登录页；登录成功后由原生取 MUSIC_U，直接 POST 给本机服务绑定 */
+        @JavascriptInterface
+        public void openNeteaseLogin(final String token) {
+            runOnUiThread(() -> showNeteaseLogin(token));
+        }
+    }
+
+    /* ---------------- 网易云官方网页登录 ---------------- */
+
+    /**
+     * 第三方二维码接口经常在 803 时不下发 MUSIC_U（网易云风控 / 指纹问题）。
+     * 这里改成让用户在 App 内打开**网易云自己的登录页**，登录完成后从 WebView 的
+     * CookieManager 里取 MUSIC_U，走现有的 /api/netease/login/cookie 绑定。
+     * 这样扫码、手机号、密码、验证码都是网易云官方页面自己在做，不经过第三方接口。
+     */
+    private void showNeteaseLogin(final String token) {
+        if (port <= 0) { toast("本地服务还没起来，稍后再试"); return; }
+        if (token == null || token.isEmpty()) { toast("请先登录本站账号"); return; }
+        if (neteaseLoginDialog != null && neteaseLoginDialog.isShowing()) return;
+
+        final Dialog dialog = new Dialog(this);
+        neteaseLoginDialog = dialog;
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.parseColor("#F2F0E9"));
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(16), dp(12), dp(8), dp(12));
+        bar.setBackgroundColor(Color.parseColor("#121316"));
+        TextView title = new TextView(this);
+        title.setText("网易云登录");
+        title.setTextSize(16);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.parseColor("#F4F1E8"));
+        bar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView close = new TextView(this);
+        close.setText("关闭");
+        close.setTextSize(14);
+        close.setTextColor(Color.parseColor("#FFD400"));
+        close.setPadding(dp(14), dp(8), dp(14), dp(8));
+        close.setOnClickListener(v -> dialog.dismiss());
+        bar.addView(close);
+        root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        final TextView hint = new TextView(this);
+        hint.setText("在下面的网易云官方页面登录；成功后会自动绑定并返回");
+        hint.setTextSize(12);
+        hint.setTextColor(Color.parseColor("#6B6B66"));
+        hint.setPadding(dp(16), dp(10), dp(16), dp(10));
+        root.addView(hint);
+
+        final ProgressBar progress = new ProgressBar(this);
+        progress.setVisibility(View.GONE);
+        LinearLayout.LayoutParams progressLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        progressLp.gravity = Gravity.CENTER_HORIZONTAL;
+        progressLp.topMargin = dp(6);
+        progressLp.bottomMargin = dp(6);
+        root.addView(progress, progressLp);
+
+        final WebView loginView = new WebView(this);
+        loginView.setBackgroundColor(Color.WHITE);
+        WebSettings s = loginView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setMediaPlaybackRequiresUserGesture(true);
+        s.setUseWideViewPort(true);
+        s.setLoadWithOverviewMode(true);
+        s.setBuiltInZoomControls(true);
+        s.setDisplayZoomControls(false);
+        // 网易云的桌面登录页比手机页稳（手机页会推 App 下载），UA 用桌面 Chrome
+        s.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                + "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+        CookieManager cm = CookieManager.getInstance();
+        cm.setAcceptCookie(true);
+        cm.setAcceptThirdPartyCookies(loginView, true);
+        loginView.setWebViewClient(new WebViewClient());
+        loginView.setWebChromeClient(new WebChromeClient());
+        root.addView(loginView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        dialog.setContentView(root);
+        Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            w.setDimAmount(0.35f);
+            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        dialog.setCanceledOnTouchOutside(false);
+
+        final Handler handler = new Handler(Looper.getMainLooper());
+        final boolean[] done = {false};
+        final Runnable[] poll = new Runnable[1];
+        poll[0] = () -> {
+            if (done[0] || !dialog.isShowing()) return;
+            String cookie = cm.getCookie("https://music.163.com");
+            if (cookie != null && cookie.contains("MUSIC_U=")) {
+                done[0] = true;
+                progress.setVisibility(View.VISIBLE);
+                hint.setText("登录成功，正在绑定到本站账号…");
+                final String captured = cookie;
+                new Thread(() -> {
+                    final String err = postNeteaseCookie(token, captured);
+                    runOnUiThread(() -> {
+                        if (!dialog.isShowing()) return;
+                        if (err == null) {
+                            dialog.dismiss();
+                            toast("网易云账号已绑定");
+                            if (webView != null) {
+                                webView.evaluateJavascript(
+                                        "window.dispatchEvent(new CustomEvent('ft:netease-bound'))", null);
+                            }
+                        } else {
+                            progress.setVisibility(View.GONE);
+                            hint.setText("绑定失败：" + err);
+                            done[0] = false;
+                            handler.postDelayed(poll[0], 1500);
+                        }
+                    });
+                }, "netease-bind").start();
+                return;
+            }
+            handler.postDelayed(poll[0], 900);
+        };
+
+        dialog.setOnDismissListener(d -> {
+            done[0] = true;
+            handler.removeCallbacks(poll[0]);
+            neteaseLoginDialog = null;
+            loginView.destroy();
+        });
+
+        dialog.show();
+        if (w != null) w.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+        loginView.loadUrl("https://music.163.com/login?target=" + Uri.encode("https://music.163.com/"));
+        handler.postDelayed(poll[0], 900);
+    }
+
+    /** 用本站 Bearer + 抓到的 MUSIC_U 调本机绑定接口；成功返回 null，失败返回一句原因 */
+    private String postNeteaseCookie(String token, String cookie) {
+        HttpURLConnection c = null;
+        try {
+            byte[] body = Json.obj("cookie", cookie).getBytes(StandardCharsets.UTF_8);
+            URL url = new URL("http://127.0.0.1:" + port + "/api/netease/login/cookie");
+            c = (HttpURLConnection) url.openConnection();
+            c.setRequestMethod("POST");
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(25000);
+            c.setDoOutput(true);
+            c.setFixedLengthStreamingMode(body.length);
+            c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            c.setRequestProperty("Authorization", "Bearer " + token);
+            try (OutputStream out = c.getOutputStream()) { out.write(body); }
+            int status = c.getResponseCode();
+            InputStream in = status >= 400 ? c.getErrorStream() : c.getInputStream();
+            String text = in == null ? "" : readAllText(in);
+            if (status == 200 && text.contains("\"ok\":true")) return null;
+            return "HTTP " + status + (text.isEmpty() ? "" : "：" + text.substring(0, Math.min(140, text.length())));
+        } catch (Exception e) {
+            return String.valueOf(e.getMessage());
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private static String readAllText(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[4096];
+        int n;
+        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        return new String(out.toByteArray(), StandardCharsets.UTF_8);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     /* ---------------- 兜底页 ---------------- */
@@ -383,6 +583,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (neteaseLoginDialog != null) {
+            neteaseLoginDialog.dismiss();
+            neteaseLoginDialog = null;
+        }
         if (server != null) server.stop();
         if (webView != null) {
             webView.setWebChromeClient(null);

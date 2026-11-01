@@ -602,20 +602,26 @@ function wantArchiveOrientation() {
 
 /** 从相册清单里抽一张背景（和首页「RANDOM ARCHIVE」同一个池子；手机优先竖图） */
 async function loadArchivePhoto({ force = false } = {}) {
-  // 固定优先：只要钉着就直接用那张；失败就自动解钉、退回随机
-  if (state.bgPinned && !force) {
-    try {
-      await preloadImage(state.bgPinned);
-      state.archiveUrl = state.bgPinned;
-      const known = state.archivePools?.all.find((it) => it.url === state.bgPinned);
-      state.archiveOrientation = photoOrientation(known) || '';
-      return true;
-    } catch {
-      writeBgPin('');
-    }
-  }
   try {
     const pools = await ensureArchivePools();
+    // 固定优先：只要钉着就直接用那张；失败就自动解钉、退回随机。
+    // 手机竖屏下固定的若是横图，固定让位于竖图。
+    if (state.bgPinned && !force) {
+      const known = pools.all.find((it) => it.url === state.bgPinned);
+      if (wantArchiveOrientation() === 'portrait' && photoOrientation(known) === 'landscape') {
+        writeBgPin('');
+        stageToast('手机竖屏下已取消固定的横图，改为竖图随机');
+      } else {
+        try {
+          await preloadImage(state.bgPinned);
+          state.archiveUrl = state.bgPinned;
+          state.archiveOrientation = photoOrientation(known) || '';
+          return true;
+        } catch {
+          writeBgPin('');
+        }
+      }
+    }
     const chosen = chooseBackdropPool(pools, { portrait: wantArchiveOrientation() === 'portrait' });
     const pool = chosen.pool;
     if (!pool.length) return false;
@@ -623,6 +629,11 @@ async function loadArchivePhoto({ force = false } = {}) {
     // 换图时尽量别抽到刚看过的那张
     for (let i = 0; i < 5 && pool.length > 1 && pick.url === state.archiveUrl; i += 1) {
       pick = pool[Math.floor(Math.random() * pool.length)];
+    }
+    // 池子回退到 all 时也别把横图放进手机竖屏
+    if (wantArchiveOrientation() === 'portrait' && pools.portrait.length
+      && photoOrientation(pick) !== 'portrait') {
+      pick = pools.portrait[Math.floor(Math.random() * pools.portrait.length)];
     }
     await preloadImage(pick.url);
     state.archiveUrl = pick.url;
@@ -635,16 +646,17 @@ async function loadArchivePhoto({ force = false } = {}) {
 
 /**
  * 舞台是整屏的，转屏 / 改窗口后宽高比会变：相册背景跟着换一张同方向的。
- * 固定状态不动（那是用户明确选的）。防抖，避免手机地址栏收起也触发换图。
+ * 固定优先；但手机竖屏下固定的横图会在 loadArchivePhoto 里让位给竖图。
+ * 防抖，避免手机地址栏收起也触发换图。
  */
 function onStageResize() {
   if (!state.open) return;
   clearTimeout(state.resizeTimer);
   state.resizeTimer = setTimeout(() => {
     state.resizeTimer = 0;
-    if (!state.open || state.backdrop !== 'archive' || state.bgPinned) return;
+    if (!state.open || state.backdrop !== 'archive') return;
     if (!state.archiveOrientation || state.archiveOrientation === wantArchiveOrientation()) return;
-    void loadArchivePhoto({ force: true }).then((ok) => { if (ok) paintBackdrop(); });
+    void loadArchivePhoto().then((ok) => { if (ok) paintBackdrop(); });
   }, 260);
 }
 

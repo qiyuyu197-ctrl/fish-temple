@@ -234,12 +234,16 @@ function qrBodyHTML() {
       <div class="neacct__qrph mono">正在生成二维码…</div>
     </div>
     <p class="neacct__status mono" id="neQrStatus">准备中…</p>
+    <div class="neacct__actions" id="neOfficialRow" hidden>
+      <button class="btn btn--sm btn--signal" id="neOfficialLogin" type="button">用网易云官方页面登录</button>
+    </div>
     <div class="neacct__actions">
       <button class="btn btn--sm" id="neQrRefresh" type="button">重新生成</button>
     </div>
     <p class="neacct__hint mono">
       手机提示「检测到当前设备环境异常 / 本次操作已拦截」时，那是<b>网易云自己的风控</b>，不是二维码坏了。
       先别再刷新（越点越像异常），隔一会儿或换网络再试；急用就走下面这条。
+      在 App 里也可以直接点「用网易云官方页面登录」，由网易云自己的页面扫码 / 账号密码登录。
     </p>
     <details class="neacct__manual">
       <summary>扫码被拦？改用浏览器里的 MUSIC_U 连接</summary>
@@ -270,6 +274,21 @@ export async function openPanel() {
   panel = panelShell('连接网易云账号', qrBodyHTML());
   panel.querySelector('#neQrRefresh')?.addEventListener('click', () => { void beginQr(); });
   panel.querySelector('#neCookieGo')?.addEventListener('click', () => { void bindWithCookie(); });
+  // App 内才有 FTNative：打开网易云官方登录页，由原生取 MUSIC_U 走现有绑定接口
+  const officialRow = panel.querySelector('#neOfficialRow');
+  if (officialRow && window.FTNative?.openNeteaseLogin) {
+    officialRow.hidden = false;
+    panel.querySelector('#neOfficialLogin')?.addEventListener('click', async () => {
+      const token = await Auth.token();
+      if (!token) { Toast.show('先登录本站账号，再连网易云', 'err'); return; }
+      try {
+        window.FTNative.openNeteaseLogin(token);
+        setQrStatus('已打开网易云官方登录页；登录完成后会自动绑定…', 'warn');
+      } catch {
+        Toast.show('打不开官方登录页，试试下面的 MUSIC_U', 'err');
+      }
+    });
+  }
   await beginQr();
 }
 
@@ -816,6 +835,14 @@ export async function init() {
   } catch { /* 静默：没有服务端时整条状态带都不会出现 */ }
   bus.on('auth:user', () => { void onAuthChanged(); });
   bus.on('auth:ready', () => { void onAuthChanged(); });
+  // App 内官方网页登录完成：原生会派发这个事件，重新读一次绑定状态
+  window.addEventListener('ft:netease-bound', () => {
+    closePanel();
+    void onAuthChanged().then(() => {
+      if (state.bound) Toast.ok('网易云账号已绑定');
+      else Toast.show('官方登录页完成了，但绑定还没生效，再试一次', 'err');
+    });
+  });
 }
 
 export const NeteaseLogin = {

@@ -319,12 +319,10 @@ final class NeteaseAccount {
         if (musicU == null || musicU.length() < 20) {
             return Out.fail(400, "没找到 MUSIC_U：请复制 `MUSIC_U=…` 那一整行（或只复制等号后面的值）");
         }
-        Map<String, String> cookie = new LinkedHashMap<>();
+        // 用和扫码同一套设备身份 + 浏览器拿到的 MUSIC_U，
+        // 后续「我的歌单 / 每日推荐」也带着稳定的设备指纹。
+        Map<String, String> cookie = identityCookie();
         cookie.put("MUSIC_U", musicU);
-        cookie.put("os", "pc");
-        cookie.put("appver", "3.1.17.204416");
-        cookie.put("osver", "Microsoft-Windows-10-Professional-build-19045-64bit");
-        cookie.put("channel", "netease");
         JSONObject profile = fetchProfile(cookie);
         if (profile.optString("uid", "").isEmpty()) {
             return Out.fail(401, "这个 MUSIC_U 无效或已过期（网易云没有返回账号信息），请重新复制一个");

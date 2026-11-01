@@ -3095,9 +3095,15 @@ body.has-docked-embed .miniplayer { padding-right: calc(340px + var(--gutter)); 
 .hero.is-media .hero__media { opacity: 1; }
 .hero__media-img {
   position: absolute;
-  inset: -12px;
-  width: calc(100% + 24px);
-  height: calc(100% + 24px);
+  /* 视差会让图片最多位移 8px：四周留 32px 的余量，移动时不会露出容器底色。
+     以前只留 12px，手机拖一下就能在边缘看到一条黑边。 */
+  inset: -32px;
+  width: calc(100% + 64px);
+  height: calc(100% + 64px);
+  /* 全局 img { max-width: 100% } 会把上面加出来的宽度重新压回 100%，
+     等于左右完全没有余量 —— 一横向视差就露边。这里必须显式放开。 */
+  max-width: none;
+  max-height: none;
   display: block;
   object-fit: cover;
   object-position: center;

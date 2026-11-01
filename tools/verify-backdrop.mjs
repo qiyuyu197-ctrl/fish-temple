@@ -193,12 +193,56 @@ async function main() {
     await fs.writeFile(path.join(OUT, 'verify-backdrop-mobile-home.png'), Buffer.from(shot.data, 'base64'));
   }
 
+  const overscan = await evaluate(`(() => {
+    const img = document.getElementById('heroMediaImg');
+    const media = document.getElementById('heroMedia');
+    if (!img || !media) return null;
+    const a = img.getBoundingClientRect();
+    const b = media.getBoundingClientRect();
+    return {
+      l: Math.round(b.left - a.left), r: Math.round(a.right - b.right),
+      t: Math.round(b.top - a.top), b: Math.round(a.bottom - b.bottom),
+    };
+  })()`);
+  check('背景图四周留出视差余量（≥20px）',
+    !!overscan && [overscan.l, overscan.r, overscan.t, overscan.b].every((v) => v >= 20),
+    JSON.stringify(overscan));
+
   // Android WebView 有时把 layout viewport 报成 980px：只要屏幕还是竖的，就不该退回横图
   await viewport(980, 1600, true);
   await waitHeroOrientation(true);
   const wideMobile = await heroInfo();
   check('980px 竖屏（WebView 极端视口）：首页仍用竖图', wideMobile.h > wideMobile.w,
     `${wideMobile.w}×${wideMobile.h} · ${wideMobile.src} · hero=${wideMobile.box.join('×')}`);
+
+  // 手机竖屏下固定了一张横图：固定应让位于竖图，不能永久把横图留在首页
+  if (!REMOTE) {
+    const pinSet = await evaluate(`(async () => {
+      try {
+        const json = await (await fetch('data/album.json', { cache: 'no-cache' })).json();
+        const items = Array.isArray(json) ? json : (json.items || []);
+        const land = items.find((it) => it.width && it.height && it.width >= it.height * 1.18);
+        if (!land) return false;
+        localStorage.setItem('ft.terminal.heroPinned', JSON.stringify(land));
+        return true;
+      } catch { return false; }
+    })()`);
+    if (pinSet) {
+      await send('Page.reload');
+      await waitFor(`!!window.Terminal && document.documentElement.dataset.booted === '1'`, { timeout: BOOT_MS });
+      await waitFor(`(() => {
+        const i = document.getElementById('heroMediaImg');
+        return !!(i && i.naturalWidth > 0 && document.getElementById('hero')?.classList.contains('is-media'));
+      })()`, { timeout: IMAGE_MS });
+      await waitHeroOrientation(true);
+      const afterPin = await heroInfo();
+      check('手机竖屏下不沿用固定的横图', afterPin.h > afterPin.w,
+        `${afterPin.w}×${afterPin.h} · ${afterPin.src}`);
+      await evaluate(`localStorage.removeItem('ft.terminal.heroPinned')`);
+    } else {
+      check('手机竖屏下不沿用固定的横图（跳过：相册里没有横图）', true);
+    }
+  }
 
   // 转成横屏 → 换横图
   await viewport(844, 390);
