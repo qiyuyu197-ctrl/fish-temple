@@ -1,5 +1,21 @@
 # FISH 鱼の灵庙 · 静态站点
 
+## 下载
+
+| 平台 | 版本 | 直接下载 | 要求 |
+| --- | --- | --- | --- |
+| **Android 移动版** | 2.3.5 | [APK · 约 289 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.3.5/fish-temple-android-full-2.3.5.apk) | Android 7.0+ |
+| **Windows 桌面版** | 1.4.0 | [ZIP · 约 386 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.4.0/fish-temple-desktop-1.4.0-win-x64.zip) | Windows 10/11 x64 |
+
+手机下载 APK 直接安装（允许「安装未知来源应用」）；Windows 下载 ZIP 解压后双击
+`FishTemple.exe`，**首次启动会自动在桌面创建快捷方式**。历史版本见
+[Releases](https://github.com/qiyuyu197-ctrl/fish-temple/releases)。
+
+> 安装包超过 GitHub 单文件 100 MB 限制，所以放在 **Releases**（不在仓库文件里）。
+> 带校验和与安装说明的下载页：
+> [GitHub Pages](https://qiyuyu197-ctrl.github.io/fish-temple/download.html) ·
+> [页面源文件](download.html)。
+
 > 🚀 **只是想在自己电脑上跑起来？直接看 [INSTALL.md](INSTALL.md)** ——
 > 只需要 Node.js 18+，三步启动，不用 `npm install`，不用配数据库。
 > 本文档是完整的工程说明（功能、设计取舍、自检），篇幅较长。

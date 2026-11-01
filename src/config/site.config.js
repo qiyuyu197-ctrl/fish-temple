@@ -74,6 +74,7 @@ export const TICKER = [
 
 /** 页脚链接。kind: 'pixiv' 会按 Pixiv 规则补齐参数 */
 export const FOOTER_LINKS = [
+  { label: '下载 App', href: 'https://qiyuyu197-ctrl.github.io/fish-temple/download.html' },
   { label: 'Pixiv 主页', href: 'https://www.pixiv.net/', kind: 'pixiv' },
   { label: 'Pixiv 发现',  href: 'https://www.pixiv.net/discovery', kind: 'pixiv' },
   { label: 'Pixiv 排行',  href: 'https://www.pixiv.net/ranking.php', kind: 'pixiv' },

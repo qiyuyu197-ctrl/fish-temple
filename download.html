@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="paper" data-scheme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>下载 · 鱼の灵庙</title>
+<meta name="description" content="鱼の灵庙 移动版 APK 与 Windows 桌面版下载。安卓 2.3.5，Windows 1.4.0。" />
+<meta name="theme-color" content="#EFEDE6" />
+<link rel="icon" href="assets/icons/favicon-32.png?v=3" sizes="32x32" type="image/png" />
+<link rel="stylesheet" href="styles/tokens.css" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { color-scheme: light; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--ink);
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--line-soft) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: -1px -1px;
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection { background: var(--signal); color: var(--signal-ink); }
+  a { color: inherit; }
+  .mono { font-family: var(--font-mono); }
+  .shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+
+  /* 顶栏 */
+  .top {
+    border-bottom: 1px solid var(--line-strong);
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .top__in {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 20px; min-height: 58px;
+  }
+  .brand {
+    display: inline-flex; align-items: center; gap: 10px;
+    text-decoration: none; font-weight: 800; letter-spacing: .06em;
+  }
+  .brand img { width: 26px; height: 26px; display: block; }
+  .brand small {
+    display: block; font-family: var(--font-mono); font-size: 9px;
+    font-weight: 500; letter-spacing: .16em; color: var(--fg-muted);
+  }
+  .top__links { display: flex; align-items: center; gap: 18px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; }
+  .top__links a { text-decoration: none; color: var(--fg-muted); }
+  .top__links a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+
+  /* Hero */
+  .hero { padding: clamp(48px, 8vw, 96px) 0 34px; }
+  .kicker {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .18em;
+    color: var(--fg-muted); text-transform: uppercase;
+  }
+  .kicker::before { content: ""; width: 26px; height: 2px; background: var(--signal-deep); }
+  h1 {
+    margin: 14px 0 16px;
+    font-size: clamp(46px, 9.2vw, 112px);
+    line-height: .88;
+    letter-spacing: -.045em;
+    font-weight: 850;
+  }
+  h1 em { font-style: normal; color: var(--signal-deep); }
+  .lede {
+    max-width: 620px; margin: 0;
+    color: var(--fg-muted); font-size: clamp(15px, 1.7vw, 17px);
+  }
+
+  /* 下载卡片 */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 28px 0 54px; }
+  .card {
+    position: relative; display: flex; flex-direction: column;
+    background: var(--paper);
+    border: 1px solid var(--line-strong);
+    box-shadow: 8px 8px 0 0 color-mix(in srgb, var(--ink) 9%, transparent);
+    overflow: hidden;
+  }
+  .card::after {
+    content: attr(data-glyph);
+    position: absolute; right: -6px; bottom: -28px;
+    font-family: var(--font-wide); font-weight: 900;
+    font-size: clamp(96px, 14vw, 160px); line-height: 1;
+    color: var(--ink); opacity: .045; pointer-events: none;
+    letter-spacing: -.05em;
+  }
+  .card__head {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 15px 20px; border-bottom: 1px solid var(--line);
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em;
+    color: var(--fg-muted);
+  }
+  .card__head b { color: var(--ink); font-weight: 700; letter-spacing: .08em; }
+  .card__body { padding: 24px 20px 20px; display: flex; flex-direction: column; flex: 1; position: relative; z-index: 1; }
+  .card h2 { margin: 0; font-size: clamp(27px, 3vw, 36px); line-height: 1.1; letter-spacing: -.02em; }
+  .card .sub { margin: 7px 0 20px; color: var(--fg-muted); font-size: 13px; }
+  .meta { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); margin-bottom: 22px; }
+  .meta div { padding: 10px 11px; min-width: 0; }
+  .meta div + div { border-left: 1px solid var(--line); }
+  .meta dt { font-family: var(--font-mono); font-size: 9px; letter-spacing: .12em; color: var(--fg-faint); text-transform: uppercase; }
+  .meta dd { margin: 3px 0 0; font-family: var(--font-mono); font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .features { margin: 0 0 22px; padding: 0; list-style: none; font-size: 13px; color: var(--fg-muted); }
+  .features li { display: flex; gap: 9px; padding: 3px 0; }
+  .features li::before { content: "+"; color: var(--signal-deep); font-family: var(--font-mono); font-weight: 700; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: space-between; gap: 14px;
+    min-height: 46px; padding: 0 16px;
+    border: 1px solid var(--line-strong);
+    font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: .08em;
+    text-decoration: none; color: var(--ink);
+    transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+  }
+  .btn--signal { background: var(--signal); box-shadow: 3px 3px 0 var(--ink); flex: 1 1 180px; }
+  .btn--signal:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--ink); }
+  .btn--ghost { background: transparent; }
+  .btn--ghost:hover { background: var(--paper-2); }
+  .btn span.arrow { font-size: 16px; line-height: 1; }
+
+  /* 说明 */
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; padding: 4px 0 60px; border-top: 1px solid var(--line-strong); margin-top: 4px; }
+  .notes h3 { margin: 24px 0 10px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .16em; color: var(--fg-muted); text-transform: uppercase; }
+  .steps { margin: 0; padding: 0 0 0 20px; color: var(--fg-muted); font-size: 13px; }
+  .steps li { padding: 3px 0; }
+  .steps b { color: var(--ink); }
+  .fine { margin: 10px 0 0; font-size: 12px; color: var(--fg-faint); }
+  details { border-top: 1px solid var(--line); padding: 12px 0; font-size: 12px; color: var(--fg-muted); }
+  details summary { cursor: pointer; font-family: var(--font-mono); letter-spacing: .04em; }
+  details code { display: block; margin-top: 8px; padding: 10px; background: var(--paper-2); border: 1px solid var(--line); word-break: break-all; font-size: 11px; color: var(--ink); }
+
+  .foot { border-top: 1px solid var(--line-strong); padding: 22px 0 34px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; color: var(--fg-faint); }
+  .foot a { color: var(--fg-muted); text-underline-offset: 3px; }
+
+  @media (max-width: 760px) {
+    .shell { width: calc(100% - 28px); }
+    .grid, .notes { grid-template-columns: 1fr; }
+    .top__links a:not(:last-child) { display: none; }
+    .card { box-shadow: 5px 5px 0 0 color-mix(in srgb, var(--ink) 9%, transparent); }
+    .meta dd { font-size: 11px; }
+    .foot { flex-direction: column; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .btn { transition: none; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="shell top__in">
+    <a class="brand" href="./">
+      <img src="assets/icons/mark-512.png" alt="" />
+      <span>FISH 鱼の灵庙<small>STATIC TERMINAL / DOWNLOADS</small></span>
+    </a>
+    <nav class="top__links" aria-label="页面导航">
+      <a href="./">回到站点</a>
+      <a href="https://github.com/qiyuyu197-ctrl/fish-temple" target="_blank" rel="noopener">GITHUB</a>
+      <a href="https://github.com/qiyuyu197-ctrl/fish-temple/releases" target="_blank" rel="noopener">ALL RELEASES ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main class="shell">
+  <section class="hero">
+    <p class="kicker">Releases / 2026.11</p>
+    <h1>DOWN<br /><em>LOADS</em></h1>
+    <p class="lede">移动版与 Windows 桌面版。安卓版和桌面版都把站点与相册打进包里，装上之后断网也能用；网页版则永远是最新的。</p>
+  </section>
+
+  <section class="grid" aria-label="下载">
+    <article class="card" data-glyph="APK">
+      <div class="card__head"><b>01 / ANDROID</b><span>MOBILE</span></div>
+      <div class="card__body">
+        <h2>移动版</h2>
+        <p class="sub">本地离线终端 · 相册 / 音乐 / 扫雷 / 工具台</p>
+        <dl class="meta">
+          <div><dt>Version</dt><dd>2.3.5</dd></div>
+          <div><dt>Size</dt><dd>≈ 289 MB</dd></div>
+          <div><dt>Requires</dt><dd>Android 7.0+</dd></div>
+        </dl>
+        <ul class="features">
+          <li>杀后台不再掉登录态</li>
+          <li>网易云歌曲封面修复</li>
+          <li>首页横幅 / 插画预览手机竖屏优先竖图</li>
+        </ul>
+        <div class="actions">
+          <a class="btn btn--signal" href="https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.3.5/fish-temple-android-full-2.3.5.apk" rel="noopener">
+            下载 APK <span class="arrow">↓</span>
+          </a>
+          <a class="btn btn--ghost" href="https://github.com/qiyuyu197-ctrl/fish-temple/releases/tag/app-v2.3.5" target="_blank" rel="noopener">版本说明 ↗</a>
+        </div>
+      </div>
+    </article>
+
+    <article class="card" data-glyph="ZIP">
+      <div class="card__head"><b>02 / WINDOWS</b><span>DESKTOP</span></div>
+      <div class="card__body">
+        <h2>桌面版</h2>
+        <p class="sub">绿色便携 · 断网可用 · 可当扫雷局域网主机</p>
+        <dl class="meta">
+          <div><dt>Version</dt><dd>1.4.0</dd></div>
+          <div><dt>Size</dt><dd>≈ 386 MB</dd></div>
+          <div><dt>Requires</dt><dd>Win 10/11 x64</dd></div>
+        </dl>
+        <ul class="features">
+          <li>首次启动自动创建桌面快捷方式</li>
+          <li>文件 → 局域网联机，手机用房间号加入扫雷</li>
+          <li>纯本地：不起后台服务，数据在 %APPDATA%</li>
+        </ul>
+        <div class="actions">
+          <a class="btn btn--signal" href="https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.4.0/fish-temple-desktop-1.4.0-win-x64.zip" rel="noopener">
+            下载 ZIP <span class="arrow">↓</span>
+          </a>
+          <a class="btn btn--ghost" href="https://github.com/qiyuyu197-ctrl/fish-temple/releases/tag/desktop-v1.4.0" target="_blank" rel="noopener">版本说明 ↗</a>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section class="notes">
+    <div>
+      <h3>Android / 安装</h3>
+      <ol class="steps">
+        <li>下载 <b>.apk</b> 到手机（微信 / QQ 传过去也可以）。</li>
+        <li>点开文件，允许「安装未知来源应用」。</li>
+        <li>覆盖安装 2.3.5 即可；首次打开如果站点账号掉了，重新登录一次，之后杀后台不会再掉。</li>
+      </ol>
+      <p class="fine">需要 Android 7.0（API 24）及以上；安装包约 289 MB，相册图都打进去了。</p>
+    </div>
+    <div>
+      <h3>Windows / 使用</h3>
+      <ol class="steps">
+        <li>下载 <b>.zip</b>，解压到任意目录（别放 <b>C:\Program Files</b>）。</li>
+        <li>双击 <b>FishTemple.exe</b>；首次启动会自动在桌面创建「FISH 鱼の灵庙」快捷方式。</li>
+        <li>如果还开着旧版（1.2.0 / 1.3.0），先 <b>文件 → 退出</b>，再运行新版。</li>
+      </ol>
+      <p class="fine">绿色版不写注册表；卸载 = 删掉解压目录 + <span class="mono">%APPDATA%\FishTemple</span>。</p>
+    </div>
+  </section>
+
+  <section aria-label="校验信息">
+    <details>
+      <summary>SHA-256 校验（下载后可选）</summary>
+      <code>APK   dfe9bbc9c62fbd4c16f973894b31c07ef7f41b8723ea48c3654aad2c53f5ac36</code>
+      <code>ZIP   6d9d547d34af3e0e0d3d22be95b3f4e838f42eb38c41a90742e45c37806fb6ec</code>
+      <p class="fine">Windows 可在 PowerShell 里运行 <span class="mono">Get-FileHash .\文件名 -Algorithm SHA256</span> 对比。GitHub 直连慢时可用你惯用的加速镜像，但请以这里的哈希为准。</p>
+    </details>
+  </section>
+</main>
+
+<footer class="shell foot">
+  <span>FISH 鱼の灵庙 · MOBILE 2.3.5 / DESKTOP 1.4.0</span>
+  <span><a href="https://github.com/qiyuyu197-ctrl/fish-temple" target="_blank" rel="noopener">GitHub 仓库</a> · <a href="https://github.com/qiyuyu197-ctrl/fish-temple/releases" target="_blank" rel="noopener">全部版本</a> · <a href="./">回到站点</a></span>
+</footer>
+</body>
+</html>

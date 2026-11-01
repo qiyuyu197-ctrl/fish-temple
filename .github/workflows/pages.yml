@@ -17,6 +17,7 @@ on:
     branches: [main]
     paths:
       - 'index.html'
+      - 'download.html'
       - 'sw.js'
       - 'offline.html'
       - 'manifest.webmanifest'
