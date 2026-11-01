@@ -5,7 +5,7 @@
 | 形态 | 怎么拿到 | 谁的活 |
 | --- | --- | --- |
 | **PWA**（推荐先试） | 手机浏览器打开站点 → 菜单里「安装应用 / 添加到主屏幕」 | 已经在仓库里了，部署上去就生效 |
-| **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[2.3.4](../../../releases/download/app-v2.3.4/fish-temple-android-full-2.3.4.apk)，约 289MB） | GitHub Actions 自动构建，见下面的「发版」 |
+| **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[2.3.5](../../../releases/download/app-v2.3.5/fish-temple-android-full-2.3.5.apk)，约 289MB） | GitHub Actions 自动构建，见下面的「发版」 |
 | **Windows 桌面版** | 到 [Releases](../../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，解压双击 `FishTemple.exe` | 断网可用，站点和 server.mjs 都在包里，见 [desktop/README.md](desktop/README.md) |
 
 三者都不上架应用商店：PWA 不需要，APK 与桌面版都是直接下载。
@@ -69,7 +69,8 @@ Chromium 判定可安装、**断网重开外壳还在**、断网切板块、接�
 
 **2.0 起它和桌面版是一个性质**：站点文件打进 APK（`assets/site`，约 289MB），
 启动时在本机 `127.0.0.1` 起一个只给自己用的小服务（`SiteServer.java`），
-窗口加载 `http://127.0.0.1:<随机端口>/`。账号是本机账号（`LocalAuth.java`），
+窗口加载 `http://127.0.0.1:47821/`（**固定端口**；浏览器 localStorage 按 origin 隔离，
+端口一变登录态就丢。只有端口被占用时才退回随机端口）。账号是本机账号（`LocalAuth.java`），
 和桌面版 `/api/auth/local/*` 是同一套契约。
 
 > 为什么安卓不能像桌面版那样完全不要端口：网页里的写操作都是 POST + JSON 请求体，
