@@ -35,7 +35,9 @@ export const Boot = {
       line.style.opacity = '0';
       line.style.transition = 'opacity 180ms ease';
       log.append(line);
-      requestAnimationFrame(() => { line.style.opacity = '1'; });
+      // 不用 rAF：后台标签页 / 无头浏览器会把 rAF 节流到不触发，
+      // 启动动画就会永远停在第一行（Pages 慢的时候实测过）。
+      setTimeout(() => { line.style.opacity = '1'; }, 0);
       const p = Math.round(((i + 1) / LINES.length) * 100);
       if (bar) bar.style.width = `${p}%`;
       if (pct) pct.textContent = `${String(p).padStart(3, '0')}%`;
