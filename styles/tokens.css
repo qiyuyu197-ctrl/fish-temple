@@ -69,6 +69,8 @@
   --font-wide: "Saira", "Inter", "Helvetica Neue", "Segoe UI", "Noto Sans SC",
                "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-display: var(--font-sans);
+  /* 文章详情标题：思源宋体 Heavy（Noto Serif SC 900，SIL OFL，自托管） */
+  --font-serif-display: "Noto Serif SC", "Songti SC", "STSong", serif;
 
   /* ---------- 字号 ---------- */
   --fs-hero:  clamp(2.6rem, 9.2vw, 9.5rem);

@@ -52,6 +52,7 @@ async function collect() {
 
   // 图标与两个小的运行时库（黄历 / mp3 编码），大文件（wasm / 模型 / 音频）不进预缓存
   await walk('assets/icons', (n) => n.endsWith('.png') || n.endsWith('.svg'));
+  await walk('assets/patterns', (n) => n.endsWith('.svg'));
   addFile('assets/vendor/lunar-javascript/lunar.js');
   addFile('assets/vendor/lame.min.js');
 

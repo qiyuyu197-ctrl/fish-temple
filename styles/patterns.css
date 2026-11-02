@@ -1,0 +1,171 @@
+/* ============================================================
+   patterns.css — 从 rahoo.online 的「素材生成 / 封面模板」里
+   挑出来的可复用语言：HUD 圆环、刻度环、条形码、封面编号贴纸。
+   只取几何语言与版式，不搬运游戏立绘 / 商业字体。
+
+   ① 首页 hero 右上：同心圆 + 刻度环（低透明度，压在照片上）
+   ② 分区标题：条形码刻度
+   ③ 文章卡片：右上角信号黄编号贴纸
+   ④ 文章详情标题：思源宋体 Heavy（Noto Serif SC 900，SIL OFL）
+   ============================================================ */
+
+@font-face {
+  font-family: "Noto Serif SC";
+  src: url("../assets/fonts/NotoSerifSC-Heavy.woff2") format("woff2");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------------- 01 · 首页 HUD ---------------- */
+
+.hero__hud {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--ink);
+}
+
+.hero__hud-ring,
+.hero__hud-ticks {
+  position: absolute;
+  display: block;
+  background: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.hero__hud-ring {
+  top: -16%;
+  right: -7%;
+  width: min(660px, 54vw);
+  aspect-ratio: 1;
+  opacity: 0.10;
+  -webkit-mask-image: url("../assets/patterns/hud-rings.svg");
+  mask-image: url("../assets/patterns/hud-rings.svg");
+  animation: heroHudSpin 110s linear infinite;
+}
+
+.hero__hud-ticks {
+  top: 11%;
+  right: 3.5%;
+  width: min(360px, 30vw);
+  aspect-ratio: 1;
+  opacity: 0.16;
+  color: var(--signal-deep);
+  -webkit-mask-image: url("../assets/patterns/hud-ticks.svg");
+  mask-image: url("../assets/patterns/hud-ticks.svg");
+  animation: heroHudSpin 72s linear infinite reverse;
+}
+
+/* 有照片时环是白的、刻度是信号黄；压在暗部才看得见 */
+.hero.is-media .hero__hud { color: #fff; }
+.hero.is-media .hero__hud-ring { opacity: 0.15; }
+.hero.is-media .hero__hud-ticks { color: var(--signal); opacity: 0.22; }
+
+@keyframes heroHudSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 820px) {
+  .hero__hud-ring {
+    top: 12%;
+    right: -38%;
+    width: 380px;
+    opacity: 0.09;
+  }
+  .hero__hud-ticks {
+    top: 21%;
+    right: -12%;
+    width: 220px;
+    opacity: 0.13;
+  }
+  /* 手机不做持续旋转：省电，也避免低端 WebView 一直重绘 mask */
+  .hero__hud-ring,
+  .hero__hud-ticks { animation: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero__hud-ring,
+  .hero__hud-ticks { animation: none; }
+}
+
+/* ---------------- 02 · 分区标题条形码 ---------------- */
+
+.sect__aside {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.sect__barcode {
+  display: block;
+  width: 58px;
+  height: 13px;
+  flex: 0 0 auto;
+  background: currentColor;
+  opacity: 0.3;
+  -webkit-mask-image: url("../assets/patterns/barcode.svg");
+  mask-image: url("../assets/patterns/barcode.svg");
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+  -webkit-mask-position: left center;
+  mask-position: left center;
+  -webkit-mask-size: auto 100%;
+  mask-size: auto 100%;
+}
+
+[data-scheme="dark"] .sect__barcode { opacity: 0.45; }
+
+/* ---------------- 03 · 文章卡片封面编号贴纸 ---------------- */
+
+.card > .card__idx {
+  top: 0;
+  right: 0;
+  left: auto;
+  padding: 5px 8px 5px 13px;
+  background: var(--signal);
+  color: var(--signal-ink);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  mix-blend-mode: normal;
+  clip-path: polygon(11px 0, 100% 0, 100% 100%, 0 100%);
+  z-index: 4;
+}
+
+.card > .card__idx::after {
+  content: " / FILE";
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  opacity: 0.58;
+}
+
+/* 硬阴影：像封面纸片被推到桌面上。手机没有 hover 就不加。 */
+@media (hover: hover) {
+  .card:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 color-mix(in srgb, var(--ink) 13%, transparent);
+  }
+}
+
+@media (max-width: 520px) {
+  .sect__barcode { width: 42px; height: 10px; }
+  .card > .card__idx { padding: 4px 7px 4px 11px; }
+}
+
+/* ---------------- 04 · 文章详情标题 ---------------- */
+
+.post__title.display {
+  font-family: var(--font-serif-display);
+  font-weight: 900;
+  letter-spacing: 0.015em;
+  line-height: 1.16;
+  text-transform: none;
+}

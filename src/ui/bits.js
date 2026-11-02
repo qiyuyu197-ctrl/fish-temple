@@ -126,7 +126,10 @@ export function newsItem(item, { compact = false, index = null } = {}) {
 export const sectionHead = (no, title, linkHref, linkText) => `
   <div class="sect__head">
     <h2 class="sect__title display"><span class="sect__no">${esc(no)}</span>${esc(title)}</h2>
-    ${linkHref ? `<a class="sect__link" href="${linkHref}" data-nav>${esc(linkText || 'VIEW ALL')} →</a>` : ''}
+    <div class="sect__aside">
+      <span class="sect__barcode" aria-hidden="true"></span>
+      ${linkHref ? `<a class="sect__link" href="${linkHref}" data-nav>${esc(linkText || 'VIEW ALL')} →</a>` : ''}
+    </div>
   </div>`;
 
 /** 统计格 */

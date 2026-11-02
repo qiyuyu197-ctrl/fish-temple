@@ -70,6 +70,10 @@ export default {
         <div class="hero__slash"></div>
         <div class="ruled-mask"></div>
       </div>
+      <div class="hero__hud" aria-hidden="true">
+        <span class="hero__hud-ring"></span>
+        <span class="hero__hud-ticks"></span>
+      </div>
       <div class="hero__inner">
         <button class="hero__media-fab" id="heroMediaFab" type="button" disabled
                 aria-label="换一张横幅" aria-keyshortcuts="R" title="换一张横幅（快捷键 R）">${ICON.refresh}</button>
