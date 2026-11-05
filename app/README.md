@@ -5,10 +5,13 @@
 | 形态 | 怎么拿到 | 谁的活 |
 | --- | --- | --- |
 | **PWA**（推荐先试） | 手机浏览器打开站点 → 菜单里「安装应用 / 添加到主屏幕」 | 已经在仓库里了，部署上去就生效 |
-| **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[2.3.5](../../../releases/download/app-v2.3.5/fish-temple-android-full-2.3.5.apk)，约 289MB） | GitHub Actions 自动构建，见下面的「发版」 |
+| **Android APK** | 到 [Releases](../../../releases) 下载 `.apk` 装上（当前：[2.4.0](../../../releases/download/app-v2.4.0/fish-temple-android-full-2.4.0.apk)，约 290MB） | GitHub Actions 自动构建，见下面的「发版」 |
 | **Windows 桌面版** | 到 [Releases](../../../releases) 下载 `fish-temple-desktop-*-win-x64.zip`，解压双击 `FishTemple.exe`（首次启动自动创建桌面快捷方式） | 断网可用，站点和 server.mjs 都在包里，见 [desktop/README.md](desktop/README.md) |
 
 三者都不上架应用商店：PWA 不需要，APK 与桌面版都是直接下载。
+
+> 最新版：**Android 2.4.0 / Windows 桌面版 1.5.0**，已带上文娱 200 部推荐与 Bangumi 站内搜索；
+> 搜索需要联网，其余内容仍离线可用。
 
 > ⚠️ **地址要先定下来。** PWA 是「壳 + 线上站点」，站点打不开就是兜底页。
 > 默认地址是 GitHub Pages（`https://<用户名>.github.io/<仓库名>/`）。
