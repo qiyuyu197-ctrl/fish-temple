@@ -163,20 +163,16 @@ async function trimImageCache(cache) {
   for (const k of keys.slice(0, extra)) await cache.delete(k);
 }
 
-/** 导航：缓存里有就立刻给（离线秒开），同时后台更新 */
+/** 导航：先要网络（保证 index.html 不是旧版 6 秒超时页），失败才回缓存/离线页 */
 async function navigation(request) {
   const cache = await caches.open(CACHE);
-  const hit = await cache.match(SHELL);
-  const network = fetch(request).then((res) => {
+  try {
+    const res = await fetch(request, { cache: 'no-store' });
     if (res && res.ok) cache.put(SHELL, res.clone()).catch(() => {});
-    return res;
-  }).catch(() => null);
-  if (hit) {
-    event_waitUntilSafe(network);
-    return hit;
-  }
-  const res = await network;
-  if (res) return res;
+    if (res) return res;
+  } catch { /* 离线 / 网络失败，落到缓存 */ }
+  const hit = await cache.match(SHELL);
+  if (hit) return hit;
   return (await caches.match(OFFLINE)) || new Response(
     '<!doctype html><meta charset="utf-8"><title>离线</title><p style="font:16px system-ui;padding:32px">离线，且没有缓存。联网后重新打开。</p>',
     { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }

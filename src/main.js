@@ -39,6 +39,7 @@ import forum from './views/forum.js';
 import music from './views/music.js';
 import gallery from './views/gallery.js';
 import leisure from './views/leisure.js';       // 文娱：当季新番 / 推荐动漫
+import downloadView from './views/download.js'; // 下载 App
 import mine from './views/mine.js';
 import tierlist from './views/tierlist.js';   // Tier List（TOOLS 板块）
 import fishrun from './views/fish-run.js';     // 像素小鱼（小游戏，跟扫雷挨着）
@@ -70,6 +71,12 @@ Registry.addCommand({
   label: '导出全部内容为 JSON',
   hint: 'IO',
   run: (c) => c.exportAll(),
+});
+Registry.addCommand({
+  id: 'goto-download',
+  label: '下载 App（Android / Windows）',
+  hint: 'G D',
+  run: (c) => c.navigate('#/download'),
 });
 Registry.addCommand({
   id: 'mine',
@@ -149,7 +156,10 @@ async function boot() {
   //      换完令牌会把人送回登录前所在的板块，等路由跑起来时地址已经是对的。
   //      失败不阻塞启动：账号不可用时，站点其余部分照常。
   try {
-    await Auth.init();
+    await Promise.race([
+      Auth.init(),
+      new Promise((r) => setTimeout(r, 2500)),
+    ]);
   } catch (err) {
     console.warn('[auth] 初始化失败', err);
   }
@@ -157,7 +167,10 @@ async function boot() {
   // 3.6) 网易云账号（扫码登录）的状态：问一次服务端开没开、这个账号绑没绑。
   //      必须在 Auth 之后 —— 它要带着本站身份去问。没有服务端时它自己静默降级。
   try {
-    await NeteaseLogin.init();
+    await Promise.race([
+      NeteaseLogin.init(),
+      new Promise((r) => setTimeout(r, 1800)),
+    ]);
   } catch (err) {
     console.warn('[netease-login] 初始化失败', err);
   }
@@ -188,7 +201,7 @@ async function boot() {
   //    注册成兼容跳转，老链接不会 404（见 views/redirect.js）
   //    Tier List（TOOLS 板块）放在 tools 后面：注册顺序就是导航顺序 ✓
   [
-    home, logs, forum, music, gallery, leisure, mine, fishrun, tools, admin, notfound,
+    home, logs, forum, music, gallery, leisure, downloadView, mine, fishrun, tools, admin, notfound,
     redirectView('posts', 'logs'),
     redirectView('post', 'logs'),
     redirectView('news', 'logs'),

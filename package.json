@@ -18,6 +18,7 @@
     "verify:android": "node tools/verify-android-server.mjs",
     "responsive": "node tools/responsive.mjs",
     "pwa:sw": "node tools/gen-service-worker.mjs",
+    "pwa:preload": "node tools/gen-modulepreload.mjs",
     "pwa:icons": "python tools/make-app-icons.py",
     "pwa:shots": "node tools/pwa-shots.mjs"
   },

@@ -1,7 +1,7 @@
 /**
  * sw.js — Service Worker（由 tools/gen-service-worker.mjs 生成，请勿手改）
  * ------------------------------------------------------------------
- * 版本：2aa17b4256（壳资源 119 个，约 2826 KB）
+ * 版本：b5be38914e（壳资源 123 个，约 3356 KB）
  * 生成：node tools/gen-service-worker.mjs
  *
  * 想让「装到主屏的 App」离线可用、启动更快，就靠这一份。
@@ -12,7 +12,7 @@
  * 永远拿到旧版本：壳资源走 stale-while-revalidate，下一次访问就会换新。
  */
 
-const VERSION = "2aa17b4256";
+const VERSION = "b5be38914e";
 const CACHE = 'fish-temple-' + VERSION;
 const SCOPE = self.registration.scope;
 const url = (p) => new URL(p, SCOPE).href;
@@ -21,7 +21,7 @@ const SHELL = url('index.html');
 const OFFLINE = url('offline.html');
 
 /** 预缓存清单（相对站点根，部署在子路径下也能用） */
-const PRECACHE = ["assets/icons/apple-touch-icon.png","assets/icons/favicon-32.png","assets/icons/icon-192.png","assets/icons/icon-512-maskable.png","assets/icons/logo.svg","assets/icons/mark-512.png","assets/icons/mark-64.png","assets/patterns/barcode.svg","assets/patterns/dot-matrix.svg","assets/patterns/hud-rings.svg","assets/patterns/hud-ticks.svg","assets/patterns/twill.svg","assets/vendor/lame.min.js","assets/vendor/lunar-javascript/lunar.js","data/album.json","data/anime-covers.json","data/anime-overrides.json","data/anime.json","data/gallery.json","data/netease-auth/76c5173f34e1fa5b7704157fe8e1868d.json","data/netease-meta/anonymous.json","data/netease-meta/device.json","data/netease-meta/secret.json","data/netease-meta/xeapi-key.json","data/news.json","data/posts.json","index.html","manifest.webmanifest","offline.html","src/config/site.config.js","src/core/bus.js","src/core/history.js","src/core/motion.js","src/core/player.js","src/core/registry.js","src/core/router.js","src/core/store.js","src/core/theme.js","src/main.js","src/plugins/almanac.js","src/plugins/auth.js","src/plugins/comment-model.js","src/plugins/dashboard-view.js","src/plugins/example-widget.js","src/plugins/leaderboard.js","src/plugins/lyrics.js","src/plugins/mine-room.js","src/plugins/minesweeper.js","src/plugins/netease-login.js","src/plugins/netease.js","src/plugins/stage.js","src/plugins/tierlist.js","src/plugins/tools/ai-separator.js","src/plugins/tools/air.js","src/plugins/tools/audio.js","src/plugins/tools/bleed.js","src/plugins/tools/docx-html.js","src/plugins/tools/docx.js","src/plugins/tools/fft.js","src/plugins/tools/image.js","src/plugins/tools/index.js","src/plugins/tools/pdf.js","src/plugins/tools/pptx.js","src/plugins/tools/text.js","src/plugins/tools/zip.js","src/plugins/victory-song.js","src/ui/almanac.js","src/ui/audio-energy.js","src/ui/backdrop-pool.js","src/ui/background-picker.js","src/ui/bits.js","src/ui/boot.js","src/ui/comments.js","src/ui/embed-host.js","src/ui/leaderboard.js","src/ui/listening-stage.js","src/ui/lyrics.js","src/ui/miniaudio.js","src/ui/palette.js","src/ui/pwa.js","src/ui/range.js","src/ui/shell.js","src/ui/stage-scenes.js","src/ui/toast.js","src/ui/tools-tabs.js","src/ui/wave-row.js","src/util/dom.js","src/util/markdown.js","src/views/admin.js","src/views/audio-extract.js","src/views/fish-run.js","src/views/forum.js","src/views/gallery.js","src/views/home.js","src/views/leisure.js","src/views/logs.js","src/views/mine-room.js","src/views/mine.js","src/views/music.js","src/views/newsItem.js","src/views/notfound.js","src/views/post.js","src/views/redirect.js","src/views/tierlist.js","src/views/tools.js","src/views/vocal-remove.js","styles/almanac.css","styles/authpanel.css","styles/background-picker.css","styles/base.css","styles/comments.css","styles/components.css","styles/ef.css","styles/leaderboard.css","styles/leisure.css","styles/mine-room.css","styles/mobile.css","styles/patterns.css","styles/tokens.css"].map(url);
+const PRECACHE = ["assets/icons/apple-touch-icon.png","assets/icons/favicon-32.png","assets/icons/icon-192.png","assets/icons/icon-512-maskable.png","assets/icons/logo.svg","assets/icons/mark-512.png","assets/icons/mark-64.png","assets/patterns/barcode.svg","assets/patterns/dot-matrix.svg","assets/patterns/hud-rings.svg","assets/patterns/hud-ticks.svg","assets/patterns/twill.svg","assets/vendor/lame.min.js","assets/vendor/lunar-javascript/lunar.js","data/album.json","data/anime-covers.json","data/anime-overrides.json","data/anime-sedai-green.json","data/anime-sedai.json","data/anime.json","data/gallery.json","data/netease-auth/76c5173f34e1fa5b7704157fe8e1868d.json","data/netease-meta/anonymous.json","data/netease-meta/device.json","data/netease-meta/secret.json","data/netease-meta/xeapi-key.json","data/news.json","data/posts.json","index.html","manifest.webmanifest","offline.html","src/config/site.config.js","src/core/bus.js","src/core/history.js","src/core/motion.js","src/core/player.js","src/core/registry.js","src/core/router.js","src/core/store.js","src/core/theme.js","src/main.js","src/plugins/almanac.js","src/plugins/auth.js","src/plugins/comment-model.js","src/plugins/dashboard-view.js","src/plugins/example-widget.js","src/plugins/leaderboard.js","src/plugins/lyrics.js","src/plugins/mine-room.js","src/plugins/minesweeper.js","src/plugins/netease-login.js","src/plugins/netease.js","src/plugins/stage.js","src/plugins/tierlist.js","src/plugins/tools/ai-separator.js","src/plugins/tools/air.js","src/plugins/tools/audio.js","src/plugins/tools/bleed.js","src/plugins/tools/docx-html.js","src/plugins/tools/docx.js","src/plugins/tools/fft.js","src/plugins/tools/image.js","src/plugins/tools/index.js","src/plugins/tools/pdf.js","src/plugins/tools/pptx.js","src/plugins/tools/text.js","src/plugins/tools/zip.js","src/plugins/victory-song.js","src/ui/almanac.js","src/ui/audio-energy.js","src/ui/backdrop-pool.js","src/ui/background-picker.js","src/ui/bits.js","src/ui/boot.js","src/ui/comments.js","src/ui/embed-host.js","src/ui/leaderboard.js","src/ui/listening-stage.js","src/ui/lyrics.js","src/ui/miniaudio.js","src/ui/palette.js","src/ui/pwa.js","src/ui/range.js","src/ui/shell.js","src/ui/stage-scenes.js","src/ui/toast.js","src/ui/tools-tabs.js","src/ui/wave-row.js","src/util/dom.js","src/util/markdown.js","src/views/admin.js","src/views/audio-extract.js","src/views/download.js","src/views/fish-run.js","src/views/forum.js","src/views/gallery.js","src/views/home.js","src/views/leisure.js","src/views/logs.js","src/views/mine-room.js","src/views/mine.js","src/views/music.js","src/views/newsItem.js","src/views/notfound.js","src/views/post.js","src/views/redirect.js","src/views/tierlist.js","src/views/tools.js","src/views/vocal-remove.js","styles/almanac.css","styles/authpanel.css","styles/background-picker.css","styles/base.css","styles/comments.css","styles/components.css","styles/download.css","styles/ef.css","styles/leaderboard.css","styles/leisure.css","styles/mine-room.css","styles/mobile.css","styles/patterns.css","styles/tokens.css"].map(url);
 
 /** 图片缓存上限：超出后删最旧的（Cache API 的 key 按插入顺序返回） */
 const IMAGE_CACHE = 'fish-temple-images';
@@ -90,20 +90,16 @@ async function trimImageCache(cache) {
   for (const k of keys.slice(0, extra)) await cache.delete(k);
 }
 
-/** 导航：缓存里有就立刻给（离线秒开），同时后台更新 */
+/** 导航：先要网络（保证 index.html 不是旧版 6 秒超时页），失败才回缓存/离线页 */
 async function navigation(request) {
   const cache = await caches.open(CACHE);
-  const hit = await cache.match(SHELL);
-  const network = fetch(request).then((res) => {
+  try {
+    const res = await fetch(request, { cache: 'no-store' });
     if (res && res.ok) cache.put(SHELL, res.clone()).catch(() => {});
-    return res;
-  }).catch(() => null);
-  if (hit) {
-    event_waitUntilSafe(network);
-    return hit;
-  }
-  const res = await network;
-  if (res) return res;
+    if (res) return res;
+  } catch { /* 离线 / 网络失败，落到缓存 */ }
+  const hit = await cache.match(SHELL);
+  if (hit) return hit;
   return (await caches.match(OFFLINE)) || new Response(
     '<!doctype html><meta charset="utf-8"><title>离线</title><p style="font:16px system-ui;padding:32px">离线，且没有缓存。联网后重新打开。</p>',
     { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
