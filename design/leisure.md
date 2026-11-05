@@ -91,6 +91,26 @@ node tools/import-sedai-watchlist.mjs --write --limit=5  # 小样本
 
 匹配靠标题相似度 + 年份 + TV 平台；同名前缀的 OVA 会先被年份/平台压下去。加新格后重建 `anime-sedai-green.json` 再跑即可。
 
+### 站内 Bangumi 搜索
+
+工具栏现在有「本站 / BANGUMI」两档：
+
+- **本站**：原来的本地档案搜索、类型筛选、排序，完全离线。
+- **BANGUMI**：输入中文 / 日文 / 英文名，回车或点「搜索」，浏览器直接请求
+  `https://bgmapi.anibt.net/v0/search/subjects`（POST，`filter.type = [2]`，只取 TV 动画）。
+  反代返回 `Access-Control-Allow-Origin: *`，所以不需要经过本站服务器。
+
+搜索结果是一张临时卡：
+
+- 封面 400px，400 失败退 800px，再退 CSS；详情弹层用大图；全部只存 URL，不下载。
+- 中文名 / 日文名 / 年份 / 话数 / 制作 / 类型 / Bangumi 评分 / 简介都从 Bangumi 来。
+- 卡片右上角没有「＋」；详情里也没有追番按钮 —— 实时结果不写入 `data/anime.json`、不写入本地追番。
+- 详情里的 `COVER / Bangumi` 和 `Bangumi ↗` 都指向对应 subject 页。
+- 输入变化会取消旧请求；清空输入回到搜索提示；请求失败有「重试 / 切回本站」。
+- 默认只显示接口返回的 10 条；要翻更多可以换关键词（没有做分页）。
+
+这样本站档案是「我看过的 / 当前季」，Bangumi 搜索是「查任何一部」，两边不混。
+
 封面单独放在 `data/anime-covers.json`（不塞进上面这份编辑数据）：
 
 ```jsonc

@@ -529,6 +529,50 @@
 .leisure-search {
   flex: 0 1 300px;
   min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.leisure-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.leisure-searchmode {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.leisure-toolbar.is-bangumi .leisure-filters,
+.leisure-toolbar.is-bangumi .leisure-sort,
+.leisure-toolbar.is-bangumi .leisure-clear {
+  display: none;
+}
+
+.leisure-toolbar.is-bangumi .leisure-search {
+  flex: 1 1 380px;
+  max-width: 680px;
+}
+
+.leisure-bgmloading {
+  grid-column: 1 / -1;
+  padding: var(--sp-6) var(--sp-4);
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--fg-faint);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-wide);
+  text-align: center;
+}
+
+.leisure-bgmemptyacts {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: var(--sp-3);
+  padding-bottom: var(--sp-5);
 }
 
 .leisure-filters {
@@ -1689,7 +1733,17 @@ html.leisure-modal-open {
     gap: 8px;
   }
 
+  .leisure-searchmode {
+    flex: 1 1 100%;
+    order: 0;
+  }
+
   .leisure-search {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  .leisure-toolbar.is-bangumi .leisure-search {
     flex: 1 1 100%;
     max-width: none;
   }

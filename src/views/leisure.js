@@ -48,6 +48,13 @@ const WATCH_STATUS = {
 const WATCH_CYCLE = [null, 'plan', 'watching', 'done'];
 const MARKS = ['orb', 'lines', 'blade', 'eye', 'dots', 'wave', 'plus', 'star'];
 const LAYOUTS = ['a', 'b', 'c', 'd'];
+const BGM_API = 'https://bgmapi.anibt.net/v0/search/subjects';
+const BGM_GENRES = new Set([
+  '科幻', '奇幻', '战斗', '恋爱', '喜剧', '校园', '日常', '治愈', '悬疑', '推理',
+  '热血', '运动', '音乐', '百合', '机战', '历史', '冒险', '群像', '青春', '致郁',
+  '搞笑', '猎奇', '后宫', '异世界', '穿越', '魔法', '超能力', '美食', '职场',
+  '公路', '单元剧', '剧情', '偶像', '泡面番', '短片', '动画',
+]);
 const TABS = [
   { id: 'season', cn: '当季新番', en: 'SEASON' },
   { id: 'picks', cn: '推荐动漫', en: 'PICKS' },
@@ -60,8 +67,19 @@ let modalList = [];
 let modalId = null;
 let searchTimer = null;
 let lastRandomId = '';
+let bgmById = new Map();
+let bgmAbort = null;
+let bgmSeq = 0;
 
-const state = { tab: 'season', q: '', genre: '全部', mine: '全部', sort: '' };
+const state = {
+  tab: 'season',
+  q: '',
+  genre: '全部',
+  mine: '全部',
+  sort: '',
+  mode: 'local',
+  bgm: { status: 'idle', items: [], query: '', total: 0, error: '' },
+};
 
 /* ------------------------------------------------------------------ */
 /* 小工具                                                              */
@@ -242,7 +260,7 @@ function posterHTML(item, { index = 0, lg = false } = {}) {
   const jp = item.posterJa || item.titleJa || item.title || '';
   const jpCls = jp.length > 16 ? ' poster--jp-long' : jp.length > 10 ? ' poster--jp-mid' : '';
   const seasonTag = item.kind === 'pick'
-    ? `${item.year || '—'} / PICK`
+    ? `${item.year || '—'} / ${item.bangumiOnly ? 'BANGUMI' : 'PICK'}`
     : `${DATA?.season?.year || ''} / ${dayOf(item.day).en}`;
   const remote = (lg && item.coverRemoteLarge) || item.coverRemote || '';
   const remoteFallback = !lg ? item.coverRemoteMedium || '' : '';
@@ -266,9 +284,118 @@ function posterHTML(item, { index = 0, lg = false } = {}) {
     <span class="poster__ghost">${String(index + 1).padStart(2, '0')}</span>
     <span class="poster__jp" lang="ja">${esc(jp)}</span>
     <span class="poster__season">${esc(seasonTag)}</span>
-    <span class="poster__type">${item.kind === 'pick' ? 'RECOMMENDED' : 'TV ANIMATION'}</span>
+    <span class="poster__type">${item.bangumiOnly ? 'BANGUMI SEARCH' : item.kind === 'pick' ? 'RECOMMENDED' : 'TV ANIMATION'}</span>
     <span class="poster__shine"></span>
   </div>`;
+}
+
+/* ---------------- Bangumi 实时搜索 ---------------- */
+
+const BGM_ACCENTS = ['#ffd400', '#cfe9ff', '#ffb3c9', '#b39dff', '#9fffd0', '#ffd9a0'];
+
+function bgmClean(s) {
+  return String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function bgmHook(s) {
+  const text = bgmClean(s);
+  if (!text) return '来自 Bangumi 的动画档案。';
+  const sentences = text.match(/[^。！？!?]+[。！？!?]?/g) || [text];
+  let first = sentences.slice(0, 2).join('').trim();
+  if (first.length > 54) first = `${first.slice(0, 52)}…`;
+  return first;
+}
+
+function bgmStudio(s) {
+  const row = (s.infobox || []).find((i) => /动画制作|製作|制作/.test(String(i.key || '')));
+  if (!row) return '—';
+  const value = Array.isArray(row.value) ? row.value.map((v) => v.v || v).join(' / ') : row.value;
+  const first = bgmClean(value).split(/[、,，]/)[0].replace(/（.*$/, '').trim();
+  return first ? first.slice(0, 40) : '—';
+}
+
+function bgmGenres(s) {
+  const all = [...(s.meta_tags || []), ...(s.tags || []).map((t) => t.name)];
+  return [...new Set(all.filter((g) => BGM_GENRES.has(g)))].slice(0, 3);
+}
+
+function bangumiItem(s) {
+  const date = String(s.date || '');
+  const year = Number(date.slice(0, 4)) || '';
+  const eps = Number(s.total_episodes || s.eps || 0);
+  const score = Number(s.rating?.score || 0);
+  const summary = bgmClean(s.summary);
+  const seed = Math.abs(Number(s.id) || 0);
+  const common = s.images?.common || s.images?.medium || s.images?.large || s.image || '';
+  const medium = s.images?.medium || s.images?.large || common;
+  const large = s.images?.large || s.images?.medium || common;
+  return {
+    id: `bgm-${s.id}`,
+    bangumiOnly: true,
+    kind: 'pick',
+    title: s.name_cn || s.name || `Bangumi ${s.id}`,
+    titleJa: s.name || '',
+    posterJa: s.name || '',
+    year,
+    episodes: eps ? `${eps} 话` : '—',
+    studio: bgmStudio(s),
+    badge: 'BANGUMI',
+    genres: bgmGenres(s),
+    hook: bgmHook(summary),
+    synopsis: summary.length > 300 ? `${summary.slice(0, 299)}…` : summary || '暂无简介。',
+    note: score ? `Bangumi ${score.toFixed(1)} 分 · ${date || '—'}` : `Bangumi 收录 · ${date || '—'}`,
+    audience: '',
+    score,
+    scoreLabel: 'BANGUMI / 参考评分',
+    coverRemote: common,
+    coverRemoteMedium: medium,
+    coverRemoteLarge: large,
+    coverMeta: {
+      bangumiId: s.id,
+      bangumiUrl: `https://bgm.tv/subject/${s.id}`,
+      bangumiName: s.name || '',
+      bangumiNameCn: s.name_cn || '',
+    },
+    poster: {
+      h: seed % 360,
+      h2: (seed + 43) % 360,
+      accent: BGM_ACCENTS[seed % BGM_ACCENTS.length],
+      mark: MARKS[seed % MARKS.length],
+      layout: LAYOUTS[Math.floor(seed / 7) % LAYOUTS.length],
+      rot: (seed % 41) - 20,
+    },
+  };
+}
+
+function bgmEmptyHTML() {
+  const b = state.bgm;
+  if (b.status === 'loading') {
+    return '<div class="leisure-bgmloading mono">正在向 BANGUMI 查询 …</div>';
+  }
+  if (b.status === 'error') {
+    return `${emptyState({
+      title: 'Bangumi 没有响应',
+      desc: b.error || '反代超时或限流，稍后再试；也可以切回「本站档案」。',
+      icon: '!',
+    })}<div class="leisure-bgmemptyacts"><button class="btn btn--sm" type="button" id="leisureBgmRetry">重试</button><button class="btn btn--sm btn--ghost" type="button" data-searchmode="local">切回本站</button></div>`;
+  }
+  if (b.status === 'ok' && !b.items.length) {
+    return emptyState({
+      title: 'Bangumi 没搜到',
+      desc: `没有找到「${b.query}」相关的 TV 动画，换个中文 / 日文 / 英文名试试。`,
+      icon: '⌕',
+    });
+  }
+  return `${emptyState({
+    title: '搜一部 Bangumi 动画',
+    desc: '输入中文 / 日文 / 英文名，回车或点搜索。结果来自 Bangumi 实时接口，不写入本地档案。',
+    icon: '⌕',
+  })}<div class="leisure-bgmemptyacts"><button class="btn btn--sm btn--ghost" type="button" data-searchmode="local">切回本站档案</button></div>`;
+}
+
+function bgmGridHTML() {
+  if (state.bgm.status !== 'ok' || !state.bgm.items.length) return bgmEmptyHTML();
+  return state.bgm.items.map((it, i) => cardHTML(it, i)).join('');
 }
 
 /* ------------------------------------------------------------------ */
@@ -278,10 +405,14 @@ function posterHTML(item, { index = 0, lg = false } = {}) {
 function cardHTML(item, i) {
   const w = watch[item.id];
   const st = w ? WATCH_STATUS[w] : null;
-  const kicker = item.kind === 'season'
-    ? `<span class="tag ${item.status === '续作' ? 'tag--signal' : 'tag--muted'}">${esc(item.status || '新作')}</span>
+  const bgm = item.bangumiOnly === true;
+  const kicker = bgm
+    ? `<span class="tag tag--signal">BANGUMI</span>
+       <span class="acard__air mono">${esc(item.year || '')} · ${esc(item.episodes || '')}</span>`
+    : item.kind === 'season'
+      ? `<span class="tag ${item.status === '续作' ? 'tag--signal' : 'tag--muted'}">${esc(item.status || '新作')}</span>
        <span class="acard__air mono">${dayOf(item.day).ja}曜 ${esc(item.time || '')}</span>`
-    : `<span class="tag tag--signal">${esc(item.badge || '推荐')}</span>
+      : `<span class="tag tag--signal">${esc(item.badge || '推荐')}</span>
        <span class="acard__air mono">${esc(item.year || '')} · ${esc(item.episodes || '')}</span>`;
 
   return `<article class="acard${w ? ' is-tracked' : ''}" data-id="${esc(item.id)}" style="--i:${i}">
@@ -289,12 +420,12 @@ function cardHTML(item, i) {
       ${posterHTML(item, { index: i })}
       <button class="acard__open" type="button" data-open="${esc(item.id)}"
               aria-label="查看《${esc(item.title)}》详情"></button>
-      <button class="acard__track${w ? ' is-tracked' : ''}" type="button" data-track="${esc(item.id)}"
+      ${bgm ? '' : `<button class="acard__track${w ? ' is-tracked' : ''}" type="button" data-track="${esc(item.id)}"
               aria-pressed="${w ? 'true' : 'false'}"
               aria-label="${w ? `追番状态：${st.label}，点击切换` : '加入追番'}"
               title="${w ? `追番状态：${st.label}（点击切换）` : '加入追番'}">
         <span aria-hidden="true">${w ? st.icon : '＋'}</span>
-      </button>
+      </button>`}
     </div>
     <div class="acard__body">
       <div class="acard__kicker">${kicker}</div>
@@ -508,7 +639,9 @@ function modalHTML(item, idx) {
   return `<div class="amodal__grid">
     <div class="amodal__side">
       <div class="amodal__poster">${posterHTML(item, { index: idx, lg: true })}</div>
-      <div class="amodal__watch" id="leisureModalWatch">${watchButtonsHTML(item.id)}</div>
+      ${item.bangumiOnly
+        ? '<p class="amodal__watchhint">来自 Bangumi 的实时搜索结果，不写入本地追番。</p>'
+        : `<div class="amodal__watch" id="leisureModalWatch">${watchButtonsHTML(item.id)}</div>`}
       ${item.coverRemote && item.coverMeta?.bangumiUrl
         ? `<p class="amodal__credit mono">COVER / <a href="${esc(item.coverMeta.bangumiUrl)}" target="_blank" rel="noopener noreferrer">Bangumi</a></p>`
         : item.cover && item.coverMeta?.anilistUrl
@@ -538,7 +671,7 @@ function modalHTML(item, idx) {
       <p class="amodal__synopsis">${esc(item.synopsis || '')}</p>
 
       <blockquote class="amodal__note">
-        <span class="k-label">${isSeason ? 'WHY / 值得看' : 'WHY / 推荐理由'}</span>
+        <span class="k-label">${item.bangumiOnly ? 'SOURCE / 来源' : isSeason ? 'WHY / 值得看' : 'WHY / 推荐理由'}</span>
         <p>${esc(item.note || '')}</p>
         ${item.audience ? `<span class="amodal__audience">适合：${esc(item.audience)}</span>` : ''}
       </blockquote>
@@ -552,7 +685,9 @@ function modalHTML(item, idx) {
       <div class="amodal__actions">
         <a class="btn btn--sm" href="https://search.bilibili.com/all?keyword=${encodeURIComponent(item.title)}"
            target="_blank" rel="noopener noreferrer">B 站搜索 ↗</a>
-        <a class="btn btn--sm btn--ghost" href="https://bgm.tv/subject_search/${encodeURIComponent(item.titleJa || item.title)}"
+        <a class="btn btn--sm btn--ghost" href="${esc(item.bangumiOnly && item.coverMeta?.bangumiUrl
+          ? item.coverMeta.bangumiUrl
+          : `https://bgm.tv/subject_search/${encodeURIComponent(item.titleJa || item.title)}`)}"
            target="_blank" rel="noopener noreferrer">Bangumi ↗</a>
         <button class="btn btn--sm btn--ghost" type="button" data-close>关闭</button>
       </div>
@@ -567,14 +702,16 @@ function modalHTML(item, idx) {
 }
 
 function openModal(id, list = null) {
-  const item = DATA?.byId.get(id);
+  const item = DATA?.byId.get(id) || bgmById.get(id);
   const dlg = $('#leisureModal');
   if (!item || !dlg) return;
-  const source = list || (displayList.some((x) => x.id === id)
-    ? displayList
-    : item.kind === 'season'
-      ? [...DATA.current].sort((a, b) => num(a.day, 9) - num(b.day, 9) || String(a.time).localeCompare(String(b.time)))
-      : DATA.picks);
+  const source = list || (item.bangumiOnly
+    ? state.bgm.items
+    : displayList.some((x) => x.id === id)
+      ? displayList
+      : item.kind === 'season'
+        ? [...DATA.current].sort((a, b) => num(a.day, 9) - num(b.day, 9) || String(a.time).localeCompare(String(b.time)))
+        : DATA.picks);
   modalList = source;
   modalId = id;
   const idx = Math.max(0, modalList.findIndex((x) => x.id === id));
@@ -608,6 +745,102 @@ function renderModalWatch(id) {
   if (host) host.innerHTML = watchButtonsHTML(id);
 }
 
+/* ---------------- Bangumi 搜索模式 ---------------- */
+
+function syncSearchModeUI(root = document) {
+  const toolbar = $('#leisureToolbar', root);
+  const input = $('#leisureSearch', root);
+  const go = $('#leisureSearchGo', root);
+  const bangumi = state.mode === 'bangumi';
+  toolbar?.classList.toggle('is-bangumi', bangumi);
+  if (input) {
+    input.placeholder = bangumi
+      ? '搜 Bangumi：中文 / 日文 / 英文番名…'
+      : '搜索番名 / 声优 / 类型 / 关键词…';
+  }
+  if (go) go.hidden = !bangumi;
+  const localFoot = $('#leisureFoot', root);
+  const bgmFoot = $('#leisureBgmFoot', root);
+  if (localFoot) localFoot.hidden = bangumi;
+  if (bgmFoot) bgmFoot.hidden = !bangumi;
+  $$('[data-searchmode]', root).forEach((btn) => {
+    const on = btn.dataset.searchmode === state.mode;
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-pressed', String(on));
+  });
+}
+
+function setSearchMode(mode, root = document) {
+  if (mode !== 'local' && mode !== 'bangumi') return;
+  if (mode === state.mode) {
+    syncSearchModeUI(root);
+    return;
+  }
+  state.mode = mode;
+  bgmAbort?.abort();
+  bgmAbort = null;
+  bgmSeq += 1;
+  if (mode === 'local') {
+    state.q = '';
+    state.bgm = { status: 'idle', items: [], query: '', total: 0, error: '' };
+    const input = $('#leisureSearch', root);
+    if (input) input.value = '';
+  }
+  syncSearchModeUI(root);
+  if (mode === 'bangumi' && state.q) runBangumiSearch();
+  else paint();
+}
+
+async function runBangumiSearch() {
+  const q = String(state.q || '').trim();
+  if (!q) {
+    state.bgm = { status: 'idle', items: [], query: '', total: 0, error: '' };
+    paint();
+    Toast.show('先输入一部番的名字，再搜 Bangumi');
+    return;
+  }
+
+  bgmAbort?.abort();
+  bgmAbort = new AbortController();
+  const seq = ++bgmSeq;
+  state.bgm = { status: 'loading', items: [], query: q, total: 0, error: '' };
+  paint();
+
+  try {
+    const res = await fetch(BGM_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ keyword: q, filter: { type: [2] } }),
+      signal: bgmAbort.signal,
+    });
+    if (!res.ok) throw new Error(`Bangumi 反代 HTTP ${res.status}`);
+    const json = await res.json();
+    if (seq !== bgmSeq || state.q !== q) return;
+    const items = (json.data || []).filter((s) => !s.nsfw).map(bangumiItem);
+    bgmById = new Map(items.map((it) => [it.id, it]));
+    state.bgm = {
+      status: 'ok',
+      items,
+      query: q,
+      total: Number(json.total) || items.length,
+      error: '',
+    };
+    paint();
+  } catch (err) {
+    if (err?.name === 'AbortError' || seq !== bgmSeq) return;
+    state.bgm = {
+      status: 'error',
+      items: [],
+      query: q,
+      total: 0,
+      error: err?.message || '反代超时或限流，稍后再试。',
+    };
+    paint();
+  } finally {
+    if (seq === bgmSeq) bgmAbort = null;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* 状态与重绘                                                          */
 /* ------------------------------------------------------------------ */
@@ -630,6 +863,23 @@ function refreshSummary() {
 function paint({ focusTrack = null } = {}) {
   const grid = $('#leisureGrid');
   if (!grid || !DATA) return;
+
+  if (state.mode === 'bangumi') {
+    displayList = state.bgm.items;
+    grid.innerHTML = bgmGridHTML();
+    const count = $('#leisureCount');
+    if (count) {
+      count.textContent = state.bgm.status === 'ok'
+        ? `BANGUMI / ${pad(state.bgm.items.length)} RESULTS`
+        : state.bgm.status === 'loading'
+          ? 'BANGUMI / …'
+          : state.bgm.status === 'error'
+            ? 'BANGUMI / ERROR'
+            : 'BANGUMI / SEARCH';
+    }
+    return;
+  }
+
   displayList = filteredItems();
   grid.innerHTML = displayList.length
     ? displayList.map((it, i) => cardHTML(it, i)).join('')
@@ -801,10 +1051,18 @@ export default {
 
       ${weekHTML()}
 
-      <div class="leisure-toolbar">
+      <div class="leisure-toolbar" id="leisureToolbar">
+        <div class="leisure-searchmode" role="group" aria-label="搜索范围">
+          <button class="chip${state.mode === 'local' ? ' is-on' : ''}" type="button"
+                  data-searchmode="local" aria-pressed="${state.mode === 'local'}">本站</button>
+          <button class="chip${state.mode === 'bangumi' ? ' is-on' : ''}" type="button"
+                  data-searchmode="bangumi" aria-pressed="${state.mode === 'bangumi'}">BANGUMI</button>
+        </div>
         <div class="searchline leisure-search">
           <input type="search" id="leisureSearch" value="${esc(state.q)}"
-                 placeholder="搜索番名 / 声优 / 类型 / 关键词…" autocomplete="off" spellcheck="false" />
+                 placeholder="${state.mode === 'bangumi' ? '搜 Bangumi：中文 / 日文 / 英文番名…' : '搜索番名 / 声优 / 类型 / 关键词…'}"
+                 autocomplete="off" spellcheck="false" />
+          <button class="btn btn--sm" type="button" id="leisureSearchGo"${state.mode === 'bangumi' ? '' : ' hidden'}>搜索</button>
         </div>
         <div class="leisure-filters" id="leisureFilters">${filtersHTML()}</div>
         <label class="leisure-sort">
@@ -817,7 +1075,7 @@ export default {
 
       <div class="leisure-grid" id="leisureGrid" aria-live="polite"></div>
 
-      <p class="leisure-footnote">
+      <p class="leisure-footnote" id="leisureFoot">
         ${esc(s.note || '放送时间以关东地上波为准。')}
         番剧信息整理自 ${(data2.sources || []).map((src) => `<a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.label)}</a>`).join(' · ')}。
         ${Object.keys(data2.coverMeta?.items || {}).length
@@ -826,6 +1084,12 @@ export default {
         ${s.auto ? '本季列表由 AniList 自动整理，中文名 / 短评 / 声优持续补充中。' : ''}
         ${s.auto ? '自动条目的评分来自 AniList，仅供参考。' : '评分、期待值与推荐语为主观。'}
         追番状态只保存在这台设备里。${live ? '' : ' 本季已完结，页面保留为补番档案。'}
+      </p>
+
+      <p class="leisure-footnote" id="leisureBgmFoot" hidden>
+        搜索结果来自 <a href="https://bgm.tv" target="_blank" rel="noopener noreferrer">Bangumi</a> 公开接口；
+        封面走 bgmimg 反代热链，不落盘。评分是 Bangumi 参考分，不是本站主观评价；
+        这些是实时搜索结果，不会写进本地追番或推荐档案。
       </p>
 
       <dialog class="anime-modal" id="leisureModal" aria-labelledby="leisureModalTitle">
@@ -849,16 +1113,33 @@ export default {
     }, true);
 
     paint();
+    syncSearchModeUI(root);
     scanCovers(root);
 
-    // 搜索（防抖，输入时重绘卡片）
+    // 搜索（本站防抖；Bangumi 模式只在回车 / 点搜索时请求）
     const search = $('#leisureSearch', root);
     search?.addEventListener('input', (e) => {
+      state.q = e.target.value.trim();
+      if (state.mode === 'bangumi') {
+        if (state.q !== state.bgm.query) {
+          bgmAbort?.abort();
+          bgmAbort = null;
+          bgmSeq += 1;
+          state.bgm = { status: 'idle', items: [], query: '', total: 0, error: '' };
+          paint();
+        }
+        return;
+      }
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
-        state.q = e.target.value.trim();
         paint();
       }, 150);
+    });
+    search?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && state.mode === 'bangumi') {
+        e.preventDefault();
+        runBangumiSearch();
+      }
     });
 
     // 排序
@@ -896,8 +1177,18 @@ export default {
 
     // 统一委托：标签 / 筛选 / 卡片 / 追番 / 弹层按钮
     root.addEventListener('click', (e) => {
+      const searchMode = e.target.closest('[data-searchmode]');
+      if (searchMode) { setSearchMode(searchMode.dataset.searchmode, root); return; }
+
+      if (e.target.closest('#leisureSearchGo')) { runBangumiSearch(); return; }
+      if (e.target.closest('#leisureBgmRetry')) { runBangumiSearch(); return; }
+
       const tabBtn = e.target.closest('[data-tab]');
-      if (tabBtn) { setTab(tabBtn.dataset.tab); return; }
+      if (tabBtn) {
+        setSearchMode('local', root);
+        setTab(tabBtn.dataset.tab);
+        return;
+      }
 
       const genre = e.target.closest('[data-genre]');
       if (genre) {
