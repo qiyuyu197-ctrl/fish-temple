@@ -48,86 +48,6 @@
 <link rel="stylesheet" href="styles/background-picker.css" />
 <!-- 从 rahoo.online 素材里提炼的 HUD 纹理 / 封面包号 / 宋体标题层 -->
 <link rel="stylesheet" href="styles/patterns.css" />
-<!-- MODULEPRELOAD:START -->
-<link rel="modulepreload" href="src/config/site.config.js" />
-<link rel="modulepreload" href="src/core/bus.js" />
-<link rel="modulepreload" href="src/core/history.js" />
-<link rel="modulepreload" href="src/core/motion.js" />
-<link rel="modulepreload" href="src/core/player.js" />
-<link rel="modulepreload" href="src/core/registry.js" />
-<link rel="modulepreload" href="src/core/router.js" />
-<link rel="modulepreload" href="src/core/store.js" />
-<link rel="modulepreload" href="src/core/theme.js" />
-<link rel="modulepreload" href="src/main.js" />
-<link rel="modulepreload" href="src/plugins/almanac.js" />
-<link rel="modulepreload" href="src/plugins/auth.js" />
-<link rel="modulepreload" href="src/plugins/comment-model.js" />
-<link rel="modulepreload" href="src/plugins/dashboard-view.js" />
-<link rel="modulepreload" href="src/plugins/example-widget.js" />
-<link rel="modulepreload" href="src/plugins/leaderboard.js" />
-<link rel="modulepreload" href="src/plugins/lyrics.js" />
-<link rel="modulepreload" href="src/plugins/mine-room.js" />
-<link rel="modulepreload" href="src/plugins/minesweeper.js" />
-<link rel="modulepreload" href="src/plugins/netease-login.js" />
-<link rel="modulepreload" href="src/plugins/netease.js" />
-<link rel="modulepreload" href="src/plugins/stage.js" />
-<link rel="modulepreload" href="src/plugins/tierlist.js" />
-<link rel="modulepreload" href="src/plugins/tools/ai-separator.js" />
-<link rel="modulepreload" href="src/plugins/tools/air.js" />
-<link rel="modulepreload" href="src/plugins/tools/audio.js" />
-<link rel="modulepreload" href="src/plugins/tools/bleed.js" />
-<link rel="modulepreload" href="src/plugins/tools/docx-html.js" />
-<link rel="modulepreload" href="src/plugins/tools/docx.js" />
-<link rel="modulepreload" href="src/plugins/tools/fft.js" />
-<link rel="modulepreload" href="src/plugins/tools/image.js" />
-<link rel="modulepreload" href="src/plugins/tools/index.js" />
-<link rel="modulepreload" href="src/plugins/tools/pdf.js" />
-<link rel="modulepreload" href="src/plugins/tools/pptx.js" />
-<link rel="modulepreload" href="src/plugins/tools/text.js" />
-<link rel="modulepreload" href="src/plugins/tools/zip.js" />
-<link rel="modulepreload" href="src/plugins/victory-song.js" />
-<link rel="modulepreload" href="src/ui/almanac.js" />
-<link rel="modulepreload" href="src/ui/audio-energy.js" />
-<link rel="modulepreload" href="src/ui/backdrop-pool.js" />
-<link rel="modulepreload" href="src/ui/background-picker.js" />
-<link rel="modulepreload" href="src/ui/bits.js" />
-<link rel="modulepreload" href="src/ui/boot.js" />
-<link rel="modulepreload" href="src/ui/comments.js" />
-<link rel="modulepreload" href="src/ui/embed-host.js" />
-<link rel="modulepreload" href="src/ui/leaderboard.js" />
-<link rel="modulepreload" href="src/ui/listening-stage.js" />
-<link rel="modulepreload" href="src/ui/lyrics.js" />
-<link rel="modulepreload" href="src/ui/miniaudio.js" />
-<link rel="modulepreload" href="src/ui/palette.js" />
-<link rel="modulepreload" href="src/ui/pwa.js" />
-<link rel="modulepreload" href="src/ui/range.js" />
-<link rel="modulepreload" href="src/ui/shell.js" />
-<link rel="modulepreload" href="src/ui/stage-scenes.js" />
-<link rel="modulepreload" href="src/ui/toast.js" />
-<link rel="modulepreload" href="src/ui/tools-tabs.js" />
-<link rel="modulepreload" href="src/ui/wave-row.js" />
-<link rel="modulepreload" href="src/util/dom.js" />
-<link rel="modulepreload" href="src/util/markdown.js" />
-<link rel="modulepreload" href="src/views/admin.js" />
-<link rel="modulepreload" href="src/views/audio-extract.js" />
-<link rel="modulepreload" href="src/views/download.js" />
-<link rel="modulepreload" href="src/views/fish-run.js" />
-<link rel="modulepreload" href="src/views/forum.js" />
-<link rel="modulepreload" href="src/views/gallery.js" />
-<link rel="modulepreload" href="src/views/home.js" />
-<link rel="modulepreload" href="src/views/leisure.js" />
-<link rel="modulepreload" href="src/views/logs.js" />
-<link rel="modulepreload" href="src/views/mine-room.js" />
-<link rel="modulepreload" href="src/views/mine.js" />
-<link rel="modulepreload" href="src/views/music.js" />
-<link rel="modulepreload" href="src/views/newsItem.js" />
-<link rel="modulepreload" href="src/views/notfound.js" />
-<link rel="modulepreload" href="src/views/post.js" />
-<link rel="modulepreload" href="src/views/redirect.js" />
-<link rel="modulepreload" href="src/views/tierlist.js" />
-<link rel="modulepreload" href="src/views/tools.js" />
-<link rel="modulepreload" href="src/views/vocal-remove.js" />
-<!-- MODULEPRELOAD:END -->
 </head>
 <body>
 
@@ -418,7 +338,7 @@
 })();
 </script>
 
-<script type="module" src="src/main.js"
-        onerror="window.__bootWarn && window.__bootWarn('脚本加载失败', ['检查浏览器控制台是否有 404 / CORS 报错','确认 src/main.js 与 styles/ 能正常加载','刷新页面重试'])"></script>
+<script type="module" src="app.bundle.js"
+        onerror="window.__bootWarn && window.__bootWarn('脚本加载失败', ['检查浏览器控制台是否有 404 / CORS 报错','确认 app.bundle.js 与 styles/ 能正常加载','刷新页面重试'])"></script>
 </body>
 </html>

@@ -18,12 +18,15 @@
     "verify:android": "node tools/verify-android-server.mjs",
     "responsive": "node tools/responsive.mjs",
     "pwa:sw": "node tools/gen-service-worker.mjs",
-    "pwa:preload": "node tools/gen-modulepreload.mjs",
+    "build:bundle": "esbuild src/main.js --bundle --format=esm --platform=browser --target=es2020 --minify --outfile=app.bundle.js",
     "pwa:icons": "python tools/make-app-icons.py",
     "pwa:shots": "node tools/pwa-shots.mjs"
   },
   "dependencies": {
     "@netlify/blobs": ">=7.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   },
   "engines": {
     "node": ">=18"

@@ -37,6 +37,7 @@ const DIRS = [
 
 const FILES = [
   'index.html',
+  'app.bundle.js',
   'manifest.webmanifest',
   'offline.html',
   'sw.js',

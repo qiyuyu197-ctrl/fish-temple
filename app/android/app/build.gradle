@@ -78,6 +78,7 @@ def liteBuild = project.hasProperty('lite')
 tasks.register('bundleSite', Sync) {
     from(repoRoot) {
         include 'index.html'
+        include 'app.bundle.js'
         include 'manifest.webmanifest'
         include 'offline.html'
         include 'sw.js'

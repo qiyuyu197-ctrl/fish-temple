@@ -13,7 +13,8 @@
  * 浏览器据此判定"有新版本"，于是走更新提示（见 src/ui/pwa.js）。
  *
  * 缓存策略（写在生成的 sw.js 里）：
- *   · 页面导航 / 壳资源 → stale-while-revalidate（先给缓存，后台更新）
+ *   · 页面导航 → 网络优先（避免旧 index 的 6 秒假超时页），离线才回缓存
+ *   · 壳资源 → stale-while-revalidate（先给缓存，后台更新）
  *   · 图片 → cache-first（有上限，超了删最旧的）
  *   · /api/、Range 请求、跨域、模型与 wasm → 一律直连网络，不进缓存
  */
@@ -43,11 +44,10 @@ async function collect() {
   };
 
   // 入口与兜底
-  ['index.html', 'offline.html', 'manifest.webmanifest'].forEach(addFile);
+  ['index.html', 'offline.html', 'manifest.webmanifest', 'app.bundle.js'].forEach(addFile);
 
-  // 壳：样式、脚本、内容清单
+  // 壳：样式、内容清单（JS 已由 app.bundle.js 一次打包，不再逐个预缓存 src）
   await walk('styles', (n) => n.endsWith('.css'));
-  await walk('src', (n) => n.endsWith('.js') || n.endsWith('.mjs'));
   await walk('data', (n) => n.endsWith('.json') && n !== 'forum-index.json');
 
   // 图标与两个小的运行时库（黄历 / mp3 编码），大文件（wasm / 模型 / 音频）不进预缓存
