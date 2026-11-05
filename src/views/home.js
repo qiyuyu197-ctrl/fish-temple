@@ -71,7 +71,6 @@ export default {
         <div class="ruled-mask"></div>
       </div>
       <div class="hero__hud" aria-hidden="true">
-        <span class="hero__hud-ring"></span>
         <span class="hero__hud-ticks"></span>
       </div>
       <div class="hero__inner">
