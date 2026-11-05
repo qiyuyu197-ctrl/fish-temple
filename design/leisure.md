@@ -97,7 +97,7 @@ node tools/import-sedai-watchlist.mjs --write --limit=5  # 小样本
 
 - **本站**：原来的本地档案搜索、类型筛选、排序，完全离线。
 - **BANGUMI**：输入中文 / 日文 / 英文名，回车或点「搜索」，浏览器直接请求
-  `https://bgmapi.anibt.net/v0/search/subjects`（POST，`filter.type = [2]`，只取 TV 动画）。
+  `https://bgmapi.anibt.net/v0/search/subjects`（POST，`filter.type = [2]`，取 Bangumi 的动画条目，含 TV / OVA / 剧场版）。
   反代返回 `Access-Control-Allow-Origin: *`，所以不需要经过本站服务器。
 
 搜索结果是一张临时卡：
