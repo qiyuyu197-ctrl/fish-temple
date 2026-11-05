@@ -1,7 +1,7 @@
 name: Season roll
 
 # 每季首日 10:00 JST（01:00 UTC）自动换季：
-#   AniList 当季列表 → data/anime.json（overrides 覆盖）→ 封面 → 压缩 → commit
+#   AniList 当季列表 → data/anime.json（overrides 覆盖）→ Bangumi 封面直链（不下载）→ commit
 # 手动也可以跑：Actions → Season roll → Run workflow。
 on:
   schedule:
@@ -38,14 +38,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Pillow
-        run: python -m pip install --upgrade pip Pillow
-
       - name: Roll season data
         env:
           SEASON: ${{ github.event.inputs.season }}
@@ -70,13 +62,9 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Fetch covers
+      - name: Fetch Bangumi cover links
         if: steps.changed.outputs.changed == 'true'
-        run: node tools/fetch-covers.mjs
-
-      - name: Optimize covers
-        if: steps.changed.outputs.changed == 'true'
-        run: python tools/optimize-covers.py
+        run: node tools/fetch-bangumi-covers.mjs --write
 
       - name: Commit and push
         if: steps.changed.outputs.changed == 'true'
@@ -114,13 +102,13 @@ jobs:
                 '常见原因：',
                 '- AniList 还没收录新季（等一两天后在 Actions 里手动重跑）',
                 '- AniList 429 限流 / 网络超时',
+                '- Bangumi 反代（bgmapi.anibt.net）超时 / 429 / 500',
                 '- main 分支保护导致 `git push` 被拒',
                 '',
                 '本地补跑：',
                 '```bash',
                 'node tools/roll-season.mjs --write',
-                'node tools/fetch-covers.mjs',
-                'python tools/optimize-covers.py',
+                'node tools/fetch-bangumi-covers.mjs --write',
                 '```',
                 '',
                 '如果确实是同一季要重建，再加 `--force`；它会按 AniList 热度重排当前季。',

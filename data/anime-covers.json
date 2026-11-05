@@ -1,8 +1,8 @@
 {
-  "source": "AniList",
-  "sourceUrl": "https://anilist.co",
+  "source": "Bangumi（bgmimg 反代直链）+ AniList 本地兜底",
+  "sourceUrl": "https://bgm.tv",
   "fetched": "2026-10-21",
-  "note": "封面缓存自 AniList；bgm.tv 在当前网络不可达，所以没有直接引用 bgm 的图。想换回 Bangumi：替换 assets/leisure/covers/ 下的同名文件即可。",
+  "note": "封面默认直连 Bangumi（经 bgmimg 反代，不下载）；失败时回退 assets/leisure/covers 的本地 AniList 缓存。",
   "items": {
     "kusuriya-s3": {
       "anilistId": 195516,
@@ -13,7 +13,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/kusuriya-s3.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx195516-MJpUZlOberqH.jpg",
-      "bytes": 70119
+      "bytes": 70119,
+      "bangumiId": 568244,
+      "bangumiUrl": "https://bgm.tv/subject/568244",
+      "bangumiName": "薬屋のひとりごと 第3期",
+      "bangumiNameCn": "药屋少女的呢喃 第三季",
+      "bangumiDate": "2026-10-02",
+      "bangumiScore": 7.3,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/55/e2/568244_e64dA.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/55/e2/568244_e64dA.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/55/e2/568244_e64dA.jpg"
     },
     "rayearth": {
       "anilistId": 178868,
@@ -24,7 +33,16 @@
       "score": 118,
       "cover": "assets/leisure/covers/rayearth.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx178868-mfp0HIHNJNAm.jpg",
-      "bytes": 114938
+      "bytes": 114938,
+      "bangumiId": 502123,
+      "bangumiUrl": "https://bgm.tv/subject/502123",
+      "bangumiName": "魔法騎士レイアース",
+      "bangumiNameCn": "魔法骑士雷阿斯 (2026)",
+      "bangumiDate": "2026-10-07",
+      "bangumiScore": 6.1,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/e1/6f/502123_IiVB6.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/e1/6f/502123_IiVB6.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/e1/6f/502123_IiVB6.jpg"
     },
     "fx-kurumi": {
       "anilistId": 206401,
@@ -35,7 +53,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/fx-kurumi.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx206401-8cAebkI0i8BA.png",
-      "bytes": 78963
+      "bytes": 78963,
+      "bangumiId": 622288,
+      "bangumiUrl": "https://bgm.tv/subject/622288",
+      "bangumiName": "FX戦士くるみちゃん",
+      "bangumiNameCn": "FX战士久留美",
+      "bangumiDate": "2026-10-01",
+      "bangumiScore": 6.8,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/d3/99/622288_nmbC3.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/d3/99/622288_nmbC3.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/d3/99/622288_nmbC3.jpg"
     },
     "ao-no-hako-s2": {
       "anilistId": 189123,
@@ -46,7 +73,16 @@
       "score": 112,
       "cover": "assets/leisure/covers/ao-no-hako-s2.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx189123-0secXELIhkIW.jpg",
-      "bytes": 46378
+      "bytes": 46378,
+      "bangumiId": 548156,
+      "bangumiUrl": "https://bgm.tv/subject/548156",
+      "bangumiName": "アオのハコ Season 2",
+      "bangumiNameCn": "青之箱 第二季",
+      "bangumiDate": "2026-10-04",
+      "bangumiScore": 6.3,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/f1/6c/548156_L3fC6.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/f1/6c/548156_L3fC6.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/f1/6c/548156_L3fC6.jpg"
     },
     "aoashi-s2": {
       "anilistId": 191788,
@@ -57,7 +93,16 @@
       "score": 88,
       "cover": "assets/leisure/covers/aoashi-s2.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx191788-XC6F24LdX6a4.jpg",
-      "bytes": 100116
+      "bytes": 100116,
+      "bangumiId": 555605,
+      "bangumiUrl": "https://bgm.tv/subject/555605",
+      "bangumiName": "アオアシ Season 2",
+      "bangumiNameCn": "青之芦苇 第二季",
+      "bangumiDate": "2026-10-04",
+      "bangumiScore": 7.3,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/67/5a/555605_cLCw5.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/67/5a/555605_cLCw5.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/67/5a/555605_cLCw5.jpg"
     },
     "black-clover-s2": {
       "anilistId": 195604,
@@ -68,7 +113,16 @@
       "score": 101,
       "cover": "assets/leisure/covers/black-clover-s2.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx195604-tSZcfKbVqSEG.jpg",
-      "bytes": 79942
+      "bytes": 79942,
+      "bangumiId": 567896,
+      "bangumiUrl": "https://bgm.tv/subject/567896",
+      "bangumiName": "ブラッククローバー 2nd Season",
+      "bangumiNameCn": "黑色五叶草 第二季",
+      "bangumiDate": "2026-10-03",
+      "bangumiScore": 7.9,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/be/e7/567896_QqwKj.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/be/e7/567896_QqwKj.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/be/e7/567896_QqwKj.jpg"
     },
     "toaru-anbu": {
       "anilistId": 186742,
@@ -79,7 +133,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/toaru-anbu.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx186742-v7yfbefc8fuO.png",
-      "bytes": 49864
+      "bytes": 49864,
+      "bangumiId": 537738,
+      "bangumiUrl": "https://bgm.tv/subject/537738",
+      "bangumiName": "とある暗部の少女共棲",
+      "bangumiNameCn": "某暗部的少女共栖",
+      "bangumiDate": "2026-10-09",
+      "bangumiScore": 7.1,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/1c/9b/537738_6rr67.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/1c/9b/537738_6rr67.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/1c/9b/537738_6rr67.jpg"
     },
     "hotaru": {
       "anilistId": 205909,
@@ -90,7 +153,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/hotaru.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx205909-DM0fAzNQulod.jpg",
-      "bytes": 62974
+      "bytes": 62974,
+      "bangumiId": 621108,
+      "bangumiUrl": "https://bgm.tv/subject/621108",
+      "bangumiName": "ホタルの嫁入り",
+      "bangumiNameCn": "萤火虫的出嫁",
+      "bangumiDate": "2026-10-09",
+      "bangumiScore": 5.2,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/5c/04/621108_guUyJ.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/5c/04/621108_guUyJ.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/5c/04/621108_guUyJ.jpg"
     },
     "tokyo-revengers": {
       "anilistId": 178083,
@@ -101,7 +173,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/tokyo-revengers.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx178083-bg7pg6TCHwtG.jpg",
-      "bytes": 88717
+      "bytes": 88717,
+      "bangumiId": 499474,
+      "bangumiUrl": "https://bgm.tv/subject/499474",
+      "bangumiName": "東京リベンジャーズ 三天戦争編",
+      "bangumiNameCn": "东京复仇者 三天战争篇",
+      "bangumiDate": "2026-10-02",
+      "bangumiScore": 5.9,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/0f/d4/499474_bheyE.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/0f/d4/499474_bheyE.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/0f/d4/499474_bheyE.jpg"
     },
     "ranma-s3": {
       "anilistId": 209872,
@@ -112,7 +193,16 @@
       "score": 95,
       "cover": "assets/leisure/covers/ranma-s3.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx209872-RBeVPqwejHFp.jpg",
-      "bytes": 100379
+      "bytes": 100379,
+      "bangumiId": 637802,
+      "bangumiUrl": "https://bgm.tv/subject/637802",
+      "bangumiName": "らんま1/2 第3期",
+      "bangumiNameCn": "乱马1/2 第三季",
+      "bangumiDate": "2026-10-03",
+      "bangumiScore": 7.5,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/7a/49/637802_YVTam.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/7a/49/637802_YVTam.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/7a/49/637802_YVTam.jpg"
     },
     "chitose-s2": {
       "anilistId": 198727,
@@ -123,7 +213,16 @@
       "score": 118,
       "cover": "assets/leisure/covers/chitose-s2.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx198727-BL0JTpg0G8tq.jpg",
-      "bytes": 104099
+      "bytes": 104099,
+      "bangumiId": 584847,
+      "bangumiUrl": "https://bgm.tv/subject/584847",
+      "bangumiName": "千歳くんはラムネ瓶のなか 第2クール",
+      "bangumiNameCn": "弹珠汽水瓶里的千岁同学 第2部分",
+      "bangumiDate": "2026-10-13",
+      "bangumiScore": 4.8,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/83/49/584847_5nM0F.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/83/49/584847_5nM0F.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/83/49/584847_5nM0F.jpg"
     },
     "seitokai": {
       "anilistId": 191656,
@@ -134,7 +233,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/seitokai.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx191656-xFHtxM8SUTdU.png",
-      "bytes": 96606
+      "bytes": 96606,
+      "bangumiId": 554779,
+      "bangumiUrl": "https://bgm.tv/subject/554779",
+      "bangumiName": "生徒会にも穴はある！",
+      "bangumiNameCn": "学生会也有洞！",
+      "bangumiDate": "2026-10-03",
+      "bangumiScore": 7.6,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/17/c7/554779_oPitO.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/17/c7/554779_oPitO.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/17/c7/554779_oPitO.jpg"
     },
     "chii-fuyo": {
       "anilistId": 207329,
@@ -145,7 +253,16 @@
       "score": 118,
       "cover": "assets/leisure/covers/chii-fuyo.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/b207329-6VPeZIDfF4Sr.png",
-      "bytes": 22048
+      "bytes": 22048,
+      "bangumiId": 625799,
+      "bangumiUrl": "https://bgm.tv/subject/625799",
+      "bangumiName": "追放されたチート付与魔術師は気ままなセカンドライフを謳歌する。",
+      "bangumiNameCn": "被放逐的作弊赋予魔术师享受随心所欲的第二人生。",
+      "bangumiDate": "2026-10-06",
+      "bangumiScore": 6.2,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/af/3a/625799_ycox6.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/af/3a/625799_ycox6.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/af/3a/625799_ycox6.jpg"
     },
     "sasaki-pee-s2": {
       "anilistId": 176314,
@@ -156,7 +273,16 @@
       "score": 118,
       "cover": "assets/leisure/covers/sasaki-pee-s2.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx176314-lpvca6vjmkeO.jpg",
-      "bytes": 79384
+      "bytes": 79384,
+      "bangumiId": 486456,
+      "bangumiUrl": "https://bgm.tv/subject/486456",
+      "bangumiName": "佐々木とピーちゃん 第2期",
+      "bangumiNameCn": "佐佐木与文鸟小哔 第二季",
+      "bangumiDate": "2026-10-07",
+      "bangumiScore": 5.8,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/fc/aa/486456_XO5B0.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/fc/aa/486456_XO5B0.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/fc/aa/486456_XO5B0.jpg"
     },
     "tantei-s2": {
       "anilistId": 152677,
@@ -167,7 +293,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/tantei-s2.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx152677-gtJbgjE94lCN.png",
-      "bytes": 82343
+      "bytes": 82343,
+      "bangumiId": 393010,
+      "bangumiUrl": "https://bgm.tv/subject/393010",
+      "bangumiName": "探偵はもう、死んでいる。 Season 2",
+      "bangumiNameCn": "侦探已经死了。 第二季",
+      "bangumiDate": "2026-10-07",
+      "bangumiScore": 5.3,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/65/61/393010_EIOi9.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/65/61/393010_EIOi9.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/65/61/393010_EIOi9.jpg"
     },
     "tensei-sword-s2": {
       "anilistId": 159042,
@@ -178,7 +313,16 @@
       "score": 45,
       "cover": "assets/leisure/covers/tensei-sword-s2.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx159042-GGFwlDskc5vR.png",
-      "bytes": 66156
+      "bytes": 66156,
+      "bangumiId": 412008,
+      "bangumiUrl": "https://bgm.tv/subject/412008",
+      "bangumiName": "転生したら剣でしたII",
+      "bangumiNameCn": "转生就是剑 第二季",
+      "bangumiDate": "2026-10-07",
+      "bangumiScore": 6.6,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/ee/ed/412008_2PmNb.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/ee/ed/412008_2PmNb.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/ee/ed/412008_2PmNb.jpg"
     },
     "kori-no-joheki-s2": {
       "anilistId": 213805,
@@ -189,7 +333,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/kori-no-joheki-s2.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx213805-Nokui3uWlIlw.png",
-      "bytes": 54900
+      "bytes": 54900,
+      "bangumiId": 665390,
+      "bangumiUrl": "https://bgm.tv/subject/665390",
+      "bangumiName": "氷の城壁 第2期",
+      "bangumiNameCn": "冰之城墙 第二季",
+      "bangumiDate": "2026-10-01",
+      "bangumiScore": 7.4,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/e4/41/665390_UCHPM.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/e4/41/665390_UCHPM.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/e4/41/665390_UCHPM.jpg"
     },
     "ojisan-kawaii": {
       "anilistId": 202079,
@@ -200,7 +353,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/ojisan-kawaii.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx202079-nwBpDUms0Bab.png",
-      "bytes": 62974
+      "bytes": 62974,
+      "bangumiId": 605533,
+      "bangumiUrl": "https://bgm.tv/subject/605533",
+      "bangumiName": "おじさんはカワイイものがお好き。",
+      "bangumiNameCn": "大叔喜欢可爱小玩意",
+      "bangumiDate": "2026-10-04",
+      "bangumiScore": 5.7,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/d1/e7/605533_97NSn.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/d1/e7/605533_97NSn.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/d1/e7/605533_97NSn.jpg"
     },
     "suikoden": {
       "anilistId": 187316,
@@ -211,7 +373,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/suikoden.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx187316-jucYCojVTjSY.jpg",
-      "bytes": 69300
+      "bytes": 69300,
+      "bangumiId": 541538,
+      "bangumiUrl": "https://bgm.tv/subject/541538",
+      "bangumiName": "幻想水滸伝",
+      "bangumiNameCn": "幻想水浒传",
+      "bangumiDate": "2026-10-03",
+      "bangumiScore": 4.7,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/ee/12/541538_LxzAg.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/ee/12/541538_LxzAg.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/ee/12/541538_LxzAg.jpg"
     },
     "dragonball-beerus": {
       "anilistId": 206814,
@@ -222,7 +393,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/dragonball-beerus.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx206814-PVVzRbf1IQpe.jpg",
-      "bytes": 70790
+      "bytes": 70790,
+      "bangumiId": 623249,
+      "bangumiUrl": "https://bgm.tv/subject/623249",
+      "bangumiName": "ドラゴンボール超 ビルス",
+      "bangumiNameCn": "龙珠超 比鲁斯",
+      "bangumiDate": "2026-10-11",
+      "bangumiScore": 7.4,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/0f/0f/623249_zCdly.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/0f/0f/623249_zCdly.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/0f/0f/623249_zCdly.jpg"
     },
     "kyofu-collector": {
       "anilistId": 203473,
@@ -233,7 +413,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/kyofu-collector.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/b203473-pzyaqV432Qko.jpg",
-      "bytes": 16552
+      "bytes": 16552,
+      "bangumiId": 613256,
+      "bangumiUrl": "https://bgm.tv/subject/613256",
+      "bangumiName": "恐怖コレクター",
+      "bangumiNameCn": "恐怖收集者",
+      "bangumiDate": "2026-10-10",
+      "bangumiScore": 4.3,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/7b/a7/613256_fxVvG.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/7b/a7/613256_fxVvG.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/7b/a7/613256_fxVvG.jpg"
     },
     "hone-yaku-majo": {
       "anilistId": 207191,
@@ -244,7 +433,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/hone-yaku-majo.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx207191-VgkIzfH92WoZ.jpg",
-      "bytes": 66424
+      "bytes": 66424,
+      "bangumiId": 624923,
+      "bangumiUrl": "https://bgm.tv/subject/624923",
+      "bangumiName": "どうも、好きな人に惚れ薬を依頼された魔女です。",
+      "bangumiNameCn": "你好，我是受心上人所托来做恋爱药的魔女。",
+      "bangumiDate": "2026-10-05",
+      "bangumiScore": 6.5,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/73/99/624923_4u99L.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/73/99/624923_4u99L.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/73/99/624923_4u99L.jpg"
     },
     "frieren": {
       "anilistId": 154587,
@@ -255,7 +453,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/frieren.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587-qQTzQnEJJ3oB.jpg",
-      "bytes": 85229
+      "bytes": 85229,
+      "bangumiId": 400602,
+      "bangumiUrl": "https://bgm.tv/subject/400602",
+      "bangumiName": "葬送のフリーレン",
+      "bangumiNameCn": "葬送的芙莉莲",
+      "bangumiDate": "2023-09-29",
+      "bangumiScore": 8.5,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/13/c5/400602_ZI8Y9.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/13/c5/400602_ZI8Y9.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/13/c5/400602_ZI8Y9.jpg"
     },
     "haikyu": {
       "anilistId": 20464,
@@ -266,7 +473,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/haikyu.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx20464-ooZUyBe4ptp9.png",
-      "bytes": 92341
+      "bytes": 92341,
+      "bangumiId": 84171,
+      "bangumiUrl": "https://bgm.tv/subject/84171",
+      "bangumiName": "ハイキュー!!",
+      "bangumiNameCn": "排球少年",
+      "bangumiDate": "2014-04-06",
+      "bangumiScore": 8.1,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/91/d8/84171_5KpYZ.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/91/d8/84171_5KpYZ.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/91/d8/84171_5KpYZ.jpg"
     },
     "yorimoi": {
       "anilistId": 99426,
@@ -277,7 +493,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/yorimoi.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx99426-ti5BL69Ip3kZ.png",
-      "bytes": 81314
+      "bytes": 81314,
+      "bangumiId": 218708,
+      "bangumiUrl": "https://bgm.tv/subject/218708",
+      "bangumiName": "宇宙よりも遠い場所",
+      "bangumiNameCn": "比宇宙更远的地方",
+      "bangumiDate": "2018-01-02",
+      "bangumiScore": 8.2,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/16/de/218708_99YjL.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/16/de/218708_99YjL.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/16/de/218708_99YjL.jpg"
     },
     "odd-taxi": {
       "anilistId": 128547,
@@ -288,7 +513,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/odd-taxi.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx128547-nNekWTKqmvEi.jpg",
-      "bytes": 85627
+      "bytes": 85627,
+      "bangumiId": 325285,
+      "bangumiUrl": "https://bgm.tv/subject/325285",
+      "bangumiName": "オッドタクシー",
+      "bangumiNameCn": "奇巧计程车",
+      "bangumiDate": "2021-04-05",
+      "bangumiScore": 8.5,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/65/90/325285_4688X.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/65/90/325285_4688X.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/65/90/325285_4688X.jpg"
     },
     "bocchi": {
       "anilistId": 130003,
@@ -299,7 +533,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/bocchi.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx130003-HTDmeL4RGeJ4.png",
-      "bytes": 78363
+      "bytes": 78363,
+      "bangumiId": 328609,
+      "bangumiUrl": "https://bgm.tv/subject/328609",
+      "bangumiName": "ぼっち・ざ・ろっく！",
+      "bangumiNameCn": "孤独摇滚！",
+      "bangumiDate": "2022-10-08",
+      "bangumiScore": 8.4,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/e2/e7/328609_2EHLJ.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/e2/e7/328609_2EHLJ.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/e2/e7/328609_2EHLJ.jpg"
     },
     "shirobako": {
       "anilistId": 20812,
@@ -310,7 +553,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/shirobako.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx20812-KvIP1yffJEPZ.jpg",
-      "bytes": 87625
+      "bytes": 87625,
+      "bangumiId": 110467,
+      "bangumiUrl": "https://bgm.tv/subject/110467",
+      "bangumiName": "SHIROBAKO",
+      "bangumiNameCn": "白箱",
+      "bangumiDate": "2014-10-09",
+      "bangumiScore": 8.7,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/73/26/110467_Fx9tT.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/73/26/110467_Fx9tT.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/73/26/110467_Fx9tT.jpg"
     },
     "eizouken": {
       "anilistId": 109298,
@@ -321,7 +573,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/eizouken.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx109298-suwdIUbJEPJx.png",
-      "bytes": 103225
+      "bytes": 103225,
+      "bangumiId": 282433,
+      "bangumiUrl": "https://bgm.tv/subject/282433",
+      "bangumiName": "映像研には手を出すな！",
+      "bangumiNameCn": "别对映像研出手！",
+      "bangumiDate": "2020-01-05",
+      "bangumiScore": 8.1,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/5f/18/282433_9wDx9.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/5f/18/282433_9wDx9.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/5f/18/282433_9wDx9.jpg"
     },
     "hyouka": {
       "anilistId": 12189,
@@ -332,7 +593,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/hyouka.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx12189-zj5AWUYO53Fv.jpg",
-      "bytes": 56096
+      "bytes": 56096,
+      "bangumiId": 27364,
+      "bangumiUrl": "https://bgm.tv/subject/27364",
+      "bangumiName": "氷菓",
+      "bangumiNameCn": "冰菓",
+      "bangumiDate": "2012-04-22",
+      "bangumiScore": 8.1,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/cd/38/27364_1ZFmr.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/cd/38/27364_1ZFmr.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/cd/38/27364_1ZFmr.jpg"
     },
     "natsume": {
       "anilistId": 4081,
@@ -343,7 +613,16 @@
       "score": 148,
       "cover": "assets/leisure/covers/natsume.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx4081-xi08naD69tjr.jpg",
-      "bytes": 57612
+      "bytes": 57612,
+      "bangumiId": 259,
+      "bangumiUrl": "https://bgm.tv/subject/259",
+      "bangumiName": "夏目友人帳",
+      "bangumiNameCn": "夏目友人帐",
+      "bangumiDate": "2008-07-07",
+      "bangumiScore": 8,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/cf/a0/259_7C5D9.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/cf/a0/259_7C5D9.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/cf/a0/259_7C5D9.jpg"
     },
     "mob-psycho": {
       "anilistId": 21507,
@@ -354,7 +633,17 @@
       "score": 148,
       "cover": "assets/leisure/covers/mob-psycho.jpg",
       "remote": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx21507-6YUSbh2m0N1p.jpg",
-      "bytes": 128174
+      "bytes": 128174,
+      "bangumiId": 158316,
+      "bangumiUrl": "https://bgm.tv/subject/158316",
+      "bangumiName": "モブサイコ100",
+      "bangumiNameCn": "灵能百分百",
+      "bangumiDate": "2016-07-11",
+      "bangumiScore": 7.8,
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/2b/85/158316_gz1mM.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/2b/85/158316_gz1mM.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/2b/85/158316_gz1mM.jpg"
     }
-  }
+  },
+  "bangumiFetched": "2026-11-05"
 }

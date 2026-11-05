@@ -22,10 +22,9 @@
  *   node tools/roll-season.mjs --write --season=2027-winter
  *   node tools/roll-season.mjs --check               只打印 stale 状态（给 CI 用）
  *
- * 典型换季流水线（GitHub Actions 里也是这三步）：
+ * 典型换季流水线（GitHub Actions 里也是这两步）：
  *   node tools/roll-season.mjs --write
- *   node tools/fetch-covers.mjs
- *   python tools/optimize-covers.py
+ *   node tools/fetch-bangumi-covers.mjs --write   # 只写封面 URL，不下载图
  */
 
 import { promises as fs } from 'node:fs';

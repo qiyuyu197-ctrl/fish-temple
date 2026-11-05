@@ -74,14 +74,20 @@
 
 ```jsonc
 {
-  "source": "AniList",
-  "sourceUrl": "https://anilist.co",
+  "source": "Bangumi（bgmimg 反代直链）+ AniList 本地兜底",
+  "sourceUrl": "https://bgm.tv",
   "fetched": "2026-10-20",
+  "bangumiFetched": "2026-11-05",
   "note": "……",
   "items": {
     "kusuriya-s3": {
       "anilistId": 195516,
       "anilistUrl": "https://anilist.co/anime/195516",
+      "bangumiId": 568244,
+      "bangumiUrl": "https://bgm.tv/subject/568244",
+      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/55/e2/568244_e64dA.jpg",
+      "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/55/e2/568244_e64dA.jpg",
+      "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/55/e2/568244_e64dA.jpg",
       "cover": "assets/leisure/covers/kusuriya-s3.jpg",
       "remote": "https://s4.anilist.co/…",
       "bytes": 36005
@@ -90,33 +96,37 @@
 }
 ```
 
-页面加载时会把 `items[id].cover` 合并到对应条目；没有记录、文件 404 或解码失败，就自动退回下面的 CSS 排版海报。
+页面加载时优先用 `items[id].bangumiCover`（卡片 800px）或 `bangumiCoverLarge`（详情弹层），图片 404 / 解码失败才回退 `cover` 的本地 AniList 缓存，再失败才退回 CSS 排版海报。**Bangumi 图只存 URL，不落盘。**
 
-## 封面：为什么是 AniList，不是 Bangumi
+## 封面：Bangumi 直链 + AniList 本地兜底
 
-`bgm.tv` / `api.bgm.tv` / `lain.bgm.tv` 在开发机上**不可达**（DNS 被污染到无关 IP，连接超时；试过公共代理也回 522）。所以：
+`bgm.tv` / `api.bgm.tv` / `lain.bgm.tv` 在开发机上仍然**不可达**（DNS 被污染到无关 IP，连接超时）。但 **Bangumi 的公开反代可用**：
 
-- 用 **AniList GraphQL** 按日文名 + 年份匹配，拿 `coverImage.extraLarge`；
-- `tools/fetch-covers.mjs` 下载到 `assets/leisure/covers/<id>.jpg`，并写 `data/anime-covers.json`；
-- `tools/optimize-covers.py` 把图压成宽 460 的渐进式 JPEG（当前 32 张约 2.4MB），顺手把 PNG 转成 JPG；
-- 运行时不访问外网，也没有防盗链/图床挂掉的问题。
+- `https://bgmapi.anibt.net`：转发 Bangumi v0 API；
+- `https://bgmimg.anibt.net`：转发 `lain.bgm.tv` 图片，支持 `/r/400/` 这类缩放路径。
 
-> 想换成 Bangumi 的图：把 `assets/leisure/covers/` 下的同名文件替换掉即可，`cover` 路径不用改。
-> 注意封面版权归原作者 / 制作方，站点只做检索展示，不二次分发原图包。
+所以现在的策略是：
 
-重新抓取：
+- `tools/fetch-bangumi-covers.mjs` 用日文名 / 海报短名 / 中文名搜 Bangumi（`type=2`），按标题相似度 + 年份 + TV 平台匹配；
+- 只写 `bangumiId` / `bangumiCover` / `bangumiCoverLarge` / `bangumiOriginal` / `bangumiUrl` 等字段，**不下载任何图片**；
+- 卡片用 800px 反代图，详情弹层用大图；加载失败回退 `assets/leisure/covers/` 里已有的 AniList 本地缓存；
+- 本地缓存仍在（32 张约 2.4MB），只作为离线 / 反代挂掉时的兜底，不再新增。
+
+重新匹配：
 
 ```bash
-node tools/fetch-covers.mjs --dry   # 只看匹配结果
-node tools/fetch-covers.mjs         # 下载缺失的封面
-python tools/optimize-covers.py     # 压缩 + 回写 bytes
+node tools/fetch-bangumi-covers.mjs --dry    # 只看匹配结果
+node tools/fetch-bangumi-covers.mjs --write   # 写 Bangumi 直链（不下载图）
 ```
 
-AniList 有速率限制，脚本里做了 429 等待与 950ms 间隔；遇到个别条目匹配不准，在 `OVERRIDES` / `QUERY_OVERRIDES` 里锁 id 或换搜索词。
+匹配不准时在脚本的 `OVERRIDES` 里锁 Bangumi subject id。公开反代不是官方服务，可能限流或挂掉；`bangumiOriginal` 保留了 `lain.bgm.tv` 原地址，以后网络恢复可整体换回官方图床。
+
+> AniList 的 `tools/fetch-covers.mjs` / `optimize-covers.py` 仍保留，用于更新本地兜底图；它们会下载图片，和 Bangumi 直链是两条路。
+> 封面版权归原作者 / 制作方，站点只做检索展示，不二次分发原图包。
 
 ## 海报系统（无封面时的兜底）
 
-**有封面时**用 `poster__cover` 铺满 3:4 区域，叠一层暗角，只保留左上角季档小签；竖排标题、幽灵编号、几何母题全部隐藏，避免和封面本身的构图打架。详情弹层同理，并在左下角标 `COVER / AniList`。
+**有封面时**用 `poster__cover` 铺满 3:4 区域，叠一层暗角，只保留左上角季档小签；竖排标题、幽灵编号、几何母题全部隐藏，避免和封面本身的构图打架。详情弹层同理，并在左下角标 `COVER / Bangumi`（回退本地图时仍保留原来源链接）。
 
 **没有封面时**才使用排版海报，由 `poster` 字段生成：
 
@@ -207,7 +217,7 @@ push 后由 Netlify 自动部署。当前季没变时 `roll-season` 直接跳过
 
 - 放送时间以 AniList 的日本放送时间为准；`24:30` 这类跨日节目按节目表原样保留，不换算成次日 00:30。
 - 换季用 `node tools/roll-season.mjs --write`，别手改 `season` / `current`；页面会按 `start` / `end` 自动显示「当季」或「ARCHIVE / 已完结」。
-- 封面已缓存到 `assets/leisure/covers/`，来自 AniList；版权归原作者 / 制作方，只做站内检索展示，不要再打包分发原图。
+- 封面默认走 Bangumi 反代直链，不下载；`assets/leisure/covers/` 只是 AniList 本地兜底。版权归原作者 / 制作方，只做站内检索展示，不要再打包分发原图。
 - 换季后跑 `node tools/fetch-covers.mjs && python tools/optimize-covers.py`，别只改 `anime.json`，否则新条目会退回排版海报。
 - 自动抓来的标题是日文、简介是英文；要么在 `anime-overrides.json` 补，要么接受「参考评分 / 自动收录」的草稿状态。不要把自动数据当成精编数据。
 - 没有封面时也不要为了「更像番剧网站」把官方 key visual 批量抓进仓库；排版海报就是兜底。

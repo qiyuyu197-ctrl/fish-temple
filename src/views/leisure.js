@@ -169,7 +169,15 @@ async function loadData() {
   const coverOf = (id) => covers.items?.[id] || null;
   const withCover = (it, kind) => {
     const meta = coverOf(it.id);
-    return { ...it, kind, cover: meta?.cover || '', coverMeta: meta, _search: searchText(it) };
+    return {
+      ...it,
+      kind,
+      cover: meta?.cover || '',
+      coverRemote: meta?.bangumiCover || '',
+      coverRemoteLarge: meta?.bangumiCoverLarge || '',
+      coverMeta: meta,
+      _search: searchText(it),
+    };
   };
   const current = (json.current || []).map((it) => withCover(it, 'season'));
   const picks = (json.recommended || []).map((it) => withCover(it, 'pick'));
@@ -235,8 +243,14 @@ function posterHTML(item, { index = 0, lg = false } = {}) {
   const seasonTag = item.kind === 'pick'
     ? `${item.year || '—'} / PICK`
     : `${DATA?.season?.year || ''} / ${dayOf(item.day).en}`;
-  const cover = item.cover
-    ? `<img class="poster__cover" src="${esc(item.cover)}" alt="" ${lg ? 'loading="eager"' : 'loading="lazy"'} decoding="async" />`
+  const remote = (lg && item.coverRemoteLarge) || item.coverRemote || '';
+  const local = item.cover || '';
+  const src = remote || local;
+  const fallback = remote && local ? local : '';
+  const cover = src
+    ? `<img class="poster__cover" src="${esc(src)}" alt=""
+         ${fallback ? `data-cover-fallback="${esc(fallback)}"` : ''}
+         ${lg ? 'loading="eager"' : 'loading="lazy"'} decoding="async" />`
     : '';
 
   return `<div class="poster${lg ? ' poster--lg' : ''}${cover ? ' poster--cover' : ''}${jpCls}"
@@ -423,7 +437,18 @@ function heroHTML() {
 /* 详情弹层                                                            */
 /* ------------------------------------------------------------------ */
 
-/** 封面 404 / 解码失败：退回 CSS 排版海报，而不是留一块破图 */
+/** 封面 404 / 解码失败：先退回本地 AniList 缓存，再退回 CSS 排版海报 */
+function coverFailed(img) {
+  const fallback = img?.dataset?.coverFallback;
+  if (fallback) {
+    img.removeAttribute('data-cover-fallback');
+    img.classList.add('is-fallback');
+    img.src = fallback;
+    return;
+  }
+  dropBrokenCover(img);
+}
+
 function dropBrokenCover(img) {
   const poster = img?.closest?.('.poster');
   poster?.classList.remove('poster--cover');
@@ -432,7 +457,7 @@ function dropBrokenCover(img) {
 
 function scanCovers(root = document) {
   $$('.poster__cover', root).forEach((img) => {
-    if (img.complete && img.naturalWidth === 0) dropBrokenCover(img);
+    if (img.complete && img.naturalWidth === 0) coverFailed(img);
   });
 }
 
@@ -475,9 +500,11 @@ function modalHTML(item, idx) {
     <div class="amodal__side">
       <div class="amodal__poster">${posterHTML(item, { index: idx, lg: true })}</div>
       <div class="amodal__watch" id="leisureModalWatch">${watchButtonsHTML(item.id)}</div>
-      ${item.cover && item.coverMeta?.anilistUrl
-        ? `<p class="amodal__credit mono">COVER / <a href="${esc(item.coverMeta.anilistUrl)}" target="_blank" rel="noopener noreferrer">AniList</a></p>`
-        : ''}
+      ${item.coverRemote && item.coverMeta?.bangumiUrl
+        ? `<p class="amodal__credit mono">COVER / <a href="${esc(item.coverMeta.bangumiUrl)}" target="_blank" rel="noopener noreferrer">Bangumi</a></p>`
+        : item.cover && item.coverMeta?.anilistUrl
+          ? `<p class="amodal__credit mono">COVER / <a href="${esc(item.coverMeta.anilistUrl)}" target="_blank" rel="noopener noreferrer">AniList</a></p>`
+          : ''}
     </div>
     <div class="amodal__main">
       <div class="amodal__eyebrow">
@@ -785,7 +812,7 @@ export default {
         ${esc(s.note || '放送时间以关东地上波为准。')}
         番剧信息整理自 ${(data2.sources || []).map((src) => `<a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.label)}</a>`).join(' · ')}。
         ${Object.keys(data2.coverMeta?.items || {}).length
-          ? '封面图缓存自 <a href="https://anilist.co" target="_blank" rel="noopener noreferrer">AniList</a>，版权归原作者与制作方所有。'
+          ? '封面默认直连 <a href="https://bgm.tv" target="_blank" rel="noopener noreferrer">Bangumi</a>（bgmimg 反代热链，不落盘）；加载失败回退本地 AniList 缓存。版权归原作者与制作方所有。'
           : ''}
         ${s.auto ? '本季列表由 AniList 自动整理，中文名 / 短评 / 声优持续补充中。' : ''}
         ${s.auto ? '自动条目的评分来自 AniList，仅供参考。' : '评分、期待值与推荐语为主观。'}
@@ -809,7 +836,7 @@ export default {
 
     // 封面加载失败就退回排版海报（图片在弹层里才创建，所以用捕获阶段委托）
     root.addEventListener('error', (e) => {
-      if (e.target?.classList?.contains('poster__cover')) dropBrokenCover(e.target);
+      if (e.target?.classList?.contains('poster__cover')) coverFailed(e.target);
     }, true);
 
     paint();
