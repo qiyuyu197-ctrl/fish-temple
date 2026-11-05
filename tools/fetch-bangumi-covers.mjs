@@ -145,7 +145,8 @@ async function main() {
     }
 
     const s = picked.media;
-    const card = s.images?.medium || s.images?.common || s.images?.large || s.image || '';
+    const card = s.images?.common || s.images?.medium || s.images?.large || s.image || '';
+    const medium = s.images?.medium || s.images?.large || card;
     const large = s.images?.large || s.images?.medium || card;
     const remote = card;
     const original = large.replace(IMG_PROXY, IMG_ORIGIN);
@@ -157,6 +158,7 @@ async function main() {
       bangumiDate: s.date || '',
       bangumiScore: s.rating?.score || null,
       bangumiCover: remote,
+      bangumiCoverMedium: medium,
       bangumiCoverLarge: large,
       bangumiOriginal: original,
     };

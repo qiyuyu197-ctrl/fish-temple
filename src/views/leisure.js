@@ -174,6 +174,7 @@ async function loadData() {
       kind,
       cover: meta?.cover || '',
       coverRemote: meta?.bangumiCover || '',
+      coverRemoteMedium: meta?.bangumiCoverMedium || '',
       coverRemoteLarge: meta?.bangumiCoverLarge || '',
       coverMeta: meta,
       _search: searchText(it),
@@ -244,12 +245,14 @@ function posterHTML(item, { index = 0, lg = false } = {}) {
     ? `${item.year || '—'} / PICK`
     : `${DATA?.season?.year || ''} / ${dayOf(item.day).en}`;
   const remote = (lg && item.coverRemoteLarge) || item.coverRemote || '';
+  const remoteFallback = !lg ? item.coverRemoteMedium || '' : '';
   const local = item.cover || '';
   const src = remote || local;
   const fallback = remote && local ? local : '';
   const cover = src
     ? `<img class="poster__cover" src="${esc(src)}" alt=""
          ${fallback ? `data-cover-fallback="${esc(fallback)}"` : ''}
+         ${remoteFallback && remoteFallback !== src ? `data-cover-remote-fallback="${esc(remoteFallback)}"` : ''}
          ${lg ? 'loading="eager"' : 'loading="lazy"'} decoding="async" />`
     : '';
 
@@ -437,8 +440,14 @@ function heroHTML() {
 /* 详情弹层                                                            */
 /* ------------------------------------------------------------------ */
 
-/** 封面 404 / 解码失败：先退回本地 AniList 缓存，再退回 CSS 排版海报 */
+/** 封面 404 / 解码失败：先退 800px 远程图，再退本地 AniList 缓存，最后 CSS 海报 */
 function coverFailed(img) {
+  const remoteFallback = img?.dataset?.coverRemoteFallback;
+  if (remoteFallback) {
+    img.removeAttribute('data-cover-remote-fallback');
+    img.src = remoteFallback;
+    return;
+  }
   const fallback = img?.dataset?.coverFallback;
   if (fallback) {
     img.removeAttribute('data-cover-fallback');
@@ -522,7 +531,7 @@ function modalHTML(item, idx) {
         <div class="amodal__score-body">
           <span class="k-label">${esc(item.scoreLabel || (isSeason ? 'EXPECTATION / 期待值' : 'FISH SCORE / 本站评分'))}</span>
           <span class="amodal__meter"><i style="width:${Math.round(score * 10)}%"></i></span>
-          <span class="amodal__score-note">主观评分，不是评分网站数据</span>
+          <span class="amodal__score-note">${item.scoreLabel ? '参考评分，不是本站主观评价' : '主观评分，不是评分网站数据'}</span>
         </div>
       </div>
 
@@ -766,7 +775,7 @@ export default {
     return `<section class="leisure">
       ${viewhead({
         title: 'LEISURE',
-        sub: '文娱档案：本季值得先看的番、十部随时可以重看的推荐，以及只存在这台设备上的追番标记。',
+        sub: '文娱档案：本季值得先看的番、一张从 2006 到 2025 的看过表，以及只存在这台设备上的追番标记。',
         idx: 'MODULE / 09',
         meta: [
           { label: 'SEASON', value: `${s.year || ''} ${s.nameEn || ''}`.trim() || '—' },

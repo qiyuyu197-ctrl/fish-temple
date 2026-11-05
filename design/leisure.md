@@ -70,6 +70,27 @@
 - 卡片搜索会匹配中文名、日文名、声优、类型、简介、推荐语。
 - 自动生成的当季条目还会带 `anilistId` / `anilistUrl` / `auto` / `scoreLabel`（AniList 参考评分）；有 override 的条目 `auto` 为 false。
 
+### 推荐动漫：196 格「动画世代」+ 4 部站内私货
+
+推荐列表现在是一张 2006–2025 的「看过表」，不是原来只有 10 部的私心短名单：
+
+- 原始 334 条在 `data/anime-sedai.json`；截图里 196 个绿格提取成 `data/anime-sedai-green.json`（year / titleZh / titleJa / score）。
+- `tools/import-sedai-watchlist.mjs` 逐条搜 Bangumi，补中文简介、标签、话数、制作、Bangumi 评分和封面 URL，写回 `recommended`。
+- 其中 6 部本来就在推荐里（芙莉莲、比宇宙更远、孤独摇滚、白箱、冰菓、夏目），按 Bangumi id 跳过；190 部新增。
+- 原来的 10 部里有 4 部不在绿格表内（排球少年、奇巧计程车、映像研、灵能百分百），作为站内私货保留；所以最终是 **196 + 4 = 200 部**。
+- 新条目评分来自「动画世代」表，标 `SEDAI / 参考评分`；Badge 为「看过」，不是本站「必看 / 私心」。
+- 封面同样只写 URL：卡片 400px，失败退 800px，再退本地；没有下载任何新图片。
+
+重新导入：
+
+```bash
+node tools/import-sedai-watchlist.mjs --dry            # 只看匹配
+node tools/import-sedai-watchlist.mjs --write          # 写回 recommended + 封面 URL
+node tools/import-sedai-watchlist.mjs --write --limit=5  # 小样本
+```
+
+匹配靠标题相似度 + 年份 + TV 平台；同名前缀的 OVA 会先被年份/平台压下去。加新格后重建 `anime-sedai-green.json` 再跑即可。
+
 封面单独放在 `data/anime-covers.json`（不塞进上面这份编辑数据）：
 
 ```jsonc
@@ -85,7 +106,8 @@
       "anilistUrl": "https://anilist.co/anime/195516",
       "bangumiId": 568244,
       "bangumiUrl": "https://bgm.tv/subject/568244",
-      "bangumiCover": "https://bgmimg.anibt.net/r/800/pic/cover/l/55/e2/568244_e64dA.jpg",
+      "bangumiCover": "https://bgmimg.anibt.net/r/400/pic/cover/l/55/e2/568244_e64dA.jpg",
+      "bangumiCoverMedium": "https://bgmimg.anibt.net/r/800/pic/cover/l/55/e2/568244_e64dA.jpg",
       "bangumiCoverLarge": "https://bgmimg.anibt.net/pic/cover/l/55/e2/568244_e64dA.jpg",
       "bangumiOriginal": "https://lain.bgm.tv/pic/cover/l/55/e2/568244_e64dA.jpg",
       "cover": "assets/leisure/covers/kusuriya-s3.jpg",
@@ -96,7 +118,7 @@
 }
 ```
 
-页面加载时优先用 `items[id].bangumiCover`（卡片 800px）或 `bangumiCoverLarge`（详情弹层），图片 404 / 解码失败才回退 `cover` 的本地 AniList 缓存，再失败才退回 CSS 排版海报。**Bangumi 图只存 URL，不落盘。**
+页面加载时优先用 `items[id].bangumiCover`（卡片 400px），400 失败退 `bangumiCoverMedium`（800px），再失败退 `cover` 的本地 AniList 缓存，最后才退回 CSS 排版海报；详情弹层直接用 `bangumiCoverLarge`。**Bangumi 图只存 URL，不落盘。**
 
 ## 封面：Bangumi 直链 + AniList 本地兜底
 
@@ -108,8 +130,8 @@
 所以现在的策略是：
 
 - `tools/fetch-bangumi-covers.mjs` 用日文名 / 海报短名 / 中文名搜 Bangumi（`type=2`），按标题相似度 + 年份 + TV 平台匹配；
-- 只写 `bangumiId` / `bangumiCover` / `bangumiCoverLarge` / `bangumiOriginal` / `bangumiUrl` 等字段，**不下载任何图片**；
-- 卡片用 800px 反代图，详情弹层用大图；加载失败回退 `assets/leisure/covers/` 里已有的 AniList 本地缓存；
+- 只写 `bangumiId` / `bangumiCover` / `bangumiCoverMedium` / `bangumiCoverLarge` / `bangumiOriginal` / `bangumiUrl` 等字段，**不下载任何图片**；
+- 卡片用 400px，失败退 800px，再退本地 AniList 缓存；详情弹层用大图；
 - 本地缓存仍在（32 张约 2.4MB），只作为离线 / 反代挂掉时的兜底，不再新增。
 
 重新匹配：
