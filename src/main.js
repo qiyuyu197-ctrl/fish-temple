@@ -277,7 +277,10 @@ async function boot() {
   initPWA();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+let bootStarted = false;
+function startBoot() {
+  if (bootStarted) return;
+  bootStarted = true;
   boot().catch((err) => {
     console.error('[boot] 启动失败', err);
     document.getElementById('boot')?.classList.add('is-done');
@@ -291,7 +294,15 @@ document.addEventListener('DOMContentLoaded', () => {
         </section>`;
     }
   });
-});
+}
+
+// 模块脚本正常会在 DOMContentLoaded 前执行；弱网/静态托管下如果已经错过事件，
+// 只挂 listener 会永远不启动（启动页一直 000%）。这里两个入口都兜住。
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startBoot, { once: true });
+} else {
+  startBoot();
+}
 
 /* 供调试：window.Terminal.randomArt() 等 */
 window.Terminal = { ctx, Player, Stage, Lyrics, ListeningStage, Registry, Router, Posts, News, Settings, Theme, Palette, openPalette, EmbedHost, Mines, MinesLive, Almanac, AlmanacUI, Auth };
