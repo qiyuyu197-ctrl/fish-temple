@@ -1490,9 +1490,9 @@ var Lh=Object.defineProperty;var F=(t,e,n)=>()=>{if(n)throw n[0];try{return t&&(
           <div class="amodal__body" id="leisureModalBody"></div>
         </div>
       </dialog>
-    </section>`},mount(t,e){if(!lt)return;t.addEventListener("error",a=>{a.target?.classList?.contains("poster__cover")&&Yp(a.target)},!0),Zt(),El(t),Xp(t);let n=p("#leisureSearch",t);n?.addEventListener("input",a=>{if(R.q=a.target.value.trim(),R.mode==="bangumi"){R.q!==R.bgm.query&&(Tn?.abort(),Tn=null,qs+=1,R.bgm={status:"idle",items:[],query:"",total:0,error:""},Zt());return}clearTimeout(wl),wl=setTimeout(()=>{Zt()},150)}),n?.addEventListener("keydown",a=>{a.key==="Enter"&&R.mode==="bangumi"&&(a.preventDefault(),ti())}),p("#leisureSort",t)?.addEventListener("change",a=>{R.sort=a.target.value,Zt()}),p("#leisureClear",t)?.addEventListener("click",()=>{Ws().length&&window.confirm("\u6E05\u7A7A\u5168\u90E8\u8FFD\u756A\u8BB0\u5F55\uFF1F\u53EA\u5F71\u54CD\u8FD9\u53F0\u8BBE\u5907\u3002")&&(Ot={},ai(),Zt(),$.ok("\u5DF2\u6E05\u7A7A\u8FFD\u756A\u8BB0\u5F55"))}),p("#leisureRandom",t)?.addEventListener("click",Up);let s=p("#leisureModal",t);return s&&(s.addEventListener("click",a=>{a.target===s&&Op()}),s.addEventListener("keydown",a=>{a.key==="ArrowLeft"&&(a.preventDefault(),Zr(-1)),a.key==="ArrowRight"&&(a.preventDefault(),Zr(1))}),s.addEventListener("close",()=>{rs=null,document.documentElement.classList.remove("leisure-modal-open")})),t.addEventListener("click",a=>{let r=a.target.closest("[data-searchmode]");if(r){Bp(r.dataset.searchmode,t);return}if(a.target.closest("#leisureSearchGo")){ti();return}if(a.target.closest("#leisureBgmRetry")){ti();return}let o=a.target.closest("[data-tab]");if(o){Bp("local",t),Dp(o.dataset.tab);return}let i=a.target.closest("[data-genre]");if(i){R.genre=i.dataset.genre,ut("[data-genre]",t).forEach(w=>w.classList.toggle("is-on",w===i)),Zt();return}let c=a.target.closest("[data-mine]");if(c){R.mine=c.dataset.mine,ut("[data-mine]",t).forEach(w=>w.classList.toggle("is-on",w===c)),Zt();return}let l=a.target.closest("[data-track]");if(l){a.preventDefault(),a.stopPropagation(),ay(l.dataset.track);return}let d=a.target.closest("[data-watch]");if(d){a.preventDefault(),ry(rs,d.dataset.watch||null);return}if(a.target.closest("[data-prev]")){a.preventDefault(),Zr(-1);return}if(a.target.closest("[data-next]")){a.preventDefault(),Zr(1);return}if(a.target.closest("[data-close]")){a.preventDefault(),Op();return}let b=a.target.closest("[data-open]");if(b){a.preventDefault(),ni(b.dataset.open);return}let v=a.target.closest(".acard");if(v?.dataset.id){ni(v.dataset.id);return}a.target.closest("[data-week-jump]")&&(R.tab!=="season"&&Dp("season"),setTimeout(()=>p("#leisureWeek",t)?.scrollIntoView({behavior:"smooth",block:"start"}),60))}),e?.query?.random&&(Zp(),setTimeout(()=>Up(),180)),()=>{clearTimeout(wl),document.documentElement.classList.remove("leisure-modal-open")}}}});var nf={};ie(nf,{default:()=>cy});var oy,ly,ri,cy,sf=F(()=>{Dt();it();oy="https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.4.1/fish-temple-android-full-2.4.1.apk",ly="https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.5.1/fish-temple-desktop-1.5.1-win-x64.zip",ri="https://github.com/qiyuyu197-ctrl/fish-temple/releases",cy={id:"download",title:"\u4E0B\u8F7D App",render(){return`
+    </section>`},mount(t,e){if(!lt)return;t.addEventListener("error",a=>{a.target?.classList?.contains("poster__cover")&&Yp(a.target)},!0),Zt(),El(t),Xp(t);let n=p("#leisureSearch",t);n?.addEventListener("input",a=>{if(R.q=a.target.value.trim(),R.mode==="bangumi"){R.q!==R.bgm.query&&(Tn?.abort(),Tn=null,qs+=1,R.bgm={status:"idle",items:[],query:"",total:0,error:""},Zt());return}clearTimeout(wl),wl=setTimeout(()=>{Zt()},150)}),n?.addEventListener("keydown",a=>{a.key==="Enter"&&R.mode==="bangumi"&&(a.preventDefault(),ti())}),p("#leisureSort",t)?.addEventListener("change",a=>{R.sort=a.target.value,Zt()}),p("#leisureClear",t)?.addEventListener("click",()=>{Ws().length&&window.confirm("\u6E05\u7A7A\u5168\u90E8\u8FFD\u756A\u8BB0\u5F55\uFF1F\u53EA\u5F71\u54CD\u8FD9\u53F0\u8BBE\u5907\u3002")&&(Ot={},ai(),Zt(),$.ok("\u5DF2\u6E05\u7A7A\u8FFD\u756A\u8BB0\u5F55"))}),p("#leisureRandom",t)?.addEventListener("click",Up);let s=p("#leisureModal",t);return s&&(s.addEventListener("click",a=>{a.target===s&&Op()}),s.addEventListener("keydown",a=>{a.key==="ArrowLeft"&&(a.preventDefault(),Zr(-1)),a.key==="ArrowRight"&&(a.preventDefault(),Zr(1))}),s.addEventListener("close",()=>{rs=null,document.documentElement.classList.remove("leisure-modal-open")})),t.addEventListener("click",a=>{let r=a.target.closest("[data-searchmode]");if(r){Bp(r.dataset.searchmode,t);return}if(a.target.closest("#leisureSearchGo")){ti();return}if(a.target.closest("#leisureBgmRetry")){ti();return}let o=a.target.closest("[data-tab]");if(o){Bp("local",t),Dp(o.dataset.tab);return}let i=a.target.closest("[data-genre]");if(i){R.genre=i.dataset.genre,ut("[data-genre]",t).forEach(w=>w.classList.toggle("is-on",w===i)),Zt();return}let c=a.target.closest("[data-mine]");if(c){R.mine=c.dataset.mine,ut("[data-mine]",t).forEach(w=>w.classList.toggle("is-on",w===c)),Zt();return}let l=a.target.closest("[data-track]");if(l){a.preventDefault(),a.stopPropagation(),ay(l.dataset.track);return}let d=a.target.closest("[data-watch]");if(d){a.preventDefault(),ry(rs,d.dataset.watch||null);return}if(a.target.closest("[data-prev]")){a.preventDefault(),Zr(-1);return}if(a.target.closest("[data-next]")){a.preventDefault(),Zr(1);return}if(a.target.closest("[data-close]")){a.preventDefault(),Op();return}let b=a.target.closest("[data-open]");if(b){a.preventDefault(),ni(b.dataset.open);return}let v=a.target.closest(".acard");if(v?.dataset.id){ni(v.dataset.id);return}a.target.closest("[data-week-jump]")&&(R.tab!=="season"&&Dp("season"),setTimeout(()=>p("#leisureWeek",t)?.scrollIntoView({behavior:"smooth",block:"start"}),60))}),e?.query?.random&&(Zp(),setTimeout(()=>Up(),180)),()=>{clearTimeout(wl),document.documentElement.classList.remove("leisure-modal-open")}}}});var nf={};ie(nf,{default:()=>cy});var oy,ly,ri,cy,sf=F(()=>{Dt();it();oy="https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.4.2/fish-temple-android-full-2.4.2.apk",ly="https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.5.2/fish-temple-desktop-1.5.2-win-x64.zip",ri="https://github.com/qiyuyu197-ctrl/fish-temple/releases",cy={id:"download",title:"\u4E0B\u8F7D App",render(){return`
     <div class="dl-page">
-    ${st({title:"DOWNLOADS",sub:"\u79FB\u52A8\u7248\u4E0E Windows \u684C\u9762\u7248\u90FD\u628A\u7AD9\u70B9\u3001\u76F8\u518C\u548C\u6587\u5A31\u6863\u6848\u6253\u8FDB\u5305\u91CC\uFF1B\u88C5\u4E0A\u4E4B\u540E\u65AD\u7F51\u4E5F\u80FD\u7528\u3002\u7F51\u9875\u7248\u6C38\u8FDC\u662F\u6700\u65B0\u7684\u3002",idx:"RELEASES / 2026.11",meta:[{label:"ANDROID",value:"2.4.1"},{label:"WINDOWS",value:"1.5.1"},{label:"WEB",value:"LATEST"}],actions:`<a class="btn btn--sm" href="${ri}" target="_blank" rel="noopener noreferrer">\u5168\u90E8\u7248\u672C ${I.ext}</a>
+    ${st({title:"DOWNLOADS",sub:"\u79FB\u52A8\u7248\u4E0E Windows \u684C\u9762\u7248\u90FD\u628A\u7AD9\u70B9\u3001\u76F8\u518C\u548C\u6587\u5A31\u6863\u6848\u6253\u8FDB\u5305\u91CC\uFF1B\u88C5\u4E0A\u4E4B\u540E\u65AD\u7F51\u4E5F\u80FD\u7528\u3002\u7F51\u9875\u7248\u6C38\u8FDC\u662F\u6700\u65B0\u7684\u3002",idx:"RELEASES / 2026.11",meta:[{label:"ANDROID",value:"2.4.2"},{label:"WINDOWS",value:"1.5.2"},{label:"WEB",value:"LATEST"}],actions:`<a class="btn btn--sm" href="${ri}" target="_blank" rel="noopener noreferrer">\u5168\u90E8\u7248\u672C ${I.ext}</a>
                 <a class="btn btn--sm btn--ghost" href="#/" data-nav>\u56DE\u5230\u9996\u9875</a>`})}
 
     <section class="dl-grid" aria-label="\u4E0B\u8F7D">
@@ -1502,7 +1502,7 @@ var Lh=Object.defineProperty;var F=(t,e,n)=>()=>{if(n)throw n[0];try{return t&&(
           <h2>\u79FB\u52A8\u7248</h2>
           <p class="dl-sub">\u672C\u5730\u79BB\u7EBF\u7EC8\u7AEF \xB7 \u76F8\u518C / \u97F3\u4E50 / \u626B\u96F7 / \u5DE5\u5177\u53F0</p>
           <dl class="dl-meta">
-            <div><dt>Version</dt><dd>2.4.1</dd></div>
+            <div><dt>Version</dt><dd>2.4.2</dd></div>
             <div><dt>Size</dt><dd>\u2248 291 MB</dd></div>
             <div><dt>Requires</dt><dd>Android 7.0+</dd></div>
           </dl>
@@ -1513,7 +1513,7 @@ var Lh=Object.defineProperty;var F=(t,e,n)=>()=>{if(n)throw n[0];try{return t&&(
           </ul>
           <div class="dl-actions">
             <a class="btn btn--signal" href="${oy}" target="_blank" rel="noopener noreferrer">\u4E0B\u8F7D APK <span class="arrow">\u2193</span></a>
-            <a class="btn btn--ghost" href="${ri}/tag/app-v2.4.1" target="_blank" rel="noopener noreferrer">\u7248\u672C\u8BF4\u660E ${I.ext}</a>
+            <a class="btn btn--ghost" href="${ri}/tag/app-v2.4.2" target="_blank" rel="noopener noreferrer">\u7248\u672C\u8BF4\u660E ${I.ext}</a>
           </div>
         </div>
         <span class="dl-card__glyph" aria-hidden="true">APK</span>
@@ -1525,7 +1525,7 @@ var Lh=Object.defineProperty;var F=(t,e,n)=>()=>{if(n)throw n[0];try{return t&&(
           <h2>\u684C\u9762\u7248</h2>
           <p class="dl-sub">\u7EFF\u8272\u4FBF\u643A \xB7 \u65AD\u7F51\u53EF\u7528 \xB7 \u53EF\u5F53\u626B\u96F7\u5C40\u57DF\u7F51\u4E3B\u673A</p>
           <dl class="dl-meta">
-            <div><dt>Version</dt><dd>1.5.1</dd></div>
+            <div><dt>Version</dt><dd>1.5.2</dd></div>
             <div><dt>Size</dt><dd>\u2248 387 MB</dd></div>
             <div><dt>Requires</dt><dd>Win 10/11 x64</dd></div>
           </dl>
@@ -1536,7 +1536,7 @@ var Lh=Object.defineProperty;var F=(t,e,n)=>()=>{if(n)throw n[0];try{return t&&(
           </ul>
           <div class="dl-actions">
             <a class="btn btn--signal" href="${ly}" target="_blank" rel="noopener noreferrer">\u4E0B\u8F7D ZIP <span class="arrow">\u2193</span></a>
-            <a class="btn btn--ghost" href="${ri}/tag/desktop-v1.5.1" target="_blank" rel="noopener noreferrer">\u7248\u672C\u8BF4\u660E ${I.ext}</a>
+            <a class="btn btn--ghost" href="${ri}/tag/desktop-v1.5.2" target="_blank" rel="noopener noreferrer">\u7248\u672C\u8BF4\u660E ${I.ext}</a>
           </div>
         </div>
         <span class="dl-card__glyph" aria-hidden="true">ZIP</span>
@@ -1549,7 +1549,7 @@ var Lh=Object.defineProperty;var F=(t,e,n)=>()=>{if(n)throw n[0];try{return t&&(
         <ol>
           <li>\u4E0B\u8F7D <b>.apk</b> \u5230\u624B\u673A\uFF08\u5FAE\u4FE1 / QQ \u4F20\u8FC7\u53BB\u4E5F\u53EF\u4EE5\uFF09\u3002</li>
           <li>\u70B9\u5F00\u6587\u4EF6\uFF0C\u5141\u8BB8\u300C\u5B89\u88C5\u672A\u77E5\u6765\u6E90\u5E94\u7528\u300D\u3002</li>
-          <li>\u8986\u76D6\u5B89\u88C5 2.4.1\uFF1B\u5982\u679C\u7B7E\u540D\u4E0D\u4E00\u81F4\uFF0C\u5148\u5378\u8F7D\u65E7\u7248\uFF08\u4F1A\u4E22 App \u672C\u5730\u6570\u636E\uFF09\u3002</li>
+          <li>\u8986\u76D6\u5B89\u88C5 2.4.2\uFF1B\u5982\u679C\u7B7E\u540D\u4E0D\u4E00\u81F4\uFF0C\u5148\u5378\u8F7D\u65E7\u7248\uFF08\u4F1A\u4E22 App \u672C\u5730\u6570\u636E\uFF09\u3002</li>
         </ol>
         <p class="dl-fine">\u9700\u8981 Android 7.0\uFF08API 24\uFF09\u53CA\u4EE5\u4E0A\uFF1B\u5B89\u88C5\u5305\u7EA6 291 MB\uFF0C\u76F8\u518C\u56FE\u90FD\u6253\u8FDB\u53BB\u4E86\u3002</p>
       </div>
