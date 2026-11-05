@@ -18,7 +18,7 @@
     "verify:android": "node tools/verify-android-server.mjs",
     "responsive": "node tools/responsive.mjs",
     "pwa:sw": "node tools/gen-service-worker.mjs",
-    "build:bundle": "esbuild src/main.js --bundle --format=esm --platform=browser --target=es2020 --minify --outfile=app.bundle.js && node tools/gen-service-worker.mjs",
+    "build:bundle": "node tools/build-css.mjs && esbuild src/main.js --bundle --format=esm --platform=browser --target=es2020 --minify --outfile=app.bundle.js && node tools/gen-service-worker.mjs",
     "pwa:icons": "python tools/make-app-icons.py",
     "pwa:shots": "node tools/pwa-shots.mjs"
   },
