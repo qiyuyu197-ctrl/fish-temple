@@ -28,7 +28,12 @@ import { MiniPlayer } from './ui/miniaudio.js';
 import { AlmanacUI } from './ui/almanac.js';
 import { EmbedHost } from './ui/embed-host.js';
 import { initLyricsUI } from './ui/lyrics.js';
-import { ListeningStage } from './ui/listening-stage.js';
+// 沉浸舞台按需加载：首屏不背它的 33KB，打开舞台时 miniaudio 也会动态 import。
+const ListeningStage = {
+  init: () => import('./ui/listening-stage.js').then((m) => m.ListeningStage.init()),
+  open: (...args) => import('./ui/listening-stage.js').then((m) => m.ListeningStage.open(...args)),
+  close: (...args) => import('./ui/listening-stage.js').then((m) => m.ListeningStage.close(...args)),
+};
 import { initWaveRow } from './ui/wave-row.js';
 import { Boot } from './ui/boot.js';
 import { initPWA } from './ui/pwa.js';
@@ -184,7 +189,7 @@ async function boot() {
   try {
     await Promise.race([
       Auth.init(),
-      new Promise((r) => setTimeout(r, 2500)),
+      new Promise((r) => setTimeout(r, 900)),
     ]);
   } catch (err) {
     console.warn('[auth] 初始化失败', err);
@@ -195,7 +200,7 @@ async function boot() {
   try {
     await Promise.race([
       NeteaseLogin.init(),
-      new Promise((r) => setTimeout(r, 1800)),
+      new Promise((r) => setTimeout(r, 700)),
     ]);
   } catch (err) {
     console.warn('[netease-login] 初始化失败', err);

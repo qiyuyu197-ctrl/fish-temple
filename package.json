@@ -18,7 +18,7 @@
     "verify:android": "node tools/verify-android-server.mjs",
     "responsive": "node tools/responsive.mjs",
     "pwa:sw": "node tools/gen-service-worker.mjs",
-    "build:bundle": "esbuild src/main.js --bundle --format=esm --platform=browser --target=es2020 --minify --splitting --outdir=. --entry-names=app.bundle --chunk-names=chunks/[name]-[hash]",
+    "build:bundle": "esbuild src/main.js --bundle --format=esm --platform=browser --target=es2020 --minify --splitting --outdir=. --entry-names=app.bundle --chunk-names=chunks/[name]-[hash] && node tools/gen-chunk-preload.mjs && node tools/gen-service-worker.mjs",
     "pwa:icons": "python tools/make-app-icons.py",
     "pwa:shots": "node tools/pwa-shots.mjs"
   },
