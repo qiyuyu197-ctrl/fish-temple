@@ -169,6 +169,8 @@ async function main() {
 
   if (WRITE) {
     covers.items = items;
+    covers.source = 'Bangumi（bgmimg 反代直链）+ AniList 本地兜底';
+    covers.sourceUrl = 'https://bgm.tv';
     covers.note = '封面默认直连 Bangumi（经 bgmimg 反代，不下载）；失败时回退 assets/leisure/covers 的本地 AniList 缓存。';
     covers.bangumiFetched = new Date().toISOString().slice(0, 10);
     await fs.writeFile(COVERS_FILE, `${JSON.stringify(covers, null, 2)}\n`);
