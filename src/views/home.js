@@ -70,9 +70,7 @@ export default {
         <div class="hero__slash"></div>
         <div class="ruled-mask"></div>
       </div>
-      <div class="hero__hud" aria-hidden="true">
-        <span class="hero__hud-ticks"></span>
-      </div>
+      <!-- hero HUD 装饰（圆环 + 一圈刻度）站主 2026-11-05 要求全部撤掉 ✓ -->
       <div class="hero__inner">
         <button class="hero__media-fab" id="heroMediaFab" type="button" disabled
                 aria-label="换一张横幅" aria-keyshortcuts="R" title="换一张横幅（快捷键 R）">${ICON.refresh}</button>
