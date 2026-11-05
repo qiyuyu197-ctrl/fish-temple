@@ -34,18 +34,7 @@ import { Boot } from './ui/boot.js';
 import { initPWA } from './ui/pwa.js';
 
 import home from './views/home.js';
-import logs from './views/logs.js';
-import forum from './views/forum.js';
-import music from './views/music.js';
-import gallery from './views/gallery.js';
-import leisure from './views/leisure.js';       // 文娱：当季新番 / 推荐动漫
-import downloadView from './views/download.js'; // 下载 App
-import mine from './views/mine.js';
-import tierlist from './views/tierlist.js';   // Tier List（TOOLS 板块）
-import fishrun from './views/fish-run.js';     // 像素小鱼（小游戏，跟扫雷挨着）
-import tools from './views/tools.js';
-import admin from './views/admin.js';
-import notfound from './views/notfound.js';
+import mine, { MinesLive } from './views/mine.js';
 import { redirectView } from './views/redirect.js';
 
 /* ---------------- 插件示例（想精简可以直接删掉这一段） ----------------
@@ -60,7 +49,44 @@ import { Almanac } from './plugins/almanac.js';
 import { Auth } from './plugins/auth.js';
 import { NeteaseLogin } from './plugins/netease-login.js';
 import * as Mines from './plugins/minesweeper.js';
-import { MinesLive } from './views/mine.js';
+
+/**
+ * 懒加载视图：首屏只带 core + home，其余板块等真正点进去再拉 chunk。
+ * 这不是为了"高级"，而是 GitHub Pages 的弱网吞吐只有 ~20KB/s：
+ * 把 1MB 的整站 bundle 一次塞给用户，启动要十几秒。
+ */
+function lazyView(id, title, load) {
+  let mod = null;
+  const get = () => mod || (mod = load().then((m) => m.default));
+  return {
+    id,
+    title,
+    async render(ctx) {
+      const view = await get();
+      return view.render(ctx);
+    },
+    async mount(root, ctx) {
+      const view = await get();
+      return view.mount?.(root, ctx);
+    },
+    async titleFor(ctx) {
+      const view = await get();
+      return view.titleFor?.(ctx);
+    },
+  };
+}
+
+const logs = lazyView('logs', '文章与公告', () => import('./views/logs.js'));
+const forum = lazyView('forum', '论坛', () => import('./views/forum.js'));
+const music = lazyView('music', '音乐', () => import('./views/music.js'));
+const gallery = lazyView('gallery', '插画', () => import('./views/gallery.js'));
+const leisure = lazyView('leisure', '文娱', () => import('./views/leisure.js'));
+const downloadView = lazyView('download', '下载 App', () => import('./views/download.js'));
+const tierlist = lazyView('tierlist', 'Tier List', () => import('./views/tierlist.js'));
+const fishrun = lazyView('fishrun', '像素小鱼', () => import('./views/fish-run.js'));
+const tools = lazyView('tools', '工具台', () => import('./views/tools.js'));
+const admin = lazyView('admin', '发布', () => import('./views/admin.js'));
+const notfound = lazyView('notfound', '404', () => import('./views/notfound.js'));
 
 Registry.addWidget(sessionWidget);   // 首页首屏下方：会话状态条
 Registry.addWidget(footerWidget);    // 首页页脚前：扩展说明位

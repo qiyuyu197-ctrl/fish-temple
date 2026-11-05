@@ -79,6 +79,7 @@ tasks.register('bundleSite', Sync) {
     from(repoRoot) {
         include 'index.html'
         include 'app.bundle.js'
+        include 'chunks/**'
         include 'manifest.webmanifest'
         include 'offline.html'
         include 'sw.js'

@@ -46,7 +46,7 @@ async function collect() {
   // 入口与兜底
   ['index.html', 'offline.html', 'manifest.webmanifest', 'app.bundle.js'].forEach(addFile);
 
-  // 壳：样式、内容清单（JS 已由 app.bundle.js 一次打包，不再逐个预缓存 src）
+  // 壳：样式、内容清单（按需 chunk 不预缓存，首次点进去时再由 fetch 缓存，避免安装时抢带宽）
   await walk('styles', (n) => n.endsWith('.css'));
   await walk('data', (n) => n.endsWith('.json') && n !== 'forum-index.json');
 

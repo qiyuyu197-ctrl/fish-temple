@@ -27,6 +27,7 @@ const LITE = process.argv.includes('--lite');
 /** 站点运行时需要的目录/文件（相对仓库根目录） */
 const DIRS = [
   'src',
+  'chunks',
   'styles',
   'assets/icons',
   'assets/pwa',
