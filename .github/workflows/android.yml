@@ -41,12 +41,16 @@ jobs:
           set -eu
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             VERSION="${GITHUB_REF_NAME#app-v}"
+            # 用 semver 算 versionCode，保证 2.4.0 能覆盖 2.3.5；
+            # 之前直接用 run number，旧包 code 可能更大，装不上。
+            CODE=$(echo "$VERSION" | awk -F. '{printf "%d%02d%02d", $1, $2, $3}')
           else
             VERSION="2.0.0-dev.${GITHUB_RUN_NUMBER}"
+            CODE="${GITHUB_RUN_NUMBER}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "版本 $VERSION（code ${GITHUB_RUN_NUMBER}）"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "版本 $VERSION（code ${CODE}）"
 
       - name: JDK 17
         uses: actions/setup-java@v4
@@ -137,6 +141,7 @@ jobs:
             - **2.3.3**：新增「网易云官方页面登录」（App 内打开网易云自己的登录页，扫码/账号密码都行，登录后原生取 `MUSIC_U` 绑定）；手机竖屏固定横图自动让位；背景视差四周留 32px，移动时不再露边
             - **2.3.4**：网易云官方网页登录改为 App 内的默认入口；第三方二维码降为「改用本站二维码」的备用项
             - **2.3.5**：本机服务固定端口，本站账号登录态 / 播放列表 / 设置跨重启保留；补齐网易云批量曲目接口，歌曲封面恢复（http 封面统一升级 https）；首页「插画」预览在手机竖屏也优先竖图
+            - **2.4.0**：文娱板块接入 Bangumi 实时搜索；推荐动漫扩到 200 部（196 部看过表 + 4 部私货），封面走 Bangumi 直链；搜索需要联网，其余内容仍离线可用
             - 需要 Android 7.0（API 24）及以上；安装包约 290MB（相册图都打进去了）
 
             安装：下载 `.apk` → 手机上点开 → 允许「安装未知来源应用」→ 装。
