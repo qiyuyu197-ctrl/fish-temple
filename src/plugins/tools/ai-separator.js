@@ -211,7 +211,10 @@ export async function ensureModel({ model = 'inst', localFile = null, onProgress
   onProgress?.({ stage: 'load', fraction: 0, model, modelShort: def.short });
   // 笔记本上默认可能挑核显；有独立显卡时让 ORT 优先用它（不支持就静默忽略）
   try {
-    const ort = await import('../../../assets/vendor/onnxruntime-web/ort.min.mjs');
+    // 用文档根算 URL，而不是 import 字面量：这样 esbuild 不会把 358KB 的 ORT
+    // 打进启动 bundle，只在真正做 AI 分轨时再按需拉取。
+    const ortUrl = new URL('assets/vendor/onnxruntime-web/ort.min.mjs', document.baseURI).href;
+    const ort = await import(ortUrl);
     if (ort?.env?.webgpu) ort.env.webgpu.powerPreference = 'high-performance';
   } catch { /* ORT 还没加载成功时交给 loadLib 报错 */ }
   const { createSeparator } = await loadLib();

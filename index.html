@@ -48,19 +48,6 @@
 <link rel="stylesheet" href="styles/background-picker.css" />
 <!-- 从 rahoo.online 素材里提炼的 HUD 纹理 / 封面包号 / 宋体标题层 -->
 <link rel="stylesheet" href="styles/patterns.css" />
-<!-- CHUNK-PRELOAD:START -->
-<link rel="modulepreload" href="chunks/chunk-BUFEAOIA.js" />
-<link rel="modulepreload" href="chunks/chunk-C4U237QN.js" />
-<link rel="modulepreload" href="chunks/chunk-DDIRHU7Q.js" />
-<link rel="modulepreload" href="chunks/chunk-E3HJDYPK.js" />
-<link rel="modulepreload" href="chunks/chunk-IP3NPHJG.js" />
-<link rel="modulepreload" href="chunks/chunk-JV4UGN2N.js" />
-<link rel="modulepreload" href="chunks/chunk-KSYHGNLY.js" />
-<link rel="modulepreload" href="chunks/chunk-L72EZ7PG.js" />
-<link rel="modulepreload" href="chunks/chunk-U7ZG7ZHV.js" />
-<link rel="modulepreload" href="chunks/chunk-UWG3LF7U.js" />
-<link rel="modulepreload" href="chunks/chunk-WEV6AXMB.js" />
-<!-- CHUNK-PRELOAD:END -->
 </head>
 <body>
 
@@ -317,6 +304,30 @@
   }
   window.__bootWarn = warn;
 
+  // GitHub Pages 偶尔会对并发静态请求回 503；模块脚本失败后浏览器不会自己重试。
+  // 这里用带 cache-buster 的 script 重挂 3 次，避免一次 503 就永远停在 boot。
+  var bundleTries = 0;
+  window.__bootScriptRetry = function () {
+    if (document.documentElement.dataset.booted === '1') return;
+    if (bundleTries >= 3) {
+      warn('脚本加载失败', [
+        '检查浏览器控制台是否有 404 / 503 报错',
+        '刷新页面重试',
+        '如果持续失败，把控制台截图发给站长',
+      ]);
+      return;
+    }
+    bundleTries += 1;
+    var delay = 900 * bundleTries;
+    setTimeout(function () {
+      var s = document.createElement('script');
+      s.type = 'module';
+      s.src = 'app.bundle.js?retry=' + bundleTries;
+      s.onerror = window.__bootScriptRetry;
+      document.body.appendChild(s);
+    }, delay);
+  };
+
   function slowHint(very) {
     if (shown || document.documentElement.dataset.booted === '1') return;
     if (!very && warnedSlow) return;
@@ -352,6 +363,6 @@
 </script>
 
 <script type="module" src="app.bundle.js"
-        onerror="window.__bootWarn && window.__bootWarn('脚本加载失败', ['检查浏览器控制台是否有 404 / CORS 报错','确认 app.bundle.js 与 styles/ 能正常加载','刷新页面重试'])"></script>
+        onerror="window.__bootScriptRetry && window.__bootScriptRetry()"></script>
 </body>
 </html>
