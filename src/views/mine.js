@@ -129,14 +129,14 @@ export default {
       <div class="grid grid--split" style="margin-top:var(--sp-5);align-items:start">
         <div class="panel" data-reveal>
           <div class="panel__head">
-            <span class="panel__title">本机战绩</span>
+            <span class="panel__title">我的战绩</span>
             <span class="mono faint" style="font-size:var(--fs-2xs)" id="msStatsFor">BEGINNER</span>
           </div>
           <div class="panel__body">
             <div class="ms-stats" id="msStats">${statsHTML(stats, lv.id)}</div>
             <div style="display:flex;gap:6px;margin-top:var(--sp-4);flex-wrap:wrap">
               <button class="btn btn--sm btn--danger" id="msReset">清空战绩</button>
-              <span class="faint mono" style="font-size:var(--fs-2xs);align-self:center">只存在这台设备上</span>
+              <span class="faint mono" style="font-size:var(--fs-2xs);align-self:center">保存在当前浏览器</span>
             </div>
           </div>
         </div>
@@ -542,7 +542,7 @@ export default {
         return;
       }
       if (e.target.closest('#msReset')) {
-        if (!confirm('清空本机的扫雷战绩？')) return;
+        if (!confirm('清空扫雷战绩？')) return;
         resetStats();
         paintMeta();
         Toast.show('战绩已清空');

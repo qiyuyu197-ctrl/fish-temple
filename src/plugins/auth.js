@@ -399,7 +399,7 @@ export const Auth = {
    * 失败抛错，由调用方把 message 显示在面板里（错误文案已经是人话）。
    */
   async loginLocal({ email = '', password = '', register = false, name = '' } = {}) {
-    if (!this.enabled || !this.isLocal) throw new Error('本站没有启用本地账号');
+    if (!this.enabled || !this.isLocal) throw new Error('本站没有启用账号登录');
     const path = register ? 'auth/local/register' : 'auth/local/login';
     let res;
     try {
@@ -409,7 +409,7 @@ export const Auth = {
         body: JSON.stringify({ email, password, name }),
       });
     } catch (err) {
-      throw new Error(`连不上本地服务：${String(err?.message || err)}`);
+      throw new Error(`连不上账号服务：${String(err?.message || err)}`);
     }
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok || !json.token) {

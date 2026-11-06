@@ -102,7 +102,10 @@ async function connect(url) {
 
 const evaluate = async (expr) => {
   const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
-  if (r.exceptionDetails) throw new Error(r.exceptionDetails.text);
+  if (r.exceptionDetails) {
+    const d = r.exceptionDetails;
+    throw new Error(`${d.text} ${d.exception?.description || ''}`.trim().slice(0, 1200));
+  }
   return r.result?.value;
 };
 
@@ -318,7 +321,7 @@ async function main() {
     return { title: document.title, prose: (p ? p.innerText : '').length, toc: document.querySelectorAll('#toc a').length };
   })()`);
   record('路由 文章详情 打开的是详情（有正文与目录）',
-    /八个板块/.test(postDetail?.title || '') && (postDetail?.prose || 0) > 300 && (postDetail?.toc || 0) >= 2,
+    /十个入口|鱼灵庙/.test(postDetail?.title || '') && (postDetail?.prose || 0) > 300 && (postDetail?.toc || 0) >= 2,
     JSON.stringify(postDetail));
 
   // 合并后的兼容跳转：老地址不能 404，而且要把子路径带过去
@@ -399,7 +402,13 @@ async function main() {
       const a = document.querySelector('#nav .nav__link.is-active');
       if (!a) return { view: null };
       const s = getComputedStyle(a);
-      return { view: a.dataset.view || '', bg: s.backgroundColor, fg: s.color, weight: s.fontWeight };
+      return {
+        view: a.dataset.view || '',
+        bg: s.backgroundColor,
+        fg: s.color,
+        weight: s.fontWeight,
+        over: !!document.getElementById('topbar')?.classList.contains('is-over-media'),
+      };
     };
     const out = {
       theme,
@@ -425,10 +434,12 @@ async function main() {
   record('导航：当前板块高亮跟随路由（合并板块 + 详情 + 老地址）',
     Object.entries(expectNav).every(([h, view]) => navMap[h]?.view === view),
     JSON.stringify(Object.fromEntries(Object.entries(navMap).map(([h, v]) => [h, v.view]))));
-  record('导航：高亮用主题信号色（--signal 铺底 / --signal-ink 字色）',
+  record('导航：高亮用主题信号色（--signal 铺底 / --signal-ink 字色；首屏透明顶栏用信号色字）',
     Object.values(navMap).filter((v) => v.view).length >= 7
-      && Object.values(navMap).filter((v) => v.view).every((v) => v.bg === themeAccent.signal && v.fg === themeAccent.ink),
-    JSON.stringify({ theme: themeAccent, sample: navMap['#/music'] }));
+      && Object.values(navMap).filter((v) => v.view).every((v) => (v.over
+        ? v.fg === themeAccent.signal && v.bg === 'rgba(0, 0, 0, 0)'
+        : v.bg === themeAccent.signal && v.fg === themeAccent.ink)),
+    JSON.stringify({ theme: themeAccent, sample: navMap['#/music'], home: navMap['#/'] }));
   record('导航：未知路由不高亮任何栏目', !navMap['#/nope']?.view, String(navMap['#/nope']?.view));
   record('导航：文章与公告合并成一项（NOTICE 已并入 LOGS），且工具台在导航里',
     navActive?.labels?.filter((l) => /LOGS/.test(l)).length === 1
@@ -656,7 +667,7 @@ async function main() {
     album?.providers?.[0] === 'album' && album?.providers?.includes('album'),
     JSON.stringify(album?.providers));
   record('插画：进入画廊就自动随机抽一张显示在大图里',
-    /^assets\/img\/album\/album-\d+\.jpg$/.test(album?.stage?.src || '')
+    /^assets\/img\/album\/album-\d+\.(?:jpg|webp)$/.test(album?.stage?.src || '')
       && /ALBUM/i.test(album?.stage?.badge || '')
       && album?.stage?.placeholderHidden === true,
     JSON.stringify(album?.stage));
@@ -673,7 +684,7 @@ async function main() {
     JSON.stringify({ meta: album?.meta, count: album?.countText }));
   record('相册：灯箱可翻页（点按钮 / 键盘，正图而非缩略图）',
     album?.lbNav === 2 && /^1 \//.test(album?.cap1 || '') && /^2 \//.test(album?.cap2 || '')
-      && /^1 \//.test(album?.cap3 || '') && /img\/album\/album-\d+\.jpg$/.test(album?.fullImg || '')
+      && /^1 \//.test(album?.cap3 || '') && /img\/album\/album-\d+\.(?:jpg|webp)$/.test(album?.fullImg || '')
       && album?.closed === true,
     JSON.stringify({ nav: album?.lbNav, cap1: album?.cap1, cap2: album?.cap2, cap3: album?.cap3, fullImg: album?.fullImg, closed: album?.closed }));
   record('相册：展开全部 = 铺满全部照片 + 版面变成整页全宽',
@@ -1492,7 +1503,9 @@ async function main() {
     await visit('#/music');
     const imp = await evaluate(`(async () => {
       const wait = (ms) => new Promise(r => setTimeout(r, ms));
-      const mod = await import('/src/plugins/netease.js');
+      // 必须用应用里的那一份 Netease：动态 import('/src/...') 会新建一个模块实例，
+      // 它的 Player 从未 init()，一 setTracks 就踩到 audio=null（自检自己制造的分身）。
+      const mod = window.Terminal.Netease;
       const P = window.Terminal.Player;
       const text = (id) => document.getElementById(id)?.textContent.trim();
       const out = {};
@@ -2376,8 +2389,8 @@ async function main() {
    *   ④ 未登录时同步安全跳过；合并规则（plays 取大 / at 取新 / seconds 取较新那条）确定性可验。
    */
   const hist = await evaluate(`(async () => {
-    const H = await import('/src/core/history.js');
-    const { Player } = await import('/src/core/player.js');
+    const H = window.Terminal.History;
+    const { Player } = window.Terminal;
     const nap = (ms) => new Promise((r) => setTimeout(r, ms));
 
     // 3 秒静音 WAV（8kHz 单声道 16bit）：够让 <audio> 真的播起来、也够触发"记一条"
@@ -3114,7 +3127,7 @@ async function main() {
    * 现在：短链先在服务端展开 → 判断类型（歌单 / 专辑 / 单曲）→ 走对应的导入。
    */
   const linkKinds = await evaluate(`(async () => {
-    const M = await import('/src/plugins/netease.js');
+    const M = window.Terminal.Netease;
     const cases = {
       albumDirect: M.parseAlbumId('https://music.163.com/album?id=90004244'),
       albumMobile: M.parseAlbumId('https://y.music.163.com/m/album?app_version=9.6.05&id=90004244&userid=1'),
@@ -3539,8 +3552,8 @@ async function main() {
       && airUI?.needDull > 20 && airUI?.needSame < 1,
     JSON.stringify(airUI));
 
-  // Markdown 渲染（post_overview 内含表格、提示块、代码块、目录）
-  await visit('#/logs/post_overview');
+  // Markdown 渲染（post_architecture 内含表格、提示块、代码块、目录）
+  await visit('#/logs/post_architecture');
   const md = await evaluate(`(() => ({
     h2: document.querySelectorAll('#prose h2').length,
     pre: document.querySelectorAll('#prose pre').length,

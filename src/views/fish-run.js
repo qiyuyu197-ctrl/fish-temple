@@ -325,8 +325,8 @@ export default {
     }
     return `${viewhead({
       title: 'PIXEL FISH',
-      sub: '一条像素小鱼，躲水母和石头。进去先待机，按空格 / 点屏幕开始；撞到就结束，越跑越快，纪录存在本机。',
-      idx: 'MINES / FISH',
+      sub: '一条像素小鱼，躲水母和石头。进去先待机，按空格 / 点屏幕开始；撞到就结束，越跑越快，纪录留在当前浏览器。',
+      idx: 'GAME / FISH',
     })}
     <div class="mr-tabs" role="tablist" aria-label="小游戏">
       <a class="mr-tab" href="#/mine?room=1">扫雷</a>
@@ -338,7 +338,7 @@ export default {
     <canvas id="fishCanvas" width="${W}" height="${H}"
       style="width:100%;max-width:${W}px;display:block;border:2px solid var(--ink-100);image-rendering:pixelated;background:#eaf3ff"></canvas>
     <p class="mono" style="font-size:var(--fs-2xs);color:var(--fg-soft);margin-top:var(--sp-2)">
-      空格 / 点击 开始或重来 · 跑起来后再按是跳 · BEST 存在本机
+      空格 / 点击 开始或重来 · 跑起来后再按是跳 · BEST 留在当前浏览器
     </p>`;
   },
 

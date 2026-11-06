@@ -1,8 +1,8 @@
 {
-  "source": "Bangumi（bgmimg 反代直链）+ AniList 本地兜底",
+  "source": "Bangumi（bgmimg 反代直链）+ AniList 封面缓存",
   "sourceUrl": "https://bgm.tv",
   "fetched": "2026-10-21",
-  "note": "封面默认直连 Bangumi（经 bgmimg 反代，不下载）；失败时回退 assets/leisure/covers 的本地 AniList 缓存。",
+  "note": "封面默认直连 Bangumi（经 bgmimg 反代，不下载）；失败时回退 assets/leisure/covers 的 AniList 封面缓存。",
   "items": {
     "kusuriya-s3": {
       "anilistId": 195516,

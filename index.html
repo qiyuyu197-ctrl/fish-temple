@@ -4,12 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>FISH 鱼の灵庙 // 终端</title>
-<meta name="description" content="FISH 鱼の灵庙 · 静态站点 · 音乐播放 · 插画画廊 · 新番文娱 · 公告与文章" />
+<meta name="description" content="FISH 鱼の灵庙 · 个人站点 · 文章与公告 · 论坛 · 音乐 · 插画相册 · 新番文娱 · 小游戏 · 工具台" />
 <meta name="theme-color" content="#EFEDE6" />
 <!-- 分享卡片：图用品牌插画母版。部署到自己的域名后建议把 content 换成绝对地址 -->
 <meta property="og:type" content="website" />
 <meta property="og:title" content="FISH 鱼の灵庙" />
-<meta property="og:description" content="记录、播放、归档。一个零依赖的静态终端。" />
+<meta property="og:description" content="记录、播放、归档。一个长期维护的个人站点。" />
 <meta property="og:image" content="assets/icons/mark-512.png" />
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="FISH 鱼の灵庙" />
@@ -26,8 +26,8 @@
 <meta name="apple-mobile-web-app-title" content="鱼の灵庙" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="format-detection" content="telephone=no" />
-<link rel="modulepreload" href="app.bundle.js?v=2.4.2" fetchpriority="high" />
-<link rel="stylesheet" href="styles/app.bundle.css?v=2.4.2" />
+<link rel="modulepreload" href="app.bundle.js?v=2.5.0" fetchpriority="high" />
+<link rel="stylesheet" href="styles/app.bundle.css?v=2.5.0" />
 <!-- 黄历小组件的样式（顶栏那个按钮 + 面板） -->
 <!-- 移动端 / 触控适配层：必须最后加载（同优先级下靠顺序覆盖上面三个文件，
      桌面端样式完全不受影响 —— 里面的规则都关在媒体查询里） -->
@@ -111,7 +111,7 @@
       <button class="iconbtn iconbtn--menu" id="menuBtn" title="菜单" aria-label="菜单" aria-expanded="false">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="1.8"/></svg>
       </button>
-      <div class="clock" id="clock" title="本地时间">
+      <div class="clock" id="clock" title="当前时间">
         <b id="clockTime">--:--:--</b>
         <i id="clockDate">----.--.--</i>
       </div>
@@ -179,7 +179,7 @@
       <i id="mpArtist" class="mono">—</i>
     </button>
 
-    <!-- 音浪条：本地音频走真频谱，网易云曲目走合成音浪 -->
+    <!-- 音浪条：站内音频走真频谱，网易云曲目走合成音浪 -->
     <div class="mp-wave" id="mpBars" aria-hidden="true" title="音浪">
       <span class="mp-wave__mid" aria-hidden="true"></span>
     </div>
@@ -310,7 +310,7 @@
     setTimeout(function () {
       var s = document.createElement('script');
       s.type = 'module';
-      s.src = 'app.bundle.js?v=2.4.2&retry=' + bundleTries;
+      s.src = 'app.bundle.js?v=2.5.0&retry=' + bundleTries;
       s.onerror = window.__bootScriptRetry;
       document.body.appendChild(s);
     }, delay);
@@ -336,11 +336,10 @@
   if (location.protocol === 'file:') {
     // 模块脚本在 file:// 下必然失败，直接给出指引
     setTimeout(function () {
-      warn('需要通过本地服务器访问', [
-        '在项目目录打开终端',
-        '执行 <b>node server.mjs</b>（需要 Node.js 18+）',
-        '浏览器访问 <b>http://localhost:5173</b>',
-        '没有 Node.js 时可用 <b>python -m http.server 5173</b>',
+      warn('请通过站点地址访问', [
+        '直接打开 HTML 文件时，浏览器会拦截模块脚本与内容请求',
+        '请使用站点的正式地址',
+        '如果你在维护站点，请通过部署后的地址检查',
       ]);
     }, 400);
   } else {
@@ -350,7 +349,7 @@
 })();
 </script>
 
-<script type="module" src="app.bundle.js?v=2.4.2"
+<script type="module" src="app.bundle.js?v=2.5.0"
         onerror="window.__bootScriptRetry && window.__bootScriptRetry()"></script>
 </body>
 </html>

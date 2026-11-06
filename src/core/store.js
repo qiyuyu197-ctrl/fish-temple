@@ -46,8 +46,8 @@ function writeJSON(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
     return true;
   } catch (err) {
-    console.warn('[store] 写入本地失败', err);
-    bus.emit('toast', { message: '本地存储写入失败（可能是隐私模式）', kind: 'err' });
+    console.warn('[store] 写入浏览器存储失败', err);
+    bus.emit('toast', { message: '浏览器存储写入失败（可能是隐私模式）', kind: 'err' });
     return false;
   }
 }
@@ -61,33 +61,33 @@ function safeSet(key, value) {
 }
 
 /**
- * file:// 直接打开时 fetch 会被浏览器拦截，此时退化为内置种子，
- * 保证站点依然有内容可看。把这三条替换成真实内容即可。
+ * 直接以 file:// 打开时 fetch 会被浏览器拦截，此时退化为内置种子，
+ * 保证页面依然有内容可看。把这三条替换成真实内容即可。
  */
 const FALLBACK_SEED = {
   posts: [
     {
       id: 'post_offline_seed',
       title: '离线模式：内置示例内容',
-      summary: '当前是以 file:// 直接打开页面，浏览器拦截了 fetch，因此这里显示内置示例。运行 node server.mjs 即可读取 data/ 目录中的真实内容。',
+      summary: '内容清单没有读到，当前显示的是内置示例。请通过站点地址访问，而不是直接打开 HTML 文件。',
       category: '公告',
       tags: ['离线', '说明'],
       date: new Date().toISOString(),
       pinned: true,
-      content: '## 为什么看到的是示例内容\n\n浏览器的同源策略禁止 `file://` 页面用 `fetch` 读取本地 JSON 文件，所以站点无法加载 `data/posts.json`。\n\n## 解决办法\n\n在项目目录执行：\n\n```bash\nnode server.mjs\n```\n\n然后访问 `http://localhost:5173`，即可看到 `data/` 目录中的全部内容，并且能在控制台里直接发布。\n\n> [!TIP]\n> 也可以使用任意静态服务器，例如 `python -m http.server`。',
+      content: '## 为什么看到的是示例内容\n\n浏览器的同源策略会拦截 `file://` 页面发出的 `fetch`，所以直接打开 HTML 文件时读不到 `data/posts.json`。\n\n## 解决办法\n\n请通过站点的正式地址访问。部署环境会正常提供 `data/` 下的内容清单；直接双击 HTML 文件不会。\n\n> [!TIP]\n> 如果在正常地址上仍看到这条内容，刷新页面再试一次。',
     },
   ],
   news: [
     {
       id: 'news_offline_seed',
-      title: '提示：建议通过本地服务器访问',
-      summary: '使用 file:// 打开会限制 ES 模块与 fetch，部分功能（内容加载、发布控制台写入）会降级。',
+      title: '提示：请通过站点地址访问',
+      summary: '直接打开 HTML 文件会限制 ES 模块与 fetch，部分功能（内容加载、发布控制台写入）会降级。',
       category: '维护',
       tags: ['提示'],
       date: new Date().toISOString(),
       level: 1,
       pinned: true,
-      content: '运行 `node server.mjs` 后访问 **http://localhost:5173** 可获得完整体验：\n\n- 读取 `data/posts.json` 与 `data/news.json`\n- 控制台保存内容时直接写入项目文件\n- 随机插画与音乐播放不受 file:// 限制影响',
+      content: '请通过站点的正式地址访问以获得完整体验：\n\n- 正常读取 `data/posts.json` 与 `data/news.json`\n- 控制台保存内容时写入站点的内容存储\n- 随机插画与音乐播放不受 file:// 限制影响',
     },
   ],
 };

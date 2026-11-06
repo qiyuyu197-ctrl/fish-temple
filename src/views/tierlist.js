@@ -69,7 +69,7 @@ const boardHTML = () => `
   <div class="tl-tools">
     <input class="tl-in mono" id="tlLabel" maxlength="40" placeholder="卡片名字（可空，只放图也行）" />
     <input class="tl-in mono" id="tlImage" placeholder="图片地址（https://…）可空" />
-    <label class="btn btn--sm tl-file">选本地图<input type="file" id="tlFile" accept="image/*" multiple hidden /></label>
+    <label class="btn btn--sm tl-file">选图片<input type="file" id="tlFile" accept="image/*" multiple hidden /></label>
     <button class="btn btn--sm btn--signal" id="tlAdd">加入素材区</button>
   </div>
   ${trayHTML()}
@@ -208,7 +208,7 @@ async function exportPNG() {
     try { cv.toBlob((b) => resolve(b), 'image/png'); }
     catch { resolve(null); }        // 跨域污染时这里会抛 ✗
   });
-  if (!blob) return { ok: false, error: '有远程图片没给跨域头，画布被污染了 —— 用本地选的图，或换支持 CORS 的图床' };
+  if (!blob) return { ok: false, error: '有远程图片没给跨域头，画布被污染了 —— 用自己选的图，或换支持 CORS 的图床' };
 
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -230,7 +230,7 @@ export default {
     board = board || load();
     return `${viewhead({
       title: 'TIER LIST',
-      sub: '把卡片拖进档位里排个高低。拖到某张卡上就是插到它前面，档内顺序也管用；自动存在本机，刷新还在。',
+      sub: '把卡片拖进档位里排个高低。拖到某张卡上就是插到它前面，档内顺序也管用；自动保存在当前浏览器，刷新还在。',
       idx: 'TOOLS / TIER',
     })}
     <div id="tlRoot">${boardHTML()}</div>
@@ -262,7 +262,7 @@ export default {
     const host = root.querySelector('#tlRoot');
     if (!host) return undefined;
 
-    let pendingFile = '';   // 选中的本地图（data URL）
+    let pendingFile = '';   // 选中的图片（data URL）
 
     // 加卡
     root.addEventListener('click', async (e) => {

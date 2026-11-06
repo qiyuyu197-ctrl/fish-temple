@@ -85,7 +85,7 @@ export const Shell = {
     const user = Auth.user;
 
     if (!user) {
-      const label = Auth.isLocal ? '登录 / 注册（本机账号）' : '登录 / 注册（Auth0）';
+      const label = Auth.isLocal ? '登录 / 注册' : '登录 / 注册（Auth0）';
       box.innerHTML = `<button class="authbox__btn" id="authLogin" type="button" title="${label}">
         ${ICON.user}<span class="authbox__label">登录</span>
       </button>`;
@@ -115,7 +115,7 @@ export const Shell = {
         </div>
         <div class="authbox__rows mono">
           <span><i>角色</i><b>${Auth.isOwner ? '站长 OWNER' : '普通用户 MEMBER'}</b></span>
-          <span><i>邮箱</i><b>${user.source === 'local' ? '本机账号' : (user.verified ? '已验证' : (Auth.enabled ? '未验证' : '—'))}</b></span>
+          <span><i>邮箱</i><b>${user.source === 'local' ? '站内账号' : (user.verified ? '已验证' : (Auth.enabled ? '未验证' : '—'))}</b></span>
           ${user.source === 'token' ? '<span><i>身份</i><b>服务端未确认</b></span>' : ''}
         </div>
         <button class="authbox__item" id="authEdit" type="button" role="menuitem">编辑资料</button>
@@ -247,7 +247,7 @@ export const Shell = {
           <b id="authPanelTitle">登录 / 注册</b>
           <button class="authpanel__x" id="authPanelClose" type="button" aria-label="关闭">×</button>
         </div>
-        <p class="authpanel__lead">这是<b>本机账号</b>：密码只保存在这台电脑上，由本地服务加盐哈希后存储。</p>
+        <p class="authpanel__lead">这是<b>站内账号</b>：密码由站点服务加盐哈希后保存，不会以明文回传。</p>
         <form class="authpanel__form" id="authPanelForm" novalidate>
           <label class="authpanel__label mono" for="authPanelEmail">邮箱</label>
           <input class="authpanel__input" id="authPanelEmail" type="email" name="email" required
@@ -289,7 +289,7 @@ export const Shell = {
 
     const paintMode = () => {
       const title = $('#authPanelTitle');
-      if (title) title.textContent = register ? '注册本机账号' : '登录';
+      if (title) title.textContent = register ? '注册账号' : '登录';
       if (go) go.textContent = register ? '注册并登录' : '登录';
       if (switcher) switcher.textContent = register ? '已有账号？直接登录' : '没有账号？注册一个';
       password?.setAttribute('autocomplete', register ? 'new-password' : 'current-password');
@@ -662,7 +662,7 @@ export const Shell = {
     const brand = document.querySelector('.brand__glyph');
     brand?.addEventListener('pointerdown', () => {
       pressTimer = setTimeout(() => {
-        Toast.show('本地内容已重置为内置示例，正在重新载入…');
+        Toast.show('浏览器内容已重置为内置示例，正在重新载入…');
         Object.keys(localStorage)
           .filter((k) => k.startsWith(STORAGE_PREFIX))
           .forEach((k) => localStorage.removeItem(k));

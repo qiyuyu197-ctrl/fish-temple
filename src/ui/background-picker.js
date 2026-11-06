@@ -81,8 +81,8 @@ async function fileToPhoto(file) {
     url,
     // 不复制第二份 data URL：首页 localStorage 里只留 url 这一份
     thumb: '',
-    title: String(file.name || '本地图片').replace(/\.[^.]+$/, '') || '本地图片',
-    author: '本地导入',
+    title: String(file.name || '自定义图片').replace(/\.[^.]+$/, '') || '自定义图片',
+    author: '自定义导入',
     width: w,
     height: h,
     bytes,
@@ -110,7 +110,7 @@ function shellHTML(scopeLabel) {
           <b>01</b><span>图库</span><i id="bpTotal">—</i>
         </button>
         <button class="bgpicker__tab" type="button" data-tab="import" role="tab" aria-selected="false">
-          <b>02</b><span>导入自己的图</span><i>LOCAL</i>
+          <b>02</b><span>导入自己的图</span><i>CUSTOM</i>
         </button>
         <span class="bgpicker__tabhint">横竖都能选 · 选完固定</span>
       </nav>
@@ -160,17 +160,17 @@ function shellHTML(scopeLabel) {
             </div>
           </div>
 
-          <section class="bgpicker__import" id="bpImport" hidden aria-label="导入本地图片">
+          <section class="bgpicker__import" id="bpImport" hidden aria-label="导入图片">
             <label class="bgpicker__drop" id="bpDrop">
               <input id="bpFile" type="file" accept="image/*" hidden />
               <span class="bgpicker__dropicon" aria-hidden="true">＋</span>
               <b>拖一张图进来，或点击选择</b>
-              <span>JPG / PNG / WebP · 压到最长边 ${MAX_EDGE}px · 只存在这台浏览器</span>
+              <span>JPG / PNG / WebP · 压到最长边 ${MAX_EDGE}px · 仅保存在当前浏览器</span>
               <em id="bpDropFile">还没有选择文件</em>
             </label>
             <div class="bgpicker__importnote">
-              <b>LOCAL ONLY</b>
-              <p>导入的图会存进浏览器本地，不会上传。换浏览器 / 清缓存后会消失；想换回相册，切到「图库」再选。</p>
+              <b>BROWSER ONLY</b>
+              <p>导入的图只保存在当前浏览器，不会上传。换浏览器 / 清缓存后会消失；想换回相册，切到「图库」再选。</p>
             </div>
           </section>
         </div>
@@ -272,11 +272,11 @@ export function openBackgroundPicker(options = {}) {
       shotImg.src = selected.url;
       shotImg.hidden = false;
       shotEmpty.hidden = true;
-      shotTag.textContent = selected.custom ? 'LOCAL / 本机' : `NO.${String(items.indexOf(selected) + 1 || 0).padStart(3, '0')}`;
-      kickerEl.textContent = selected.custom ? '// LOCAL IMAGE' : '// GALLERY PICK';
+      shotTag.textContent = selected.custom ? 'CUSTOM / 自定义' : `NO.${String(items.indexOf(selected) + 1 || 0).padStart(3, '0')}`;
+      kickerEl.textContent = selected.custom ? '// CUSTOM IMAGE' : '// GALLERY PICK';
       titleEl.textContent = selected.title || '未命名背景';
       metaEl.textContent = [
-        selected.custom ? '本地导入' : (selected.author || '相册'),
+        selected.custom ? '自定义导入' : (selected.author || '相册'),
         dims(selected),
         ratio(selected),
         bytesText(selected.bytes),

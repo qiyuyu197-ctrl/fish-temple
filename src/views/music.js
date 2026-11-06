@@ -658,7 +658,7 @@ export default {
     /* ---- 列表控制 ---- */
     $('#plClear')?.addEventListener('click', () => {
       if (!Player.tracks.length) return;
-      if (!confirm('清空网站播放列表？（只影响本地保存的列表）')) return;
+      if (!confirm('清空网站播放列表？（只影响当前浏览器保存的列表）')) return;
       Player.clear();
       savePlaylist([]);
       paintPlaylist(); paintNow(); paintEmbed();
@@ -701,7 +701,7 @@ export default {
         setVipOk(true);
         setLyricNote('');
         paintNow();
-        Toast.show('已记住：你这台浏览器登录了网易云会员，会员曲目不再提示', '', { ttl: 5000 });
+        Toast.show('已记住：当前浏览器登录了网易云会员，会员曲目不再提示', '', { ttl: 5000 });
         return;
       }
       if (e.target.closest('#neVipUnset')) {
@@ -877,7 +877,7 @@ function nowLyricHTML() {
       <span class="np-lyric__next">${esc(next?.text || '')}</span>`;
   }
   if (Lyrics.status === 'local') {
-    return `<span class="np-lyric__cur is-placeholder">本地音频 / 没有歌词来源</span>`;
+    return `<span class="np-lyric__cur is-placeholder">站内音频 / 没有歌词来源</span>`;
   }
   return `<span class="np-lyric__cur is-placeholder">${esc(Lyrics._msg || '这首歌没有可显示的歌词')}</span>`;
 }
@@ -1073,7 +1073,7 @@ function paintNow() {
   const src = $('#npSource');
   if (src) {
     const t = Player.current;
-    src.textContent = t ? (t.provider === 'netease' ? 'NETEASE' : '本地音频') : '待机';
+    src.textContent = t ? (t.provider === 'netease' ? 'NETEASE' : '站内音频') : '待机';
   }
   const top = $('#stageTop');
   if (top) top.disabled = !Player.current;

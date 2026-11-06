@@ -229,7 +229,7 @@ function textPanel() {
   <div class="panel" data-reveal>
     <div class="panel__head">
       <span class="panel__title">文本工具</span>
-      <span class="mono faint" style="font-size:var(--fs-2xs)">纯本地 · 不联网</span>
+      <span class="mono faint" style="font-size:var(--fs-2xs)">纯浏览器 · 不联网</span>
     </div>
     <div class="panel__body grid" style="gap:var(--sp-4)">
       <div class="tool-opts tool-opts--wrap">
@@ -293,7 +293,7 @@ export default {
       ${toolsTabs('hub')}
       ${viewhead({
         title: 'TOOLBOX',
-        sub: '三个在浏览器里跑的小工具：格式转换（含 docx / pptx → PDF）、图片压缩、文本处理；再加上「提取音频」与「分离纯音乐/人声」两个独立页签。文件不上传、不落盘，关掉页面就没了 —— 因为没有后端，所以也不需要把文件交给谁。',
+        sub: '三个在浏览器里跑的小工具：格式转换（含 docx / pptx → PDF）、图片压缩、文本处理；再加上「提取音频」与「分离纯音乐/人声」两个独立页签。文件不上传、不留存，关掉页面就没了 —— 因为没有后端，所以也不需要把文件交给谁。',
         idx: 'MODULE / 06',
         meta: [
           { label: 'TOOLS', value: String(TABS.length).padStart(2, '0') },

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" role="img" aria-label="本地示例插画 01">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" role="img" aria-label="示例插画 01">
   <defs>
     <pattern id="g" width="48" height="48" patternUnits="userSpaceOnUse">
       <path d="M48 0H0v48" fill="none" stroke="#121316" stroke-opacity=".12" stroke-width="1"/>

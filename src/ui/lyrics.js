@@ -131,7 +131,7 @@ export function paintLyricBox() {
       break;
     case 'local':
       setLabel(`NOW PLAYING / ${title}`, 'muted');
-      rollText(cur, '本地音频 / 没有歌词来源');
+      rollText(cur, '站内音频 / 没有歌词来源');
       rollText(next, '');
       break;
     default:

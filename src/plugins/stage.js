@@ -105,7 +105,7 @@ export async function loadManifest(file = 'data/gallery.json', { ttl = 60000 } =
   // 手动收藏的图片并进默认画廊；相册清单不混入，保持「相册 = 手机照片」的语义
   if (file === 'data/gallery.json') {
     loadAllow().forEach((url) => {
-      if (!list.some((it) => it.url === url)) list.push({ url, thumb: '', title: '本地添加', author: '' });
+      if (!list.some((it) => it.url === url)) list.push({ url, thumb: '', title: '站内添加', author: '' });
     });
   }
   manifestCache.set(file, { at: Date.now(), items: list });
@@ -390,7 +390,7 @@ export const Stage = {
         if (!silent) bus.emit('toast', { message: '所有插画数据源不可用，显示历史记录', kind: 'err' });
         return last;
       }
-      if (!silent) bus.emit('toast', { message: '插画数据源不可用：请检查网络或改用本地画廊', kind: 'err' });
+      if (!silent) bus.emit('toast', { message: '插画数据源不可用：请检查网络或改用站内画廊', kind: 'err' });
       bus.emit('art:change', { current: null, history: [] });
       return null;
     } finally {

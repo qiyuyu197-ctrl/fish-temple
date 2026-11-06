@@ -37,14 +37,14 @@ export default {
         <div class="dl-card__head"><b>01 / ANDROID</b><span>MOBILE</span></div>
         <div class="dl-card__body">
           <h2>移动版</h2>
-          <p class="dl-sub">本地离线终端 · 相册 / 音乐 / 扫雷 / 工具台</p>
+          <p class="dl-sub">离线随身版 · 相册 / 音乐 / 扫雷 / 工具台</p>
           <dl class="dl-meta">
             <div><dt>Version</dt><dd>2.4.2</dd></div>
             <div><dt>Size</dt><dd>≈ 291 MB</dd></div>
             <div><dt>Requires</dt><dd>Android 7.0+</dd></div>
           </dl>
           <ul class="dl-features">
-            <li>文娱 200 部推荐 + Bangumi 站内搜索</li>
+            <li>2026 秋新番档案 + Bangumi 站内搜索</li>
             <li>搜索需联网，其余内容离线可用</li>
             <li>账号 / 播放列表 / 主题跨重启保留</li>
           </ul>
@@ -67,7 +67,7 @@ export default {
             <div><dt>Requires</dt><dd>Win 10/11 x64</dd></div>
           </dl>
           <ul class="dl-features">
-            <li>文娱 200 部推荐 + Bangumi 站内搜索</li>
+            <li>2026 秋新番档案 + Bangumi 站内搜索</li>
             <li>首次启动自动创建桌面快捷方式</li>
             <li>文件 → 局域网联机，手机用房间号加入扫雷</li>
           </ul>
@@ -86,7 +86,7 @@ export default {
         <ol>
           <li>下载 <b>.apk</b> 到手机（微信 / QQ 传过去也可以）。</li>
           <li>点开文件，允许「安装未知来源应用」。</li>
-          <li>覆盖安装 2.4.2；如果签名不一致，先卸载旧版（会丢 App 本地数据）。</li>
+          <li>覆盖安装 2.4.2；如果签名不一致，先卸载旧版（会丢 App 内数据）。</li>
         </ol>
         <p class="dl-fine">需要 Android 7.0（API 24）及以上；安装包约 291 MB，相册图都打进去了。</p>
       </div>
@@ -97,12 +97,12 @@ export default {
           <li>双击 <b>FishTemple.exe</b>；首次启动会自动创建桌面快捷方式。</li>
           <li>数据在 <b>%APPDATA%\FishTemple\data</b>，不碰安装目录。</li>
         </ol>
-        <p class="dl-fine">站点、相册、文章、工具台都在本地；Bangumi 搜索 / 网易云 / Pixiv 需要联网。</p>
+        <p class="dl-fine">站点、相册、文章、工具台都随安装包自带；Bangumi 搜索 / 网易云 / Pixiv 需要联网。</p>
       </div>
     </section>
 
     <p class="dl-foot">
-      站点本体是网页；App 只是把同一套内容装进本地壳。
+      站点本体是网页；App 只是把同一套内容装进桌面外壳。
       <a href="${RELEASES}" target="_blank" rel="noopener noreferrer">GitHub Releases</a> ·
       <a href="https://github.com/qiyuyu197-ctrl/fish-temple" target="_blank" rel="noopener noreferrer">源码</a>
     </p>

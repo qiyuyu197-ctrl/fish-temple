@@ -1310,7 +1310,7 @@ code, pre { font-family: var(--font-mono); }
    传输控制 / 进度 / 时间 / 音量 / 关闭按钮已全部移除：
    播放控制统一收在音乐台页面（点封面直达），底栏不再重复一套控件，
    只负责「告诉你现在在放什么」+ 音浪可视化。
-   音浪条：本地音频取真频谱，网易云曲目用合成音浪（见 ui/miniaudio.js）
+   音浪条：站内音频取真频谱，网易云曲目用合成音浪（见 ui/miniaudio.js）
 */
 .miniplayer {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-mini);

@@ -22,13 +22,13 @@ export const SITE = {
     { text: 'TERMINAL', style: 'em' },
   ],
   /** 一句话简介，用于首屏与页脚 */
-  tagline: '记录、播放、归档。一个零依赖的静态终端。',
+  tagline: '记录、播放、归档。一个长期维护的个人站点。',
   /** 站点描述（SEO + 页脚 SITE 区） */
-  description: '静态站点 · 站内音乐播放 · Pixiv 随机插画 · 新番文娱 · 公告与文章发布',
+  description: '个人站点 · 文章与公告 · 论坛 · 站内音乐 · 插画相册 · 新番文娱 · 小游戏 · 工具台',
   /** 站点语言 */
   lang: 'zh-CN',
   /** 版本号，显示在页脚 BUILD 区 */
-  version: '1.0.0',
+  version: '2.5.0',
   /** 建站年份（页脚版权起始年） */
   since: 2024,
   /** 音频/图片未就绪时的占位策略：'placeholder' | 'hide' */
@@ -68,6 +68,8 @@ export const TICKER = [
   '网易云搜索通道已就绪',
   'PIXIV 随机插画通道已连接',
   '2026 秋新番档案已上线 · 文娱板块',
+  '论坛已开放 · 登录后可发帖与评论',
+  'GAME：单人扫雷 / 联机房间 / 像素小鱼',
   '{latest}',
   'CTRL + K 打开命令面板',
 ];
@@ -149,14 +151,14 @@ export const IMAGE_PROVIDERS = [
     label: '相册 PHOTO ALBUM',
     kind: 'local',
     file: 'data/album.json',
-    note: '手机相册导入的本地照片（tools/album-pull.ps1 + tools/album-build.py），完全离线',
+    note: '随站点发布的手机照片，离线可用',
   },
   {
     id: 'local',
-    label: 'LOCAL 本地画廊',
+    label: 'GALLERY 站内画廊',
     kind: 'local',
     file: 'data/gallery.json',
-    note: '来自 data/gallery.json，完全离线可用',
+    note: '来自 data/gallery.json，离线可用',
   },
   {
     id: 'nekos',
@@ -164,7 +166,7 @@ export const IMAGE_PROVIDERS = [
     kind: 'remote',
     /**
      * ⚠️ 实测：nekos.best 的接口**不返回 CORS 头** —— 服务端 curl 能拿到 200，
-     * 但浏览器 fetch 必被拦。也就是说这个源在本地与线上都出不了图，
+     * 但浏览器 fetch 必被拦。也就是说这个源在开发环境与线上都出不了图，
      * 留着是为了"可插拔数据源"的示范。想让它真能用，得像 pixiv 那样走站内代理
      * （server.mjs / netlify/functions/api.mjs 已经具备这个能力）。
      */
@@ -176,7 +178,7 @@ export const IMAGE_PROVIDERS = [
     id: 'waifu',
     label: 'WAIFU.PICS',
     kind: 'remote',
-    /** ⚠️ 同上：接口无 CORS 头；而且本机连这个域名都不通（curl 直接超时），实测不可用 */
+    /** ⚠️ 同上：接口无 CORS 头；而且开发环境连这个域名都不通（curl 直接超时），实测不可用 */
     note: '公开 API（无 CORS 头 + 域名不可达，实测不可用；仅作可插拔示例）',
     endpoint: 'https://api.waifu.pics/many/sfw/waifu',
     method: 'POST',

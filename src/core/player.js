@@ -84,7 +84,7 @@ function silentWav(seconds) {
 
 const localProvider = {
   id: 'local',
-  label: '本地音频',
+  label: '站内音频',
   embed: false,
   canHandle: (t) => !!t?.src,
   /**
@@ -1428,7 +1428,7 @@ export const Player = {
     // 处理掉了就不要弹错误、更不要跳下一首 —— 用户点的是这首，就该把这首放出来
     if (this.provider?.onError?.(t, this) === true) return;
 
-    if (!this._audioUrlFor(t)) return; // 真的没有音频（本地曲目没配文件），静默
+    if (!this._audioUrlFor(t)) return; // 真的没有音频（站内曲目没配文件），静默
     this._failCount++;
     bus.emit('toast', { message: `音频加载失败：${t.title}`, kind: 'err' });
     if (this._failCount < this.tracks.length && this.tracks.filter((x) => this._audioUrlFor(x)).length > 1) {

@@ -263,7 +263,7 @@ function aiProgressText() {
   const partText = a.parts > 1 ? `（模型 ${a.part}/${a.parts}）` : '';
   if (a.stage === 'download') {
     const p = a.total ? Math.round((a.loaded / a.total) * 100) : 0;
-    const head = a.cached ? '读取缓存的模型' : a.localName ? '读取本地模型' : '下载模型';
+    const head = a.cached ? '读取缓存的模型' : a.localName ? '读取自定义模型' : '下载模型';
     return `${which}${head}… ${p}%${a.total ? `（${humanSize(a.loaded)} / ${humanSize(a.total)}）` : ''}${partText}`;
   }
   if (a.stage === 'load') return `${which}加载模型… 第一次会慢一点${partText}`;
@@ -562,7 +562,7 @@ function dropZone(compact = false) {
   return `<div class="tool-drop vr-drop${compact ? ' vr-drop--compact' : ''}" id="vrDrop" tabindex="0" role="button" aria-label="选择或拖入音频文件">
     <span class="tool-drop__ico">♪</span>
     <b>${compact ? '换一首' : '把音乐拖到这里'}</b>
-    <span class="mono faint">${compact ? '也可以点一下重新选' : 'MP3 · M4A · WAV · FLAC · OGG · 不上传、不落盘'}</span>
+    <span class="mono faint">${compact ? '也可以点一下重新选' : 'MP3 · M4A · WAV · FLAC · OGG · 不上传、不留存'}</span>
     <span class="btn btn--sm">选择文件</span>
     <input type="file" id="vrInput" accept="${ACCEPT}" hidden />
   </div>`;
@@ -591,7 +591,7 @@ function noteHTML() {
         默认「人声安全」只补侧高频和人声不活跃处，避免带出小声音；关掉会更亮，
         但 4kHz 以上本就几乎全是人声的歌会把齿音/气声带回来。默认 80%，觉得刺就调低。<br>
         <b>慢。</b>双模型要两份模型、各跑一遍；首次还要下载约 128MB。手机可能吃力。<br>
-        <b>不上传。</b>解码、推理、导出都在这台设备的浏览器里完成。
+        <b>不上传。</b>解码、推理、导出都在浏览器里完成。
       </p>
     </div>
   </details>`;
@@ -624,7 +624,7 @@ function aiControlsHTML(working, stale) {
   const runLabel = working ? '分离中…' : state.result && !stale ? '重新分离' : '开始分离';
   const totalBytes = defs.reduce((n, d) => n + d.bytes, 0);
   const loadedAll = modeDef.models.every((m) => aiReady(m));
-  const second = a.localName ? `本地：${a.localName}` : `${defs.map((d) => d.name).join(' + ')}${loadedAll ? ' · 已加载' : ''}`;
+  const second = a.localName ? `自定义：${a.localName}` : `${defs.map((d) => d.name).join(' + ')}${loadedAll ? ' · 已加载' : ''}`;
   return `<div class="vr-ai">
     <div class="tool-opts tool-opts--wrap">
       <span class="k-label">输出</span>
@@ -647,15 +647,15 @@ function aiControlsHTML(working, stale) {
     </label>` : ''}
     <div class="vr-ai__head">
       <b>${esc(defs.map((d) => d.name).join(' + '))}</b>
-      <span class="mono faint">${humanSize(totalBytes)} · MDX-Net · 本地推理</span>
+      <span class="mono faint">${humanSize(totalBytes)} · MDX-Net · 浏览器内推理</span>
       <span class="mono faint">${gpu ? 'WebGPU 可用' : 'WASM（较慢）'}</span>
     </div>
     <p class="mono faint vr-hint">第一次用会从本站下载模型（单模型约 64MB，双模型约 128MB；只下一次，之后存在浏览器缓存里）。模型在你的设备上跑，音频不上传；分离要几分钟到几十分钟，看设备。</p>
     ${gpu ? '' : '<p class="vr-warn">这个浏览器没有 WebGPU，只能用单线程 WASM：3 分钟的歌可能要几十分钟。换 Chrome / Edge（WebGPU）会快好几倍。</p>'}
     <div class="tool-actions">
       ${a.mode === 'dual'
-        ? '<span class="mono faint">双模型使用站内两份模型；要用本地模型请切「伴奏优先 / 人声优先」</span>'
-        : `<label class="btn btn--sm">选择本地模型<input type="file" id="vrModelFile" accept=".onnx,application/octet-stream" hidden ${working ? 'disabled' : ''} /></label>
+        ? '<span class="mono faint">双模型使用站内两份模型；要用自定义模型请切「伴奏优先 / 人声优先」</span>'
+        : `<label class="btn btn--sm">选择自定义模型<input type="file" id="vrModelFile" accept=".onnx,application/octet-stream" hidden ${working ? 'disabled' : ''} /></label>
            ${a.localName ? `<button class="btn btn--sm" id="vrModelClear" ${working ? 'disabled' : ''}>用回站内模型</button>` : ''}
            <span class="mono faint" id="vrModelName">${esc(second)}</span>`}
       <span class="grow"></span>
@@ -749,7 +749,7 @@ function bodyHTML() {
     return `<div class="panel" data-reveal>
       <div class="panel__head">
         <span class="panel__title">01 / 音源</span>
-        <span class="mono faint">全在本地 · 不上传</span>
+        <span class="mono faint">全程在浏览器 · 不上传</span>
       </div>
       <div class="panel__body grid" style="gap:var(--sp-4)">
         ${dropZone(false)}
@@ -770,7 +770,7 @@ function bodyHTML() {
     <div class="panel" data-reveal>
       <div class="panel__head">
         <span class="panel__title">02 / 怎么分</span>
-        <span class="mono faint">MDX-Net · 浏览器本地推理</span>
+        <span class="mono faint">MDX-Net · 浏览器内推理</span>
       </div>
       <div class="panel__body grid" style="gap:var(--sp-3)">
         ${controlsHTML()}
@@ -1016,7 +1016,7 @@ export default {
         state.ai.error = '';
         e.target.value = '';
         repaint();
-        Toast.ok(`已选择本地模型：${f.name}`);
+        Toast.ok(`已选择自定义模型：${f.name}`);
         return;
       }
       if (e.target.id === 'vrClean') {

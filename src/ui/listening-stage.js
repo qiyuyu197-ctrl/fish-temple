@@ -886,8 +886,8 @@ function paintLyrics() {
       meta = 'OFFLINE';
       break;
     case 'local':
-      label = 'LYRICS / 本地音频';
-      cur = '本地音频 / 没有歌词来源';
+      label = 'LYRICS / 站内音频';
+      cur = '站内音频 / 没有歌词来源';
       meta = 'LOCAL';
       break;
     default:
@@ -906,7 +906,7 @@ function paintLyrics() {
     prevEl.classList.toggle('is-empty', !prev);
     nextEl.classList.toggle('is-empty', !next);
     lineEl.classList.remove('is-empty');
-    lineEl.innerHTML = /^(正在取歌词|本地音频|这首歌|纯音乐|歌词获取失败|· · ·)/.test(cur)
+    lineEl.innerHTML = /^(正在取歌词|站内音频|这首歌|纯音乐|歌词获取失败|· · ·)/.test(cur)
       ? `<span class="lstage__placeholder">${esc(cur)}</span>`
       : charsHTML(Lyrics.status === 'ready' ? Lyrics.current() : null, cur);
     // 让「逐字上浮」从第一颗字重新开始；prefers-reduced-motion 由 CSS 关掉

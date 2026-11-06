@@ -49,7 +49,8 @@ import { redirectView } from './views/redirect.js';
  */
 import { sessionWidget, footerWidget } from './plugins/example-widget.js';
 import { dashboardView } from './plugins/dashboard-view.js';
-import { bootstrapPlaylist } from './plugins/netease.js';
+import { bootstrapPlaylist, Netease } from './plugins/netease.js';
+import * as History from './core/history.js';
 import { Almanac } from './plugins/almanac.js';
 import { Auth } from './plugins/auth.js';
 import { NeteaseLogin } from './plugins/netease-login.js';
@@ -305,4 +306,4 @@ if (document.readyState === 'loading') {
 }
 
 /* 供调试：window.Terminal.randomArt() 等 */
-window.Terminal = { ctx, Player, Stage, Lyrics, ListeningStage, Registry, Router, Posts, News, Settings, Theme, Palette, openPalette, EmbedHost, Mines, MinesLive, Almanac, AlmanacUI, Auth };
+window.Terminal = { ctx, Player, Stage, Lyrics, ListeningStage, Registry, Router, Posts, News, Settings, Theme, Palette, openPalette, EmbedHost, Mines, MinesLive, Almanac, AlmanacUI, Auth, Netease, History };

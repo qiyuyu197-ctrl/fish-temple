@@ -65,8 +65,8 @@ function sidebarHTML() {
         <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px">${providerChips()}</div>
         <button class="btn btn--sm btn--block" id="autoProvider" aria-pressed="true">自动 · 依次尝试</button>
         <p class="faint mono" style="font-size:var(--fs-2xs);margin:0;line-height:1.7">
-          默认顺序：<b>相册</b>（手机照片）→ 本地画廊 → 公开 API → <b>PIXIV 随机</b>。<br />
-          相册读 <b>${esc(ALBUM.manifest)}</b>，本地画廊读 <b>data/gallery.json</b>，都离线可用。<br />
+          默认顺序：<b>相册</b>（手机照片）→ 站内画廊 → 公开 API → <b>PIXIV 随机</b>。<br />
+          相册读 <b>${esc(ALBUM.manifest)}</b>，站内画廊读 <b>data/gallery.json</b>，都离线可用。<br />
           Pixiv 走 <b>server.mjs</b> 代理取随机作品、图片经 <b>pixiv.re</b> 镜像显示
           （首次 20-40 秒，之后秒开）；点「随机插画」旁边的数据源可单独抽 Pixiv。
         </p>
@@ -102,7 +102,7 @@ function sidebarHTML() {
           <button class="btn btn--sm" id="histNext">下一张 →</button>
         </div>
         <div class="grid" style="gap:6px">
-          <button class="btn btn--sm btn--block" id="histKeep">收藏到本地</button>
+          <button class="btn btn--sm btn--block" id="histKeep">收藏到画廊</button>
           <button class="btn btn--sm btn--block" id="histClear">清空历史</button>
         </div>
       </div>
@@ -201,13 +201,13 @@ export default {
     <section class="gallery">
       ${viewhead({
         title: 'GALLERY',
-        sub: '本地相册 + 随机插画：相册是导入到站点里的手机照片，网格浏览、灯箱逐张翻，完全离线；随机插画引擎从各数据源取图并自动校验可用性，坏图自动跳过，结果沉淀为可回溯的历史。',
+        sub: '相册 + 随机插画：相册是随站点发布的手机照片，网格浏览、灯箱逐张翻，完全离线；随机插画引擎从各数据源取图并自动校验可用性，坏图自动跳过，结果沉淀为可回溯的历史。',
         idx: 'MODULE / 05',
         meta: [
           { label: 'ALBUM', value: '— 读取中', id: 'metaAlbum' },
           { label: 'DATA SOURCE', value: `${Registry.imageProviders.length} PROVIDERS` },
           { label: 'HISTORY', value: `${String(count).padStart(2, '0')} ITEMS`, id: 'metaHistory' },
-          { label: 'OFFLINE', value: '100% LOCAL' },
+          { label: 'OFFLINE', value: 'READY' },
         ],
         actions: `<button class="btn" id="pixivTop">${ICON.ext}打开 PIXIV</button>`,
       })}
@@ -341,7 +341,7 @@ export default {
       const cur = Stage.current;
       if (!cur?.url) { Toast.err('当前没有可收藏的图片'); return; }
       Stage.addToAllowlist(cur.url);
-      Toast.ok('已加入本地画廊（可在 gallery.json 导出中使用）');
+      Toast.ok('已加入站内画廊（可在 gallery.json 导出中使用）');
       paintHistory();
     };
     $('#stageKeep')?.addEventListener('click', keep);
@@ -481,7 +481,7 @@ function paintHistoryGrid() {
   const meta = $('#metaHistory');
   if (meta) meta.textContent = `${String(Stage.history.length).padStart(2, '0')} ITEMS`;
   if (!list.length) {
-    host.innerHTML = emptyState({ title: '还没有插画记录', desc: '点击上方「随机插画」开始收集。历史会保存在本地浏览器中。' });
+    host.innerHTML = emptyState({ title: '还没有插画记录', desc: '点击上方「随机插画」开始收集。历史会保存在当前浏览器中。' });
     return;
   }
   host.innerHTML = `<div class="masonry">${list.map((h, i) => `

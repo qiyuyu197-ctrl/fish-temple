@@ -69,7 +69,7 @@ console.log('code block with language tag');
 - 修复：\`file://\` 下内容无法载入
 
 > [!WARN]
-> 本次更新会重置本地示例数据，如需保留请先导出。
+> 本次更新会重置示例数据，如需保留请先导出。
 
 维护时间：**02:00 - 02:30 UTC+8**
 `,
@@ -175,14 +175,14 @@ function formHTML(kind) {
 
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
         <button class="btn btn--signal" id="btnSave">${ICON.dl}发布 / 保存</button>
-        <button class="btn" id="btnSaveLocal" title="仅保存到浏览器，不写入项目文件">仅保存到本地</button>
+        <button class="btn" id="btnSaveLocal" title="仅保存到浏览器，不写入站点内容库">仅保存到浏览器</button>
         <button class="btn" id="btnExportMd">导出 Markdown</button>
         <button class="btn" id="btnExportJson">导出 JSON</button>
         <button class="btn btn--danger" id="btnReset">重置表单</button>
       </div>
       <p class="faint mono" style="font-size:var(--fs-2xs);margin:0">
-        发布通路：<span id="serverState" class="status-dot ${serverOnline ? 'status-dot--on' : 'status-dot--off'}">${serverOnline ? 'SERVER 在线 · 将写入 data/' : 'STATIC 模式 · 仅本地存储'}</span>
-        ${serverOnline ? '' : ' · 运行 <b>node server.mjs</b> 后可直接落盘到项目 data/ 目录'}
+        发布通路：<span id="serverState" class="status-dot ${serverOnline ? 'status-dot--on' : 'status-dot--off'}">${serverOnline ? 'SERVER 在线 · 将写入站点内容库' : 'STATIC 模式 · 保存到当前浏览器'}</span>
+        ${serverOnline ? '' : ' · 部署环境会写入 Netlify Blobs；纯静态托管时只保存在当前浏览器'}
       </p>
     </div>
   </div>`;
@@ -222,7 +222,7 @@ function listHTML(kind) {
           <span class="datalist__sub">
             ${fmtDate(it.date)} · ${esc(it.category)}
             ${it.draft ? ' · <span style="color:var(--signal-deep)">草稿</span>' : ''}
-            ${it.local ? ' · 本地' : ' · 内置'}
+            ${it.local ? ' · 浏览器' : ' · 内置'}
             ${it.updatedAt ? ` · 改于 ${fmtRelative(it.updatedAt)}` : ''}
           </span>
         </div>
@@ -286,7 +286,7 @@ function toolsHTML() {
           <button class="btn btn--sm btn--danger" id="btnResetSeed">恢复内置示例内容</button>
         </div>
         <p class="faint mono" style="font-size:var(--fs-2xs);margin:0">
-          本地键名前缀：<b>${esc(STORAGE_PREFIX)}</b> · 清除浏览器数据会丢失本地内容，请定期导出。
+          存储键名前缀：<b>${esc(STORAGE_PREFIX)}</b> · 清除浏览器数据会丢失这些内容，请定期导出。
         </p>
       </div>
     </div>
@@ -383,7 +383,7 @@ export default {
     <section class="admin">
       ${viewhead({
         title: 'CONSOLE',
-        sub: '在浏览器里撰写、编辑、导出内容。运行 node server.mjs 后，保存会直接写入项目的 data/ 目录；纯静态托管时内容保存在本地浏览器。',
+        sub: '在浏览器里撰写、编辑、导出内容。部署环境下保存会写入站点内容库；纯静态托管时保存在当前浏览器。',
         idx: 'MODULE / 05',
         meta: [
           { label: 'SERVER', value: `<span id="serverMeta">${serverOnline ? 'ONLINE' : 'STATIC'}</span>`, html: true },
@@ -474,7 +474,7 @@ export default {
       const state = $('#serverState');
       if (state) {
         state.className = `status-dot ${serverOnline ? 'status-dot--on' : 'status-dot--off'}`;
-        state.textContent = serverOnline ? 'SERVER 在线 · 将写入 data/' : 'STATIC 模式 · 仅本地存储';
+        state.textContent = serverOnline ? 'SERVER 在线 · 将写入站点内容库' : 'STATIC 模式 · 保存到当前浏览器';
       }
       const meta = $('#serverMeta');
       if (meta) meta.textContent = serverOnline ? 'ONLINE' : 'STATIC';
@@ -541,7 +541,7 @@ export default {
             } else if (landed.status === 403) {
               Toast.show('只有站长才能修改公告与网站文案：内容没有上传（表单里的文字还在）', 'err', { ttl: 9000 });
             } else {
-              Toast.show(`已保存到本地（服务器写入失败：${landed.error || '未知原因'}）`);
+              Toast.show(`已保存到浏览器（服务器写入失败：${landed.error || '未知原因'}）`);
             }
           } else if (landed.storage === 'blobs') {
             // 线上内容存在 Netlify Blobs 里，仓库的 data/ 目录不会被改动 ——
@@ -557,7 +557,7 @@ export default {
           else store.remove(saved.id);
         }
       } else if (!silent) {
-        Toast.ok('已保存到本地浏览器 · 可导出 JSON 入库');
+        Toast.ok('已保存到当前浏览器 · 可导出 JSON 入库');
       }
       draft = { ...saved, tags: [...(saved.tags || [])], __kind: tab };
       // 刷新列表区
@@ -615,7 +615,7 @@ export default {
         if (serverOnline) {
           const gone = await Api.remove(tab, item.id);
           if (!gone.ok) {
-            Toast.show(`本地已删除，但服务端删除失败：${gone.error || '未知原因'}`, 'err');
+            Toast.show(`浏览器已删除，但服务端删除失败：${gone.error || '未知原因'}`, 'err');
             return;
           }
         }
@@ -720,7 +720,7 @@ export default {
       setTimeout(() => location.reload(), 600);
     });
     $('#btnResetSeed')?.addEventListener('click', async () => {
-      if (!confirm('将清除本地所有内容并恢复内置示例，确定继续？')) return;
+      if (!confirm('将清除浏览器中的所有内容并恢复内置示例，确定继续？')) return;
       Object.keys(localStorage).filter((k) => k.startsWith(STORAGE_PREFIX)).forEach((k) => localStorage.removeItem(k));
       Toast.show('正在恢复…');
       setTimeout(() => location.reload(), 700);

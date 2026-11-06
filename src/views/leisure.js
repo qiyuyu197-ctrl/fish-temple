@@ -388,7 +388,7 @@ function bgmEmptyHTML() {
   }
   return `${emptyState({
     title: '搜一部 Bangumi 动画',
-    desc: '输入中文 / 日文 / 英文名，回车或点搜索。结果来自 Bangumi 实时接口，不写入本地档案。',
+    desc: '输入中文 / 日文 / 英文名，回车或点搜索。结果来自 Bangumi 实时接口，不写入站内档案。',
     icon: '⌕',
   })}<div class="leisure-bgmemptyacts"><button class="btn btn--sm btn--ghost" type="button" data-searchmode="local">切回本站档案</button></div>`;
 }
@@ -613,7 +613,7 @@ function watchButtonsHTML(id) {
     </div>
     ${cur
       ? '<button class="amodal__watchclear" type="button" data-watch="">✕ 从追番移除</button>'
-      : '<p class="amodal__watchhint">选一个状态就记下来了；只保存在这台设备的浏览器里。</p>'}`;
+      : '<p class="amodal__watchhint">选一个状态就记下来了；只保存在当前浏览器里。</p>'}`;
 }
 
 function modalHTML(item, idx) {
@@ -640,7 +640,7 @@ function modalHTML(item, idx) {
     <div class="amodal__side">
       <div class="amodal__poster">${posterHTML(item, { index: idx, lg: true })}</div>
       ${item.bangumiOnly
-        ? '<p class="amodal__watchhint">来自 Bangumi 的实时搜索结果，不写入本地追番。</p>'
+        ? '<p class="amodal__watchhint">来自 Bangumi 的实时搜索结果，不写入站内追番。</p>'
         : `<div class="amodal__watch" id="leisureModalWatch">${watchButtonsHTML(item.id)}</div>`}
       ${item.coverRemote && item.coverMeta?.bangumiUrl
         ? `<p class="amodal__credit mono">COVER / <a href="${esc(item.coverMeta.bangumiUrl)}" target="_blank" rel="noopener noreferrer">Bangumi</a></p>`
@@ -996,7 +996,7 @@ export default {
         })}
         <div class="empty" style="margin-top:var(--sp-6)">
           <b>番剧数据没读到</b>
-          <p>请确认 <span class="mono">data/anime.json</span> 存在，并且是通过本地服务器访问（不是 file://）。</p>
+          <p>请确认 <span class="mono">data/anime.json</span> 存在，并且是通过站点地址访问（不是 file://）。</p>
           <pre class="mono" style="white-space:pre-wrap;font-size:11px;max-width:100%">${esc(err?.stack || err)}</pre>
         </div>
       </section>`;
@@ -1025,7 +1025,7 @@ export default {
     return `<section class="leisure">
       ${viewhead({
         title: 'LEISURE',
-        sub: '文娱档案：本季值得先看的番、一张从 2006 到 2025 的看过表，以及只存在这台设备上的追番标记。',
+        sub: '文娱档案：本季值得先看的番、一张从 2006 到 2025 的看过表，以及保存在当前浏览器里的追番标记。',
         idx: 'MODULE / 09',
         meta: [
           { label: 'SEASON', value: `${s.year || ''} ${s.nameEn || ''}`.trim() || '—' },
@@ -1079,17 +1079,17 @@ export default {
         ${esc(s.note || '放送时间以关东地上波为准。')}
         番剧信息整理自 ${(data2.sources || []).map((src) => `<a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.label)}</a>`).join(' · ')}。
         ${Object.keys(data2.coverMeta?.items || {}).length
-          ? '封面默认直连 <a href="https://bgm.tv" target="_blank" rel="noopener noreferrer">Bangumi</a>（bgmimg 反代热链，不落盘）；加载失败回退本地 AniList 缓存。版权归原作者与制作方所有。'
+          ? '封面默认直连 <a href="https://bgm.tv" target="_blank" rel="noopener noreferrer">Bangumi</a>（bgmimg 反代热链，不在站内保存）；加载失败回退 AniList 封面缓存。版权归原作者与制作方所有。'
           : ''}
         ${s.auto ? '本季列表由 AniList 自动整理，中文名 / 短评 / 声优持续补充中。' : ''}
         ${s.auto ? '自动条目的评分来自 AniList，仅供参考。' : '评分、期待值与推荐语为主观。'}
-        追番状态只保存在这台设备里。${live ? '' : ' 本季已完结，页面保留为补番档案。'}
+        追番状态只保存在当前浏览器里。${live ? '' : ' 本季已完结，页面保留为补番档案。'}
       </p>
 
       <p class="leisure-footnote" id="leisureBgmFoot" hidden>
         搜索结果来自 <a href="https://bgm.tv" target="_blank" rel="noopener noreferrer">Bangumi</a> 公开接口；
-        封面走 bgmimg 反代热链，不落盘。评分是 Bangumi 参考分，不是本站主观评价；
-        这些是实时搜索结果，不会写进本地追番或推荐档案。
+        封面走 bgmimg 反代热链，不在站内保存。评分是 Bangumi 参考分，不是本站主观评价；
+        这些是实时搜索结果，不会写进站内追番或推荐档案。
       </p>
 
       <dialog class="anime-modal" id="leisureModal" aria-labelledby="leisureModalTitle">
@@ -1151,7 +1151,7 @@ export default {
     // 清空追番
     $('#leisureClear', root)?.addEventListener('click', () => {
       if (!trackedItems().length) return;
-      if (!window.confirm('清空全部追番记录？只影响这台设备。')) return;
+      if (!window.confirm('清空全部追番记录？只影响当前浏览器。')) return;
       watch = {};
       saveWatch();
       paint();
