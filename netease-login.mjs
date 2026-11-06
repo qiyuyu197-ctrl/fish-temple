@@ -83,7 +83,7 @@ export function canUseNeteaseLogin(user, cfg = neteaseLoginConfig()) {
   if (!cfg.enabled) return { ok: false, status: 501, error: '网易云登录没有开启（NETEASE_LOGIN=off）' };
   if (cfg.mode === 'members') return { ok: true };
   if (user?.role === 'owner') return { ok: true };
-  return { ok: false, status: 403, error: '网易云登录只对站长开放（NETEASE_LOGIN=owner）' };
+  return { ok: false, status: 403, error: '网页版网易云登录仅站长可用；普通用户请使用 App 版' };
 }
 
 /* ------------------------------------------------------------------ */

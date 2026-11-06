@@ -145,10 +145,15 @@ function stripInner() {
       </div>`;
   }
   if (!state.canBind) {
+    const appOnly = state.mode === 'owner';
+    const reason = appOnly
+      ? '网页版网易云登录仅站长可用；普通用户请使用 App 版'
+      : (state.reason || '当前账号不能绑定网易云');
     return `<div class="neacct__row">
-      <span class="neacct__state mono">${state.mode === 'owner' ? 'OWNER' : 'CLOSED'}</span>
-      <span class="muted">${esc(state.reason || '当前账号不能绑定网易云')}</span>
-      ${state.siteUser ? '' : '<span class="grow"></span><span class="muted">先在右上角登录本站账号</span>'}
+      <span class="neacct__state mono">${appOnly ? 'APP' : (state.siteUser ? 'CLOSED' : 'LOGIN')}</span>
+      <span class="muted">${esc(reason)}</span>
+      ${!appOnly && !state.siteUser ? '<span class="grow"></span><span class="muted">先在右上角登录本站账号</span>' : ''}
+      ${appOnly && !state.siteUser ? '<span class="grow"></span><span class="muted">站长请先登录</span>' : ''}
     </div>`;
   }
   return `
