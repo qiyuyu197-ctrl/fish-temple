@@ -1,7 +1,7 @@
 /**
  * sw.js — Service Worker（由 tools/gen-service-worker.mjs 生成，请勿手改）
  * ------------------------------------------------------------------
- * 版本：57b3715388（壳资源 47 个，约 3225 KB）
+ * 版本：9e44c158b7（壳资源 47 个，约 3225 KB）
  * 生成：node tools/gen-service-worker.mjs
  *
  * 想让「装到主屏的 App」离线可用、启动更快，就靠这一份。
@@ -12,7 +12,7 @@
  * 永远拿到旧版本：壳资源走 stale-while-revalidate，下一次访问就会换新。
  */
 
-const VERSION = "57b3715388";
+const VERSION = "9e44c158b7";
 const CACHE = 'fish-temple-' + VERSION;
 const SCOPE = self.registration.scope;
 const url = (p) => new URL(p, SCOPE).href;
