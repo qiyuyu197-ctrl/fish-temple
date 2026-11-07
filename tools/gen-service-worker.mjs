@@ -139,6 +139,19 @@ async function staleWhileRevalidate(request) {
   return res || Response.error();
 }
 
+/** 内容清单：网络优先，离线才回缓存（否则改完文章，老访客会一直看到旧内容） */
+async function networkFirstData(request) {
+  const cache = await caches.open(CACHE);
+  try {
+    const res = await fetch(request, { cache: 'no-store' });
+    if (res && res.ok) cache.put(request, res.clone()).catch(() => {});
+    return res;
+  } catch {
+    const hit = await cache.match(request);
+    return hit || Response.error();
+  }
+}
+
 /** 图片：有缓存先用，没有再取；取回来顺手裁剪旧的 */
 async function cacheFirstImage(request) {
   const cache = await caches.open(IMAGE_CACHE);
@@ -201,6 +214,12 @@ self.addEventListener('fetch', (event) => {
 
   if (req.mode === 'navigate') {
     event.respondWith(navigation(req));
+    return;
+  }
+  // 内容 JSON 必须网络优先：数据是随部署更新的，stale-while-revalidate 会让老访客
+  // 第一次打开仍看到旧文章（正是 2026-11-07 站主看到「最新文章还是以前的」的原因）。
+  if (u.pathname.startsWith('/data/')) {
+    event.respondWith(networkFirstData(req));
     return;
   }
   if (/\\.(png|jpe?g|webp|gif|svg|avif|ico)$/i.test(u.pathname)) {

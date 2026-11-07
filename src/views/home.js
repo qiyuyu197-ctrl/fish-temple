@@ -92,9 +92,6 @@ export default {
           </div>
         </div>
 
-        <p class="hero__lede">${esc(SITE.tagline)}<br />
-          这里收集文章、公告、音乐和相册，也放着论坛、番剧档案与几个小游戏。</p>
-
         <div class="hero__cta">
           <a class="btn btn--signal" href="#/logs" data-nav>${ICON.doc}阅读文章</a>
           <a class="btn" href="#/gallery" data-nav>${ICON.image}插画</a>

@@ -575,6 +575,9 @@ async function main() {
     (homeArt?.sections || []).includes('02公告与插画')
       && !/随机插画/.test(homeArt?.sections?.join(' ') || ''),
     JSON.stringify(homeArt?.sections));
+  record('首页：大标题下的说明小字已移除',
+    !homeArt?.lede,
+    homeArt?.lede || '');
 
   // 相册：本地照片网格 + 随机插画（全离线，不依赖 Pixiv）
   await visit('#/gallery');

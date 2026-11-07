@@ -1,7 +1,7 @@
 /**
  * sw.js — Service Worker（由 tools/gen-service-worker.mjs 生成，请勿手改）
  * ------------------------------------------------------------------
- * 版本：9e44c158b7（壳资源 47 个，约 3225 KB）
+ * 版本：19acb3fa84（壳资源 47 个，约 3224 KB）
  * 生成：node tools/gen-service-worker.mjs
  *
  * 想让「装到主屏的 App」离线可用、启动更快，就靠这一份。
@@ -12,7 +12,7 @@
  * 永远拿到旧版本：壳资源走 stale-while-revalidate，下一次访问就会换新。
  */
 
-const VERSION = "9e44c158b7";
+const VERSION = "19acb3fa84";
 const CACHE = 'fish-temple-' + VERSION;
 const SCOPE = self.registration.scope;
 const url = (p) => new URL(p, SCOPE).href;
@@ -64,6 +64,19 @@ async function staleWhileRevalidate(request) {
   }
   const res = await network;
   return res || Response.error();
+}
+
+/** 内容清单：网络优先，离线才回缓存（否则改完文章，老访客会一直看到旧内容） */
+async function networkFirstData(request) {
+  const cache = await caches.open(CACHE);
+  try {
+    const res = await fetch(request, { cache: 'no-store' });
+    if (res && res.ok) cache.put(request, res.clone()).catch(() => {});
+    return res;
+  } catch {
+    const hit = await cache.match(request);
+    return hit || Response.error();
+  }
 }
 
 /** 图片：有缓存先用，没有再取；取回来顺手裁剪旧的 */
@@ -128,6 +141,12 @@ self.addEventListener('fetch', (event) => {
 
   if (req.mode === 'navigate') {
     event.respondWith(navigation(req));
+    return;
+  }
+  // 内容 JSON 必须网络优先：数据是随部署更新的，stale-while-revalidate 会让老访客
+  // 第一次打开仍看到旧文章（正是 2026-11-07 站主看到「最新文章还是以前的」的原因）。
+  if (u.pathname.startsWith('/data/')) {
+    event.respondWith(networkFirstData(req));
     return;
   }
   if (/\.(png|jpe?g|webp|gif|svg|avif|ico)$/i.test(u.pathname)) {

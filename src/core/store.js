@@ -14,7 +14,7 @@
  * 扩展新集合：在 COLLECTIONS 里加一项，然后 createCollection 即可。
  */
 
-import { STORAGE_PREFIX, CONTENT_VERSION, API } from '../config/site.config.js';
+import { SITE, STORAGE_PREFIX, CONTENT_VERSION, API } from '../config/site.config.js';
 import { bus } from './bus.js';
 import { Auth } from '../plugins/auth.js';
 import { parseFrontmatter, excerpt, stats } from '../util/markdown.js';
@@ -254,7 +254,9 @@ export function createCollection(name, { seedFile, kind }) {
     }
     if (!seedFile) return [];
     try {
-      const res = await fetch(seedFile, { cache: 'no-cache' });
+      // 带站点版本查询：新版本一发布就绕开 Service Worker / HTTP 缓存里的旧内容。
+      // （旧版 SW 对 data/* 是 stale-while-revalidate，第一次打开会先给旧文件。）
+      const res = await fetch(`${seedFile}?v=${encodeURIComponent(SITE.version)}`, { cache: 'no-cache' });
       if (!res.ok) throw new Error(String(res.status));
       const json = await res.json();
       return (Array.isArray(json) ? json : json.items || []).map((x) => normalizeItem(x, kind));
@@ -274,17 +276,20 @@ export function createCollection(name, { seedFile, kind }) {
 
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
-    /** 首次播种：本地没有数据时用种子填充；随后叠加服务端的线上覆盖层 */
+    /** 首次播种：静态种子始终是内置内容的真相；浏览器里只保留用户自己创建/改过的条目 */
     async init(force = false) {
-      // ① 基底：上次访问留在浏览器里的那份，其次是仓库里的静态种子。
-      //    静态种子在线上也一定存在（它是部署产物的一部分），所以它同时是离线兜底。
+      // ① 静态种子每次都要读：内容更新是随部署发布的，不能因为浏览器里存过旧版就一直看旧文章。
+      //    用户自己创建或改过的条目（local === true）保留，并覆盖同 id 的种子。
+      const seed = await loadSeed();
       const stored = readJSON(LS[name], null);
       let base;
       if (!force && Array.isArray(stored)) {
-        base = stored.map((x) => normalizeItem(x, kind));
-        if (!base.length) base = await loadSeed();
+        const localOnly = stored
+          .map((x) => normalizeItem(x, kind))
+          .filter((x) => x.local);
+        base = mergeOverlay(localOnly, seed);
       } else {
-        base = await loadSeed();
+        base = seed;
       }
 
       // ② 叠加服务端：本地（fs）回的是全量，线上（blobs）回的只是覆盖层
