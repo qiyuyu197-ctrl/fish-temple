@@ -27,6 +27,15 @@ const OUT_DIR = path.join(APP_DIR, 'dist');
 const versionArg = process.argv.find((a) => a.startsWith('--version='));
 const version = versionArg ? versionArg.split('=')[1] : '1.0.0';
 
+/**
+ * 可选：用本机已有的 Electron 压缩包，跳过联网下载。
+ * 网络拿不到 GitHub 时（`@electron/packager` 会卡在下载 0 字节），
+ * 先把 node_modules/electron/dist 压成 electron-v<版本>-win32-x64.zip，再指定这个目录。
+ *   FT_ELECTRON_ZIP_DIR=/path/to/zips node scripts/package.mjs --version=1.5.3
+ * CI 上不设这个变量，行为与以前完全一样。
+ */
+const electronZipDir = String(process.env.FT_ELECTRON_ZIP_DIR || '').trim() || undefined;
+
 const pkg = JSON.parse(await fs.readFile(path.join(APP_DIR, 'package.json'), 'utf8'));
 
 if (!(await fs.stat(path.join(SITE_DIR, 'server.mjs')).catch(() => null))) {
@@ -47,6 +56,7 @@ const [out] = await packager({
   asar: true,
   prune: true,
   overwrite: true,
+  ...(electronZipDir ? { electronZipDir } : {}),
   // 站点单独作为 resources/site 放，不打进 asar：
   // asar 是虚拟文件系统，子进程里的 server.mjs 读不到里面的文件
   extraResource: [SITE_DIR],
