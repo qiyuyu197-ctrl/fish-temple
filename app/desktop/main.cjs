@@ -111,17 +111,60 @@ function writeState() {
 
 /* ---------------- 数据播种 ---------------- */
 
-/** 第一次启动：把打包进来的内容清单播种到用户数据目录 */
+/** 内容版本标记：每次换 App 版本，都该把内置的文章 / 公告同步过来 */
+const CONTENT_STAMP = path.join(USER_DIR, 'site-content-version');
+/** 这两个集合里可能混着用户自己写的内容，同步时只保留 local:true 的条目 */
+const MERGE_COLLECTIONS = new Set(['posts.json', 'news.json']);
+
+/**
+ * 把内置的 data/*.json 同步到用户数据目录。
+ *
+ * ⚠️ 以前是「目标已存在就跳过」，结果升级 App 之后文章永远停在第一次安装的那版
+ * （2.5.3 里已换成新文章，桌面版打开却还是「八个板块」「770 张照片」）。
+ * 现在的规则：
+ *   · 首次启动 / 版本没变 → 只补缺失的文件；
+ *   · 版本变了 → 全量同步：文章与公告按 id 合并（保留 local:true 的用户内容），
+ *     其余清单（相册 / 番剧 / 画廊）直接覆盖。
+ */
 function seedData() {
   const src = path.join(SITE_DIR, 'data');
   if (!fs.existsSync(src)) return;
   fs.mkdirSync(DATA_DIR, { recursive: true });
+
+  const stamp = String(app.getVersion());
+  const fresh = (() => {
+    try { return fs.readFileSync(CONTENT_STAMP, 'utf8').trim() !== stamp; } catch { return true; }
+  })();
+
   for (const name of fs.readdirSync(src)) {
     if (!name.endsWith('.json')) continue;
+    const from = path.join(src, name);
     const dst = path.join(DATA_DIR, name);
-    if (fs.existsSync(dst)) continue;
-    try { fs.copyFileSync(path.join(src, name), dst); } catch { /* 单个失败不阻塞 */ }
+    if (!fs.existsSync(dst)) {
+      try { fs.copyFileSync(from, dst); } catch { /* 单个失败不阻塞 */ }
+      continue;
+    }
+    if (!fresh) continue;
+
+    if (!MERGE_COLLECTIONS.has(name)) {
+      try { fs.copyFileSync(from, dst); } catch { /* 同上 */ }
+      continue;
+    }
+
+    // 文章 / 公告：新种子打底，用户自己写的那几条盖回去（按 id 去重）
+    try {
+      const seed = JSON.parse(fs.readFileSync(from, 'utf8'));
+      const mine = JSON.parse(fs.readFileSync(dst, 'utf8'));
+      const local = (Array.isArray(mine) ? mine : []).filter((x) => x && x.local);
+      const map = new Map();
+      for (const item of [...local, ...(Array.isArray(seed) ? seed : [])]) {
+        if (item && item.id) map.set(item.id, item);
+      }
+      fs.writeFileSync(dst, JSON.stringify([...map.values()], null, 2) + '\n', 'utf8');
+    } catch { /* 文件坏了就别动它，交给页面兜底 */ }
   }
+
+  try { fs.writeFileSync(CONTENT_STAMP, stamp, 'utf8'); } catch { /* 标记写不进去下次再同步 */ }
 }
 
 /* ---------------- fish:// 协议 ---------------- */

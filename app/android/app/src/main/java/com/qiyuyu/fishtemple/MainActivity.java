@@ -163,16 +163,39 @@ public class MainActivity extends Activity {
         }, "boot").start();
     }
 
-    /** 第一次启动：把 APK 里的内容清单播种到应用私有目录 */
+    /**
+     * 把 APK 里的内容清单播种到应用私有目录。
+     *
+     * ⚠️ 以前是「目标已存在就跳过」，结果升级 App 之后文章永远停在第一次安装的那版
+     * （2.4.3 里已经是新文章，装完却还是「八个板块」「770 张照片」）。
+     * 现在按 APK 版本做一次同步：版本变了就把内置内容覆盖过来，
+     * 覆盖前把旧的 posts.json / news.json 备份到 data/.backup-原版本/，
+     * 免得用户自己在 App 里写过的内容被无声丢掉。
+     */
     private void seedData(File dataDir) {
         AssetManager assets = getAssets();
+        File stampFile = new File(dataDir, ".content-version");
+        String stamp = "";
+        try {
+            stamp = readAll(stampFile);
+        } catch (IOException ignored) { /* 没写过 */ }
+        boolean fresh = !BuildConfig.VERSION_NAME.equals(stamp.trim());
+
         try {
             String[] names = assets.list(ASSET_ROOT + "/data");
             if (names == null) return;
+            File backupDir = new File(dataDir, ".backup-" + (stamp.trim().isEmpty() ? "old" : stamp.trim()));
             for (String name : names) {
                 if (!name.endsWith(".json")) continue;
                 File dst = new File(dataDir, name);
-                if (dst.exists()) continue;
+                boolean exists = dst.exists();
+                if (exists && !fresh) continue;
+                if (exists && ("posts.json".equals(name) || "news.json".equals(name))) {
+                    try {
+                        if (!backupDir.exists() && !backupDir.mkdirs()) throw new IOException("backup");
+                        copyFile(dst, new File(backupDir, name));
+                    } catch (IOException ignored) { /* 备份失败也别拦着更新 */ }
+                }
                 try (InputStream in = assets.open(ASSET_ROOT + "/data/" + name);
                      OutputStream out = new FileOutputStream(dst)) {
                     byte[] buf = new byte[16 * 1024];
@@ -180,8 +203,32 @@ public class MainActivity extends Activity {
                     while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
                 }
             }
+            if (fresh) {
+                try (OutputStream out = new FileOutputStream(stampFile)) {
+                    out.write(BuildConfig.VERSION_NAME.getBytes(StandardCharsets.UTF_8));
+                }
+            }
         } catch (IOException ignored) {
             // 播种失败不致命：服务端读不到就用空数据，界面照样能开
+        }
+    }
+
+    private static String readAll(File f) throws IOException {
+        try (InputStream in = new java.io.FileInputStream(f)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static void copyFile(File from, File to) throws IOException {
+        try (InputStream in = new java.io.FileInputStream(from);
+             OutputStream out = new FileOutputStream(to)) {
+            byte[] buf = new byte[16 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
         }
     }
 
