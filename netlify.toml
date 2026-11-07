@@ -26,13 +26,12 @@
   #   · 只改了 tools/ deploy/ README.md .shots/ .gitignore → 退出 0 → 跳过构建（省一次部署与积分）
   #   · 改了 index.html src/ styles/ data/ assets/ 等 → 退出 1 → 正常构建
   # 用 $CACHED_COMMIT_REF..$COMMIT_REF（合并提交上 HEAD^ 不可靠），这是官方推荐写法。
-  # ⚠️ 2026-11-05 改成**白名单**：
-  #   原来是黑名单（排除 tools/deploy/README/.shots/.gitignore），结果 **app/（安卓客户端）改了 48 次**、
-  #   .github/ 改了 14 次，每次都触发整站构建 ✗ —— 11 月 1–2 号那波提交把积分烧光了 ✓
-  #   现在反过来判断：**只有站点本体（下面这些路径）变了才构建** ✓
-  #   · 只改 app/ .github/ desktop/ docs/ tools/ deploy/ design/ README → 退出 0 → 跳过 ✓
-  #   · 改 index.html src/ styles/ data/ assets/ 或配置文件 → 退出 1 → 构建 ✓
-  ignore = "! git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- index.html src styles data assets netlify.toml netlify server.mjs storage.mjs sw.js manifest.json 404.html robots.txt _headers _redirects"
+  # ⚠️ 2026-11-07 又修了一次：原来的 `! git diff --quiet …` 在 $CACHED_COMMIT_REF
+  #   不在浅克隆里时会让 git 报 128，取反后变成 0 → Netlify 把构建"跳过"（表现为
+  #   deploy 状态 error）。现在先确认基准提交存在：存在才比较；不存在就老老实实构建。
+  #   · 只改 tools/ deploy/ README → 退出 0 → 跳过（省一次部署与积分）
+  #   · 改 index.html src/ styles/ data/ assets/ → 退出 1 → 正常构建
+  ignore = "if git cat-file -e $CACHED_COMMIT_REF^{commit} 2>/dev/null; then git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- index.html src styles data assets netlify.toml netlify server.mjs storage.mjs sw.js manifest.json 404.html robots.txt _headers _redirects; else exit 1; fi"
 
 [functions]
   directory = "netlify/functions"
