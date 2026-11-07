@@ -4,8 +4,8 @@
 
 | 平台 | 版本 | 直接下载 | 要求 |
 | --- | --- | --- | --- |
-| **Android 移动版** | 2.3.5 | [APK · 约 289 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.3.5/fish-temple-android-full-2.3.5.apk) | Android 7.0+ |
-| **Windows 桌面版** | 1.4.0 | [ZIP · 约 386 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.4.0/fish-temple-desktop-1.4.0-win-x64.zip) | Windows 10/11 x64 |
+| **Android 移动版** | 2.4.3 | [APK · 约 263 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.4.3/fish-temple-android-full-2.4.3.apk) | Android 7.0+ |
+| **Windows 桌面版** | 1.5.3 | [ZIP · 约 359 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.5.3/fish-temple-desktop-1.5.3-win-x64.zip) | Windows 10/11 x64 |
 
 手机下载 APK 直接安装（允许「安装未知来源应用」）；Windows 下载 ZIP 解压后双击
 `FishTemple.exe`，**首次启动会自动在桌面创建快捷方式**。历史版本见
@@ -84,7 +84,7 @@ npm run verify:pwa -- http://127.0.0.1:5173
 **扫码登录 / 我的歌单**在 2.2、**云盘 / 每日推荐 / 登录态音频**在 2.3 补上（需先绑定账号）。
 
 ```bash
-git tag app-v2.3.5 && git push origin app-v2.3.5   # 自动构建并挂到 Release
+git tag app-v2.4.3 && git push origin app-v2.4.3   # 自动构建并挂到 Release
 
 node tools/verify-android-server.mjs               # 不用模拟器：在电脑上跑 Java 那套本地服务自检
 ```
@@ -106,7 +106,7 @@ node tools/verify-android-server.mjs               # 不用模拟器：在电脑
 网站那边配了 Auth0 就还是 Auth0，两边互不影响。
 
 ```bash
-git tag desktop-v1.4.0 && git push origin desktop-v1.4.0   # 自动构建并挂到 Release
+git tag desktop-v1.5.3 && git push origin desktop-v1.5.3   # 自动构建并挂到 Release
 ```
 
 完整版解压 520MB、zip 386MB（236MB 是相册图）；手动跑工作流勾 **lite** 是解压 284MB / zip 119MB。
