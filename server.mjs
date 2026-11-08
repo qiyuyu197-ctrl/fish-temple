@@ -56,8 +56,10 @@ import { createHash } from 'node:crypto';
 import { promises as fs, constants } from 'node:fs';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createStorage } from './storage.mjs';
+import { searchSauceNAO, sauceFindBrowser } from './saucenao-cdp.mjs';
 import { authConfig, authenticate, setLocalVerifier } from './auth.mjs';
 import { initLocalAuth, verifyLocalToken, registerLocal, loginLocal, localUserCount } from './auth-local.mjs';
 // 网易云扫码登录：协议层（eapi）与业务层（绑定 / 个人数据）分开，见两个文件顶部的长注释
@@ -1860,6 +1862,280 @@ async function handlePixiv(req, res, url, opts = {}) {
   return fail(res, 404, `未知 Pixiv 接口：${action}（可用：random / image / illust / status）`);
 }
 
+/* ---------------- /api/saucenao/* — 反向图片搜索（无头 Edge · CDP 真实搜索） ----------------
+ * 为什么必须借浏览器执行：
+ *   本机所在网络对 saucenao.com 做了 **TLS 指纹级阻断** —— curl(Schannel) 与
+ *   Node(OpenSSL) 的 ClientHello 会被直接 RST（ECONNRESET），而 Chromium 内核
+ *   （BoringSSL）+ 系统代理可以正常到达。已实测验证（2026-11-07）：
+ *     · node fetch 直连 saucenao.com        → ECONNRESET
+ *     · curl 直连 / curl -x 127.0.0.1:7890  → 000
+ *     · headless Edge --no-proxy-server     → chrome-error
+ *     · headless Edge 走系统代理            → ✓ 打开成功并完成真实搜索
+ *   因此服务端驱动一个 headless Edge：打开 saucenao.com → DOM.setFileInputFiles
+ *   塞图 → 提交表单 → 结果页 DOM 抠出结构化数据。实现见 saucenao-cdp.mjs。
+ *
+ * 用法：
+ *   POST /api/saucenao/search
+ *     body(JSON): { image: "<base64，可带 dataURL 前缀>", mime?: "image/jpeg" }
+ *     → { ok, count, elapsedMs, results: [{
+ *         similarity, thumbnail, dbId, indexName, title, creator, member, author,
+ *         source, material, characters, primaryUrl, primaryLabel,
+ *         sourceSite, sourceIcon, sourceColor, links: [{url,label}], hidden }] }
+ *   GET  /api/saucenao/status → { ok, browser }   （前端据此判断功能可用性）
+ *
+ * 限制与说明：
+ *   · 搜索串行执行（saucenao-cdp.mjs 内部互斥队列），一次约 10~25 秒。
+ *   · saucenao 匿名限流：约 4 次/30 秒、200 次/天，超限会返回明确错误文案。
+ *   · 缩略图是 saucenao CDN 的带签名 URL（有效期以周计），由用户浏览器直接加载
+ *     ——浏览器与 headless Edge 走同一个系统代理，所以能显示；加载失败时前端兜底占位。
+ */
+
+const SAUCE_MIME_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/bmp': '.bmp' };
+
+async function handleSauceNAOSearch(req, res, url) {
+  if (req.method !== 'POST') return fail(res, 405, '只支持 POST');
+
+  if (!sauceFindBrowser()) {
+    return fail(res, 503, '本机未找到 Edge / Chrome 浏览器，无法执行 SauceNAO 搜索（服务端依赖 Chromium 内核绕过 TLS 指纹阻断）。');
+  }
+
+  let body;
+  try {
+    body = await readBody(req, 12 * 1024 * 1024); // base64 膨胀 ~33%，对应原图上限 8MB
+  } catch (err) {
+    return fail(res, 400, err.message);
+  }
+
+  const raw = String(body?.image || '');
+  if (!raw) return fail(res, 400, '缺少 image 字段（base64 字符串或 dataURL）');
+
+  // 兼容 dataURL 与纯 base64 两种传法
+  const dm = raw.match(/^data:(image\/[a-z+.-]+);base64,(.*)$/is);
+  const mime = (dm ? dm[1] : String(body.mime || 'image/jpeg')).toLowerCase();
+  const b64 = dm ? dm[2] : raw;
+
+  let buf;
+  try { buf = Buffer.from(b64, 'base64'); }
+  catch { return fail(res, 400, 'image 不是合法 base64'); }
+  if (buf.length < 100) return fail(res, 400, '图片数据过小，似乎不是有效图片');
+  if (buf.length > 8 * 1024 * 1024) return fail(res, 400, '图片超过 8MB（SauceNAO 上限），请先压缩');
+
+  const tmpFile = path.join(os.tmpdir(), `sauce-in-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${SAUCE_MIME_EXT[mime] || '.jpg'}`);
+  try {
+    await fs.writeFile(tmpFile, buf);
+
+    const result = await searchSauceNAO({ filePath: tmpFile, timeoutMs: 40000, attempts: 3 });
+    if (!result.ok) {
+      const hint = /chrome-error|无法加载|网络中断|弹回首页|超时/.test(result.error || '')
+        ? '（提示：搜索依赖系统代理可达 saucenao.com，已自动重试 3 次；请确认代理节点可用后再试）'
+        : '';
+      return fail(res, 502, (result.error || '搜索失败（未知原因）') + hint);
+    }
+
+    // 给每条结果附平台标识（前端直接渲染彩色徽章，不用再猜域名）
+    const results = (result.results || []).map((r) => {
+      const p = identifySaucePlatform(r.dbId, r.primaryUrl || r.links?.[0]?.url || '');
+      return { ...r, sourceSite: p.label, sourceIcon: p.icon, sourceColor: p.color };
+    });
+
+    log(`[saucenao] 搜索完成：${results.length} 条结果（${result.elapsedMs}ms）`);
+    return ok(res, { ok: true, count: results.length, elapsedMs: result.elapsedMs, results });
+  } catch (err) {
+    console.error('[saucenao]', err);
+    return fail(res, 500, String(err?.message || err));
+  } finally {
+    fs.unlink(tmpFile).catch(() => {});
+  }
+}
+
+/* ---------------- /api/trace/search — trace.moe 番剧场景搜索 ----------------
+ * 与 saucenao 互补的第二引擎：动画截图 → 是哪部番、第几集、第几秒（附预览图/视频）。
+ * 关键优势：**api.trace.moe 与 graphql.anilist.co 国内可直连**（已实测 Node fetch 通），
+ * 不依赖系统代理，也不需要无头浏览器 —— 普通 fetch 转发即可。
+ *
+ * 流程：
+ *   1. 收前端 base64 图 → multipart 转发 api.trace.moe/search
+ *   2. 收集命中的 anilist id → 一次 AniList GraphQL 批量查标题/年份/集数/封面
+ *   3. 合并返回（similarity 转百分比；video/image 预览 URL 原样透传，均走 api.trace.moe，可达）
+ *
+ * 限流：trace.moe 匿名约 25 次/分钟；这里加 3 秒最小间隔 + 上游报错透传。
+ */
+
+let TRACE_LAST_CALL = 0;
+
+async function handleTraceSearch(req, res, url) {
+  if (req.method !== 'POST') return fail(res, 405, '只支持 POST');
+
+  const wait = 3000 - (Date.now() - TRACE_LAST_CALL);
+  if (wait > 0) return fail(res, 429, `搜索太频繁，请 ${Math.ceil(wait / 1000)} 秒后再试（trace.moe 匿名限流）`);
+
+  let body;
+  try {
+    body = await readBody(req, 12 * 1024 * 1024);
+  } catch (err) {
+    return fail(res, 400, err.message);
+  }
+
+  const raw = String(body?.image || '');
+  if (!raw) return fail(res, 400, '缺少 image 字段（base64 字符串或 dataURL）');
+  const dm = raw.match(/^data:(image\/[a-z+.-]+);base64,(.*)$/is);
+  const mime = (dm ? dm[1] : String(body.mime || 'image/jpeg')).toLowerCase();
+  const b64 = dm ? dm[2] : raw;
+  let buf;
+  try { buf = Buffer.from(b64, 'base64'); }
+  catch { return fail(res, 400, 'image 不是合法 base64'); }
+  if (buf.length < 100) return fail(res, 400, '图片数据过小，似乎不是有效图片');
+  if (buf.length > 8 * 1024 * 1024) return fail(res, 400, '图片超过 8MB，请先压缩');
+
+  TRACE_LAST_CALL = Date.now();
+  const t0 = Date.now();
+
+  try {
+    // 1) 转发 trace.moe
+    const form = new FormData();
+    form.append('image', new Blob([buf], { type: mime }), 'search.jpg');
+    const resp = await fetch('https://api.trace.moe/search', {
+      method: 'POST',
+      body: form,
+      headers: { 'User-Agent': 'fish-temple/1.0 (personal site; internal test)' },
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok || !data || data.error) {
+      const msg = data?.error || `HTTP ${resp.status}`;
+      if (/quota|limit/i.test(String(msg))) return fail(res, 429, `trace.moe 限流：${msg}（匿名额度按小时恢复）`);
+      return fail(res, 502, `trace.moe 搜索失败：${msg}`);
+    }
+
+    const hits = Array.isArray(data.result) ? data.result : [];
+
+    // 2) AniList 批量查元数据（一次请求）
+    const ids = [...new Set(hits.map((h) => h.anilist).filter(Boolean))];
+    const metaById = {};
+    if (ids.length) {
+      try {
+        const gql = await fetch('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: `query ($ids: [Int]) {
+              Page(page: 1, perPage: 50) {
+                media(id_in: $ids, type: ANIME) {
+                  id
+                  title { romaji native english }
+                  seasonYear
+                  episodes
+                  format
+                  coverImage { large }
+                }
+              }
+            }`,
+            variables: { ids },
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const gj = await gql.json().catch(() => null);
+        for (const m of gj?.data?.Page?.media || []) metaById[m.id] = m;
+      } catch (e) {
+        console.warn('[trace] AniList 元数据查询失败（不影响主结果）:', e.message);
+      }
+    }
+
+    // 3) 合并
+    const results = hits.map((h) => {
+      const m = metaById[h.anilist] || {};
+      return {
+        anilist: h.anilist || 0,
+        titleRomaji: m.title?.romaji || '',
+        titleNative: m.title?.native || '',
+        titleEnglish: m.title?.english || '',
+        seasonYear: m.seasonYear || '',
+        totalEpisodes: m.episodes || '',
+        format: m.format || '',
+        cover: m.coverImage?.large || '',
+        filename: h.filename || '',
+        episode: h.episode ?? null,
+        from: h.from ?? 0,
+        to: h.to ?? 0,
+        at: h.at ?? 0,
+        similarity: Math.round((h.similarity || 0) * 10000) / 100, // 0~1 → 百分比
+        video: h.video || '',
+        image: h.image || '',
+      };
+    });
+
+    log(`[trace] 搜索完成：${results.length} 条（${Date.now() - t0}ms，quota ${data.quotaUsed}/${data.quota}）`);
+    return ok(res, {
+      ok: true,
+      engine: 'trace.moe',
+      count: results.length,
+      elapsedMs: Date.now() - t0,
+      quota: data.quota,
+      quotaUsed: data.quotaUsed,
+      results,
+    });
+  } catch (err) {
+    console.error('[trace]', err);
+    return fail(res, 502, `trace.moe 搜索失败：${err.message}`);
+  }
+}
+
+
+/** 根据 SauceNAO index_id 或 URL 识别平台
+ *  优先级：URL > index_id —— saucenao 的索引库（如 Yande.re #12）经常转录了
+ *  pixiv 原源，Source 链接才是用户要的"出处"。 */
+function identifySaucePlatform(indexId, url) {
+  // 先按 URL 域名识别（这是真实出处）
+  const urlL = (url || '').toLowerCase();
+  if (urlL.includes('pixiv.net'))        return { label: 'Pixiv',        icon: '🎨', color: '#0096FA' };
+  if (urlL.includes('twitter.com') || urlL.includes('x.com'))
+                                          return { label: 'Twitter / X',  icon: '🐦', color: '#1DA1F2' };
+  if (urlL.includes('danbooru'))          return { label: 'Danbooru',     icon: '🍡', color: '#E64A19' };
+  if (urlL.includes('gelbooru'))          return { label: 'Gelbooru',     icon: '🔵', color: '#2196F3' };
+  if (urlL.includes('deviantart'))        return { label: 'DeviantArt',   icon: '🌿', color: '#05CC47' };
+  if (urlL.includes('artstation'))        return { label: 'ArtStation',   icon: '🖌️', color: '#13AFF0' };
+  if (urlL.includes('nijie'))             return { label: 'Nijie',        icon: '🖼️', color: '#FF9800' };
+  if (urlL.includes('yande.re'))          return { label: 'Yande.re',     icon: '🌸', color: '#E91E63' };
+  if (urlL.includes('konachan'))          return { label: 'Konachan',     icon: '🟣', color: '#9C27B0' };
+  if (urlL.includes('medibang'))          return { label: 'MediBang',     icon: '🖊️', color: '#00C853' };
+  if (urlL.includes('mangadex'))          return { label: 'MangaDex',     icon: '📚', color: '#F44336' };
+  if (urlL.includes('skeb'))              return { label: 'Skeb',         icon: '✉️', color: '#00E5FF' };
+  if (urlL.includes('nico'))              return { label: 'Nico Seiga',   icon: '📺', color: '#4CAF50' };
+  if (urlL.includes('pawoo'))             return { label: 'Pawoo',        icon: '🐾', color: '#8BC34A' };
+  if (urlL.includes('furaffinity'))       return { label: 'FurAffinity',  icon: '🐺', color: '#795548' };
+  if (urlL.includes('e621'))              return { label: 'e621',         icon: '🦊', color: '#3F51B5' };
+  if (urlL.includes('sankaku'))           return { label: 'Sankaku',      icon: '⚪', color: '#607D8B' };
+
+  // URL 认不出时按 saucenao index_id
+  const DB_MAP = {
+    5:  { label: 'Pixiv',        icon: '🎨', color: '#0096FA' },
+    41: { label: 'Twitter / X',  icon: '🐦', color: '#1DA1F2' },
+    9:  { label: 'Danbooru',     icon: '🍡', color: '#E64A19' },
+    25: { label: 'Gelbooru',     icon: '🔵', color: '#2196F3' },
+    34: { label: 'DeviantArt',   icon: '🌿', color: '#05CC47' },
+    38: { label: 'ArtStation',   icon: '🖌️', color: '#13AFF0' },
+    11: { label: 'Nijie',        icon: '🖼️', color: '#FF9800' },
+    12: { label: 'Yande.re',     icon: '🌸', color: '#E91E63' },
+    26: { label: 'Konachan',     icon: '🟣', color: '#9C27B0' },
+    29: { label: 'Sankaku',      icon: '⚪', color: '#607D8B' },
+    36: { label: 'Pawoo',        icon: '🐾', color: '#8BC34A' },
+    37: { label: 'Madokami',     icon: '📖', color: '#673AB7' },
+    39: { label: 'MangaDex',     icon: '📚', color: '#F44336' },
+    44: { label: 'Skeb',         icon: '✉️', color: '#00E5FF' },
+  };
+  if (indexId && DB_MAP[indexId]) return DB_MAP[indexId];
+
+  // 从域名提取
+  try {
+    if (url) {
+      const host = new URL(url).hostname.replace(/^www\./, '');
+      return { label: host, icon: '🌐', color: '#999' };
+    }
+  } catch {}
+
+  return { label: '未知来源', icon: '❓', color: '#999' };
+}
+
 /**
  * 墓碑：线上"删掉一条内容"这件事本身也要记下来。
  *
@@ -2912,6 +3188,16 @@ async function handleApi(req, res, url, opts = {}) {
 
   // GET /api/pixiv/* — Pixiv 随机作品代理（api.lolicon.app + pixiv.re 镜像）
   if (seg[0] === 'pixiv') return handlePixiv(req, res, url, opts);
+
+  // /api/saucenao/* — 反向图片搜索（无头 Edge CDP 执行真实搜索，见 saucenao-cdp.mjs）
+  if (seg[0] === 'saucenao' && seg[1] === 'search') return handleSauceNAOSearch(req, res, url);
+  if (seg[0] === 'saucenao' && seg[1] === 'status') {
+    const browser = sauceFindBrowser();
+    return ok(res, { ok: !!browser, browser: browser || null, note: '搜索由本机无头浏览器执行，依赖系统代理可达 saucenao.com' });
+  }
+
+  // /api/trace/search — trace.moe 番剧场景搜索（国内直连，Node 直接转发）
+  if (seg[0] === 'trace' && seg[1] === 'search') return handleTraceSearch(req, res, url);
 
   // GET /api/health
   if (seg[0] === 'health') {

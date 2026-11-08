@@ -991,7 +991,6 @@ export default {
       return `<section class="leisure">
         ${viewhead({
           title: 'LEISURE',
-          sub: '文娱档案：当季新番与私心推荐。',
           idx: 'MODULE / 09',
         })}
         <div class="empty" style="margin-top:var(--sp-6)">
@@ -1025,7 +1024,6 @@ export default {
     return `<section class="leisure">
       ${viewhead({
         title: 'LEISURE',
-        sub: '文娱档案：本季值得先看的番、一张从 2006 到 2025 的看过表，以及保存在当前浏览器里的追番标记。',
         idx: 'MODULE / 09',
         meta: [
           { label: 'SEASON', value: `${s.year || ''} ${s.nameEn || ''}`.trim() || '—' },

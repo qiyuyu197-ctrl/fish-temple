@@ -44,6 +44,25 @@ FishTemple.exe
 | 启动失败时的诊断 | `%APPDATA%\FishTemple\startup-error.log` |
 | 卸载 | 删掉解压出来的目录 + `%APPDATA%\FishTemple` 即可，没有注册表项 |
 
+## 窗口：没有系统标题栏
+
+窗口是 `frame: false` 的无边框窗口 —— Windows 原生标题栏会白占 ~30px，深色标题栏压在
+纸色页面顶上也很割裂。现在**窗口的最上面就是站点自己的顶栏**：
+
+- 顶栏**贴满窗口顶部**：`width: 100vw` + `margin-left: calc(50% - 50vw)` 抹掉 shell 的左右缩进，
+  `border-radius: 0` 去掉琉璃主题那 14px 圆角（原来的「悬浮胶囊」在窗口顶部会露出背景，
+  看起来像浮在标题栏位置上的一块板子）；下面那条播报条同样拉通，避免中间留凹口
+- 顶栏整条可拖动（`-webkit-app-region: drag`），里面的品牌 / 导航 / 图标都还原成可点（`no-drag`）
+- 右上角三个窗口按钮由页面画（`main.cjs` 的 `injectWindowChrome()`），点击经
+  `preload.cjs` 暴露的 `window.desktopWindow` → `ipcMain` 回主进程执行；最大化 / 还原图标
+  跟着窗口状态切换
+- **顶栏的时钟在桌面版里隐藏**：1550px 左右的窗口宽度下，品牌 + 11 个导航 + 5 个图标 + 头像
+  已经把顶栏占满，三个窗口按钮（100px）只能占用时钟（117px）让出来的位置；系统任务栏右下角
+  本来就有时间。想换回时钟，删掉 `injectWindowChrome()` 里那条 `#clock { display: none }` 即可
+- 这些注入只发生在桌面版（`did-finish-load` 时 `insertCSS` + `executeJavaScript`），
+  网页版完全没有这些规则；`preload.cjs` 也只暴露了最小化 / 最大化 / 关闭三个函数，
+  `contextIsolation` 与 `sandbox` 仍然开着
+
 ## 联机扫雷（同一 Wi-Fi）
 
 桌面版是纯本地的，但可以把本机站点临时共享到局域网：

@@ -70,7 +70,6 @@ export default {
       </div>
       ${viewhead({
         title: 'MINESWEEPER',
-        sub: '一块干净的布雷场。左键挖开、右键插旗，数字表示相邻八格里的雷数；点到已挖开的数字可以和弦，一次开完周围。第一下永远安全，计时从第一下开始。',
         idx: 'MODULE / 06',
         meta: [
           { label: 'GRID', value: `${lv.cols} × ${lv.rows}`, id: 'msMetaGrid' },

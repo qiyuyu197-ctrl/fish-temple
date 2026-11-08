@@ -55,7 +55,6 @@ export default {
   render() {
     return `${viewhead({
       title: 'EXTRACT AUDIO',
-      sub: '把视频里的音轨提出来，导出 WAV 或 MP3。全程在浏览器里跑，文件不上传；能不能解这个容器取决于浏览器。',
       idx: 'TOOLS / AUDIO',
     })}
     ${toolsTabs('audio')}

@@ -75,3 +75,7 @@ data/leaderboards/
 
 # °²×¿°æ´ò°üÊ±Éú³ÉµÄÕ¾µã¸±±¾£¨ÓÉ gradle bundleSite ÈÎÎñÍ¬²½£©
 app/android/app/src/main/assets/site/
+
+# æœ¬åœ°è°ƒè¯•ç”¨çš„æµè§ˆå™¨ profile / æŠ“åŒ…äº§ç‰©ï¼ˆtools é‡Œçš„è„šæœ¬è·‘èµ·æ¥ä¼šå»ºï¼Œ45MBï¼Œä¸å…¥åº“ï¼‰
+.pv/
+.srv.err

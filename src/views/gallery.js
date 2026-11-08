@@ -201,7 +201,6 @@ export default {
     <section class="gallery">
       ${viewhead({
         title: 'GALLERY',
-        sub: '相册 + 随机插画：相册是随站点发布的手机照片，网格浏览、灯箱逐张翻，完全离线；随机插画引擎从各数据源取图并自动校验可用性，坏图自动跳过，结果沉淀为可回溯的历史。',
         idx: 'MODULE / 05',
         meta: [
           { label: 'ALBUM', value: '— 读取中', id: 'metaAlbum' },

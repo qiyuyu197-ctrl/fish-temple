@@ -42,12 +42,9 @@ const FILES = [
   'offline.html',
   'sw.js',
   // 服务端：/api/* 全靠这几个文件，缺一个音乐台就废了
-  'server.mjs',
-  'auth.mjs',
-  'auth-local.mjs',
-  'storage.mjs',
-  'netease-eapi.mjs',
-  'netease-login.mjs',
+  // ⚠️ 根目录下的 .mjs **不要在这里手写**，见下面 rootServerModules()：
+  //    2026-11-08 就是因为手写白名单漏了 saucenao-cdp.mjs（新加的以图搜图后端），
+  //    桌面版启动时 `import('./saucenao-cdp.mjs')` 失败、窗口都没建就退出（exit 0）。
   'netease-qr.mjs',
 ];
 
@@ -62,6 +59,16 @@ async function sizeOf(p) {
     total += await sizeOf(path.join(p, entry.name));
   }
   return total;
+}
+
+/**
+ * 根目录下所有 `.mjs`：server.mjs 以及它 import 的同级模块
+ * （storage / auth / auth-local / netease-* / saucenao-cdp …）。
+ * 自动收集而不是手写白名单 —— 漏一个的后果是「应用能启动、窗口一闪就退出」，
+ * 从现象几乎反推不出原因（2026-11-08 踩过，漏的是 saucenao-cdp.mjs）。
+ */
+async function rootServerModules() {
+  return (await fs.readdir(ROOT)).filter((n) => n.endsWith('.mjs'));
 }
 
 async function main() {
@@ -82,7 +89,7 @@ async function main() {
     console.log(`  ${rel.padEnd(18)} ${bytes(n)}`);
   }
 
-  for (const rel of FILES) {
+  for (const rel of [...new Set([...FILES, ...(await rootServerModules())])]) {
     const from = path.join(ROOT, rel);
     if (!(await fs.stat(from).catch(() => null))) {
       console.warn(`  跳过（不存在）${rel}`);

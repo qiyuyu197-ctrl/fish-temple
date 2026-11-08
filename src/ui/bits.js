@@ -35,13 +35,17 @@ export const waveRow = () => `
     </div>
   </div>`;
 
-export const viewhead = ({ title, sub, idx, meta = [], actions = '' }) => `  <!-- meta 项可选带 id：值会随状态变化时（例如曲目数）便于就地更新 -->
+/**
+ * 板块页头：只留序号 + 大标题（+ 可选的 meta / 右侧操作）。
+ * 大标题下面那段浅色说明小字已按站主要求全部撤掉（2026-11-08），
+ * 所以这里不再接受 sub —— 各视图也不用再传。
+ */
+export const viewhead = ({ title, idx, meta = [], actions = '' }) => `  <!-- meta 项可选带 id：值会随状态变化时（例如曲目数）便于就地更新 -->
   <header class="viewhead">
     <span class="viewhead__idx">${esc(idx || '')}</span>
     <div class="viewhead__row">
       <div>
         <h1 class="viewhead__title display">${esc(title)}</h1>
-        ${sub ? `<p class="muted" style="margin:12px 0 0;max-width:70ch">${esc(sub)}</p>` : ''}
       </div>
       ${lyricBox()}
       ${actions ? `<div class="hero__cta" style="margin:0">${actions}</div>` : ''}

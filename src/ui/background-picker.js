@@ -185,7 +185,8 @@ function shellHTML(scopeLabel) {
 
 export function openBackgroundPicker(options = {}) {
   if (active) active.close(null);
-  const scopeLabel = options.scope === 'stage' ? '沉浸舞台' : '首页横幅';
+  const scopeLabel = options.scope === 'stage' ? '沉浸舞台'
+    : options.scope === 'site' ? '全站壁纸' : '首页横幅';
   const currentRaw = options.currentPhoto
     || (options.currentUrl ? { url: options.currentUrl, title: '当前背景' } : null);
   const current = currentRaw

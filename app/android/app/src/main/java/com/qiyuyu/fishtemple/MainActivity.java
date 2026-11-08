@@ -420,6 +420,39 @@ public class MainActivity extends Activity {
             return port > 0 ? "http://127.0.0.1:" + port + "/" : "";
         }
 
+        /**
+         * 状态栏 / 导航栏跟着站点主题走。
+         * 原来 themes.xml 里写死 @color/paper（纸色），切到暗色主题后页面是深的、
+         * 上面却永远压着一条亮色状态栏 —— 就是站主说的「上边空一块、割裂」。
+         * 页面在 Theme.set() 之后调用它，传 --paper 的色值 + 明暗，图标颜色跟着翻。
+         */
+        @JavascriptInterface
+        public void setStatusBar(final String colorHex, final boolean lightIcons) {
+            runOnUiThread(() -> {
+                try {
+                    int color = Color.parseColor(colorHex);
+                    Window w = getWindow();
+                    w.setStatusBarColor(color);
+                    w.setNavigationBarColor(color);
+                    View dv = w.getDecorView();
+                    int flags = dv.getSystemUiVisibility();
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        flags = lightIcons
+                                ? (flags | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR)
+                                : (flags & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        flags = lightIcons
+                                ? (flags | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR)
+                                : (flags & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+                    }
+                    dv.setSystemUiVisibility(flags);
+                } catch (Exception ignored) {
+                    // 色值解析不了就算了，保持 themes.xml 的默认色
+                }
+            });
+        }
+
         /** 打开网易云官方登录页；登录成功后由原生取 MUSIC_U，直接 POST 给本机服务绑定 */
         @JavascriptInterface
         public void openNeteaseLogin(final String token) {

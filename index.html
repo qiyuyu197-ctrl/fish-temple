@@ -101,7 +101,17 @@
       <button class="iconbtn" id="searchBtn" title="搜索 / 命令面板 (Ctrl+K)" aria-label="打开命令面板">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8"/></svg>
       </button>
-      <button class="iconbtn" id="themeBtn" title="切换主题" aria-label="切换主题">
+      <!-- 琉璃：一键进入琉璃主题 / 在琉璃的两档之间切明暗（夜 ⇄ 昼）。
+           它**只循环琉璃**，纯色主题走右边那个主题按钮 —— 两条线互不干扰。
+           行为在 src/ui/liuli.js；换壁纸 / 来源 / 浓度 / 磨砂这些细项在命令面板（Ctrl+K 搜「琉璃」）。 -->
+      <button class="iconbtn iconbtn--liuli" id="liuliBtn" type="button"
+              title="琉璃主题 · 点一下进入（进入上次的明暗档）" aria-label="进入琉璃主题" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 3.4c2.8 3.3 5 6.1 5 8.8a5 5 0 0 1-10 0c0-2.7 2.2-5.5 5-8.8Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          <path d="M9.7 13.2a2.5 2.5 0 0 0 2 2.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="iconbtn" id="themeBtn" title="切换纯色主题（不含琉璃）" aria-label="切换纯色主题">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.6"/></svg>
       </button>
       <!-- 账号：未登录是「登录」按钮，已登录是名字/头像 + 下拉里的「退出」。

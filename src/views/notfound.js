@@ -18,7 +18,6 @@ export default {
     <section style="padding-top:var(--sp-8)">
       ${viewhead({
         title: 'SIGNAL LOST',
-        sub: '请求的路径不在终端索引中。可能原因：链接拼写错误、内容已被删除，或该模块尚未安装。',
         idx: 'ERROR / 404',
         meta: [
           { label: 'REQUEST', value: String(target).slice(0, 46) },

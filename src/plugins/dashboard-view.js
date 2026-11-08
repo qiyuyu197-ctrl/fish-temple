@@ -105,7 +105,6 @@ export const dashboardView = {
     <section>
       ${viewhead({
         title: 'DASHBOARD',
-        sub: '这一页不在内置导航里，而是由 Registry.addRoute() 动态注册的插件视图 —— 演示如何在不修改核心代码的前提下新增完整页面。',
         idx: 'PLUGIN / DASHBOARD',
         meta: [
           { label: 'ENTRIES', value: String(all.length).padStart(2, '0') },

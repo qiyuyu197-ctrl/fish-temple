@@ -115,7 +115,12 @@ function applyFilter(q) {
 function runCursor() {
   const it = filtered[cursor];
   if (!it) return;
-  close();
+  // 必须写 closePalette()：模块里没有 close 这个绑定（close 只是下面 Palette 对象上的
+  // 属性名），写 close() 会沿作用域链落到全局的 window.close()。浏览器只在
+  // 「会话历史只有 1 条」时才允许它生效 —— 也就是：新开标签页直接进站 → Ctrl+K →
+  // 点任意一条命令 → 标签页被关掉。站内跳过一次路由后 history.length > 1，
+  // 它就被浏览器拒绝，所以开发时一直看不出来。
+  closePalette();
   setTimeout(() => it.run(), 10);
 }
 

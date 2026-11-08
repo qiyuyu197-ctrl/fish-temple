@@ -86,7 +86,6 @@ export default {
     <section class="logs">
       ${viewhead({
         title: 'FIELD LOGS',
-        sub: '文章与公告合并成一条时间线：文章偏长读，公告偏快讯（带重要程度）。类型、分类、标签、关键词都能筛，置顶内容排最前。',
         idx: 'MODULE / 03',
         meta: [
           { label: 'TOTAL', value: `${String(all.length).padStart(2, '0')} ENTRIES` },

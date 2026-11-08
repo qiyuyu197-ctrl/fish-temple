@@ -70,6 +70,40 @@ code, pre { font-family: var(--font-mono); }
 ::-webkit-scrollbar-thumb:hover { background: var(--ink-40); }
 
 /* ============================================================
+   页面占满整宽：根滚动条收掉，位置感交给悬浮指示条
+   ------------------------------------------------------------
+   经典滚动条会在窗口最右占 10~12px 的槽，那一条永远是平色（纸色 / --bg），
+   压在全屏横幅旁边就是「右边空了一条」——站主连着两次截图说的都是它。
+   把**根滚动条**收掉之后布局视口 == 窗口宽，内容真正贴到屏幕右边。
+
+   为什么用 `html { scrollbar-width: none }` 而不是 `html::-webkit-scrollbar`：
+   · 实测（Chromium 132 / Electron 34）：`html::-webkit-scrollbar { width: 0 }`
+     **对根滚动条无效**，只有通用的 `::-webkit-scrollbar` 才管用，但那会连
+     内层可滚区域（代码块 / 命令面板列表 / 队列 / 结果列表）的滚动条一起藏掉；
+   · `scrollbar-width` 在这个 Chromium 里**不遗传**（实测：根槽 0，内层仍 10px），
+     正好只收根滚动条。
+   · 代价：Chromium < 121 不支持这个属性，那些环境仍会保留原生滚动条（可接受）。
+
+   位置感由 `.scroll-rail` 补（ui/scroll-rail.js 驱动，fixed 定位、不占布局宽度）。
+   ============================================================ */
+html { scrollbar-width: none; }
+
+.scroll-rail {
+  position: fixed;
+  top: 0;
+  right: 3px;
+  width: 5px;
+  z-index: var(--z-toast);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 32%, transparent);
+  pointer-events: none;
+  opacity: 0.34;
+  transition: opacity 220ms var(--ease), height 120ms linear;
+}
+.scroll-rail.is-moving { opacity: 0.8; }
+.scroll-rail[hidden] { display: none; }
+
+/* ============================================================
    排版工具类
    ============================================================ */
 .mono { font-family: var(--font-mono); letter-spacing: var(--ls-wide); }

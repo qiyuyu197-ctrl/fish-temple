@@ -72,7 +72,14 @@ async function main() {
   });
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const mid = ++id;
-    pending.set(mid, { resolve, reject });
+    // 必须有超时：页面真的冻住时（例如软件渲染下的全屏 backdrop-filter），
+    // 没有超时的 CDP 调用会让这个脚本永远挂着，看不出是「页面卡了」还是「工具卡了」。
+    const limit = method === 'Runtime.evaluate' ? 120000 : 20000;
+    const timer = setTimeout(() => { pending.delete(mid); reject(new Error(`timeout ${method}`)); }, limit);
+    pending.set(mid, {
+      resolve: (v) => { clearTimeout(timer); resolve(v); },
+      reject: (e) => { clearTimeout(timer); reject(e); },
+    });
     ws.send(JSON.stringify({ id: mid, method, params }));
   });
 

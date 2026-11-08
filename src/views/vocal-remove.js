@@ -866,7 +866,6 @@ export default {
   render() {
     return `${viewhead({
       title: 'PURE MUSIC / VOCALS',
-      sub: '放进一首歌，分出纯音乐和人声两条轨。AI 模型在浏览器里跑，文件不上传；双模型会让两条轨都更干净。',
       idx: 'TOOLS / STEMS',
       meta: [
         { label: 'METHOD', value: 'MDX-Net' },

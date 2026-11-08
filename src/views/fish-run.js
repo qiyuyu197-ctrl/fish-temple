@@ -325,7 +325,6 @@ export default {
     }
     return `${viewhead({
       title: 'PIXEL FISH',
-      sub: '一条像素小鱼，躲水母和石头。进去先待机，按空格 / 点屏幕开始；撞到就结束，越跑越快，纪录留在当前浏览器。',
       idx: 'GAME / FISH',
     })}
     <div class="mr-tabs" role="tablist" aria-label="小游戏">

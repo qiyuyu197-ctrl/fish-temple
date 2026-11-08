@@ -328,7 +328,6 @@ export default {
     lastHover = -1;
     return `${viewhead({
       title: 'MINESWEEPER · 联机',
-      sub: '一块共享棋盘，谁揭开的都同步给全房间；棋盘与反馈和单人局一致。只对注册用户开放，建房后把邀请链接发给朋友即可。',
       idx: 'MINES / ONLINE',
     })}
     <div class="mr-tabs" role="tablist" aria-label="扫雷模式">

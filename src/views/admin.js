@@ -331,7 +331,6 @@ export default {
       <section class="admin">
         ${viewhead({
           title: 'CONSOLE',
-          sub: '这里只改站点的文章与公告，因此只有站长能进。用户内容请发到「论坛」。',
           idx: 'MODULE / 05',
           meta: [
             { label: 'ACCOUNT', value: Auth.loggedIn ? '已登录' : '未登录' },
@@ -383,7 +382,6 @@ export default {
     <section class="admin">
       ${viewhead({
         title: 'CONSOLE',
-        sub: '在浏览器里撰写、编辑、导出内容。部署环境下保存会写入站点内容库；纯静态托管时保存在当前浏览器。',
         idx: 'MODULE / 05',
         meta: [
           { label: 'SERVER', value: `<span id="serverMeta">${serverOnline ? 'ONLINE' : 'STATIC'}</span>`, html: true },

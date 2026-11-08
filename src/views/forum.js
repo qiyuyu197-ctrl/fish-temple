@@ -142,7 +142,6 @@ function listHTML() {
   const more = state.posts.length < state.total;
   return `${viewhead({
     title: 'FORUM',
-    sub: '这里只放用户创作（发帖 / 讨论）。网站公告与文案在「文章与公告」板块，仅站长可改。',
     idx: 'MODULE / 08',
     meta: [
       { label: 'POSTS', value: String(state.total).padStart(2, '0'), id: 'forumTotal' },
@@ -195,14 +194,13 @@ function listHTML() {
 
 function detailHTML(post) {
   if (!post) {
-    return `${viewhead({ title: '帖子不存在', sub: '它可能已被作者或站长删除。', idx: 'MODULE / 08' })}
+    return `${viewhead({ title: '帖子不存在', idx: 'MODULE / 08' })}
       <p><a class="btn btn--sm" href="#/forum" data-nav>← 回到论坛列表</a></p>`;
   }
   const editable = canEdit(post);
   const tags = post.tags || [];
   return `${viewhead({
     title: post.title || '（无标题）',
-    sub: '',
     idx: 'FORUM / POST',
     meta: [
       { label: 'AUTHOR', value: authorName(post) },
@@ -233,7 +231,6 @@ function composeHTML({ post = null, error = '' } = {}) {
   const editing = !!post;
   return `${viewhead({
     title: editing ? '编辑帖子' : '写新帖',
-    sub: editing ? '只有作者本人或站长能保存修改。' : '发帖需要登录。标题必填，正文支持 Markdown。',
     idx: 'FORUM / WRITE',
     actions: `<a class="btn btn--sm" href="${editing ? `#/forum/${encodeURIComponent(post.id)}` : '#/forum'}" data-nav>取消</a>`,
   })}
@@ -273,7 +270,7 @@ export default {
       const post = await loadPost(q.edit);
       if (!post) return composeHTML({ error: '这篇帖子不存在或已被删除' });
       if (!canEdit(post)) {
-        return `${viewhead({ title: '无权编辑', sub: '只有作者本人或站长可以修改这篇内容。', idx: 'FORUM / WRITE' })}
+        return `${viewhead({ title: '无权编辑', idx: 'FORUM / WRITE' })}
           <p><a class="btn btn--sm" href="#/forum/${encodeURIComponent(post.id)}" data-nav>← 回到这篇帖子</a></p>`;
       }
       return composeHTML({ post });

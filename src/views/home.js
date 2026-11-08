@@ -408,6 +408,9 @@ export default {
         if (bar) bar.hidden = false;
         hero.classList.add('is-media');
         heroCurrent = photo;
+        // 琉璃主题的全站壁纸跟首页横幅走（见 ui/liuli.js）：横幅一落定就广播一次，
+        // 随机 / 换一张 / 固定 / 选图四条路径都会经过这里，所以只需要发这一处。
+        bus.emit('hero:change', { photo, pinned: !!heroPinned });
         // 固定状态下点「换一张」：换成新的这张，并继续钉住它
         if (heroPinned && heroForceRandom) {
           heroPinned = photo;

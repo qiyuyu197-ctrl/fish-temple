@@ -396,6 +396,40 @@ code, pre { font-family: var(--font-mono); }
 ::-webkit-scrollbar-thumb:hover { background: var(--ink-40); }
 
 /* ============================================================
+   页面占满整宽：根滚动条收掉，位置感交给悬浮指示条
+   ------------------------------------------------------------
+   经典滚动条会在窗口最右占 10~12px 的槽，那一条永远是平色（纸色 / --bg），
+   压在全屏横幅旁边就是「右边空了一条」——站主连着两次截图说的都是它。
+   把**根滚动条**收掉之后布局视口 == 窗口宽，内容真正贴到屏幕右边。
+
+   为什么用 `html { scrollbar-width: none }` 而不是 `html::-webkit-scrollbar`：
+   · 实测（Chromium 132 / Electron 34）：`html::-webkit-scrollbar { width: 0 }`
+     **对根滚动条无效**，只有通用的 `::-webkit-scrollbar` 才管用，但那会连
+     内层可滚区域（代码块 / 命令面板列表 / 队列 / 结果列表）的滚动条一起藏掉；
+   · `scrollbar-width` 在这个 Chromium 里**不遗传**（实测：根槽 0，内层仍 10px），
+     正好只收根滚动条。
+   · 代价：Chromium < 121 不支持这个属性，那些环境仍会保留原生滚动条（可接受）。
+
+   位置感由 `.scroll-rail` 补（ui/scroll-rail.js 驱动，fixed 定位、不占布局宽度）。
+   ============================================================ */
+html { scrollbar-width: none; }
+
+.scroll-rail {
+  position: fixed;
+  top: 0;
+  right: 3px;
+  width: 5px;
+  z-index: var(--z-toast);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 32%, transparent);
+  pointer-events: none;
+  opacity: 0.34;
+  transition: opacity 220ms var(--ease), height 120ms linear;
+}
+.scroll-rail.is-moving { opacity: 0.8; }
+.scroll-rail[hidden] { display: none; }
+
+/* ============================================================
    排版工具类
    ============================================================ */
 .mono { font-family: var(--font-mono); letter-spacing: var(--ls-wide); }
@@ -9053,4 +9087,1148 @@ select:focus, textarea:focus {
   letter-spacing: 0.015em;
   line-height: 1.16;
   text-transform: none;
+}
+
+/* ==== saucenao.css ==== */
+/* ===================================================================
+ * saucenao.css — SAUCE / 以图搜图（终末地工业风）
+ * ------------------------------------------------------------------
+ * 只消费 tokens.css 的变量；直角、切角交给 ef.css 的全局规则。
+ * 结构：viewhead → panel 01 INPUT → panel 02 OUTPUT → 灯箱。
+ * =================================================================== */
+
+/* hidden 属性优先于一切 display 声明（.empty/.sauce-status 等自带 display） */
+.sauce [hidden] { display: none !important; }
+
+.sauce { display: grid; gap: var(--sp-5); }
+
+/* ═══════════════ 01 · INPUT 输入面板 ═══════════════ */
+
+.sauce-input__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: stretch;
+}
+
+/* 拖放区：沿用 .tool-drop 的材质，这里只调尺寸 */
+.sauce-drop { min-height: 210px; }
+.sauce-drop b { letter-spacing: var(--ls-snug); }
+
+/* 右列：URL + 预览 */
+.sauce-side { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.sauce-side .field { flex: 0 0 auto; }
+
+.sauce-urlrow { display: flex; gap: var(--sp-2); }
+.sauce-urlrow input {
+  flex: 1 1 auto; min-width: 0;
+  padding: 8px 10px;
+  font-family: var(--font-mono); font-size: var(--fs-xs);
+}
+.sauce-urlrow .btn { flex: 0 0 auto; }
+
+/* 预览条 */
+.sauce-pv {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-hard);
+  background: var(--bg-alt);
+  box-shadow: inset 3px 0 0 var(--trace);
+}
+.sauce-pv__thumb {
+  width: 76px; height: 76px; flex: 0 0 auto;
+  object-fit: cover; display: block;
+  border: 1px solid var(--border-hard);
+  background: var(--bg-sunk);
+}
+.sauce-pv__info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sauce-pv__info b { font-size: var(--fs-sm); letter-spacing: var(--ls-snug); }
+.sauce-pv__info > .mono { font-size: var(--fs-2xs); }
+.sauce-pv__hash { word-break: break-all; }
+.sauce-pv__hash i { font-style: normal; color: var(--fg); }
+
+.sauce-pv-empty {
+  flex: 1 1 auto;
+  display: grid; place-items: center;
+  border: 1px dashed var(--border);
+  background: var(--bg-sunk);
+  padding: var(--sp-4);
+  font-size: var(--fs-2xs); letter-spacing: var(--ls-wider); text-transform: uppercase;
+}
+
+/* 选项行 */
+.sauce-opts {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  margin-top: var(--sp-4); padding-top: var(--sp-4);
+  border-top: 1px solid var(--line-soft);
+}
+.sauce-opts .k-label { margin-right: var(--sp-2); }
+.sauce-opts__hint { margin-left: auto; font-size: var(--fs-2xs); letter-spacing: var(--ls-wide); }
+
+/* 主操作行 */
+.sauce-go-row {
+  display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap;
+  margin-top: var(--sp-4);
+}
+.sauce-go {
+  padding: 14px 38px;
+  font-size: 0.95rem; font-weight: 700;
+  letter-spacing: var(--ls-wide);
+}
+.sauce-go:disabled { opacity: 0.38; cursor: not-allowed; }
+
+/* ═══════════════ 03 · MORE 其他搜图网站 ═══════════════ */
+
+.sauce-more__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+}
+
+.sauce-more__item {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: var(--sp-4);
+  background: var(--bg-alt);
+  text-decoration: none; color: var(--fg);
+  transition: background var(--ef-t-hover) var(--ease), box-shadow var(--ef-t-hover) var(--ease-snap);
+}
+.sauce-more__item:hover {
+  background: var(--bg);
+  box-shadow: inset 3px 0 0 var(--trace);
+}
+.sauce-more__item:hover b { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-color: var(--signal); }
+
+.sauce-more__row { display: flex; align-items: center; gap: var(--sp-2); }
+.sauce-more__row b { font-size: var(--fs-sm); letter-spacing: var(--ls-snug); }
+.sauce-more__row .tag { margin-left: auto; }
+.sauce-more__en { font-size: var(--fs-2xs); letter-spacing: var(--ls-wider); }
+.sauce-more__item p {
+  margin: 2px 0 0;
+  font-size: var(--fs-2xs); line-height: 1.65; color: var(--fg-muted);
+}
+
+/* ═══════════════ 02 · OUTPUT 输出面板 ═══════════════ */
+
+/* 进行中：终端风 */
+.sauce-status { padding: var(--sp-6) var(--sp-4); display: grid; gap: var(--sp-3); justify-items: start; }
+.sauce-status__line {
+  display: flex; align-items: center; gap: var(--sp-3);
+  font-size: var(--fs-sm); letter-spacing: var(--ls-wide); text-transform: uppercase;
+}
+.sauce-status__block {
+  width: 10px; height: 18px; flex: 0 0 auto;
+  background: var(--signal);
+  animation: sauceBlink 1.06s steps(2, start) infinite;
+}
+@keyframes sauceBlink { 50% { opacity: 0; } }
+.sauce-status .sauce-bar { width: min(460px, 100%); }
+.sauce-status__sub, .sauce-status p.mono { font-size: var(--fs-2xs); letter-spacing: var(--ls-wide); margin: 0; }
+
+/* 不定进度条：信号黄滑块往返 */
+.sauce-bar {
+  position: relative; overflow: hidden;
+  height: 4px; width: 100%;
+  background: var(--bg-sunk);
+  border: 1px solid var(--border);
+}
+.sauce-bar i {
+  position: absolute; top: 0; bottom: 0; left: 0;
+  width: 30%;
+  background: var(--signal);
+  animation: sauceSlide 1.5s var(--ease-mech) infinite;
+}
+@keyframes sauceSlide {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(440%); }
+}
+
+/* 错误 */
+.sauce-error {
+  display: flex; gap: var(--sp-3); align-items: flex-start;
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--alert);
+  background: var(--bg-alt);
+}
+.sauce-error b { font-size: var(--fs-sm); color: var(--alert); letter-spacing: var(--ls-wide); text-transform: uppercase; }
+.sauce-error p {
+  margin: 6px 0 0;
+  font-size: var(--fs-xs); line-height: 1.7; color: var(--fg-muted);
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* 对照条：你的图 → 命中数 */
+.sauce-cmp {
+  display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border-hard);
+  background: var(--bg-sunk);
+}
+.sauce-cmp__thumb {
+  width: 52px; height: 52px; flex: 0 0 auto;
+  object-fit: cover; display: block;
+  border: 1px solid var(--border-hard);
+  background: var(--bg);
+}
+.sauce-cmp__arrow { color: var(--fg-faint); font-family: var(--font-mono); font-size: 1.1rem; }
+.sauce-cmp__count {
+  font-family: var(--font-wide); font-stretch: 112%;
+  font-size: 1.15rem; font-weight: 800;
+  padding: 2px 10px;
+  background: var(--signal); color: var(--signal-ink);
+}
+.sauce-cmp .mono.faint { font-size: var(--fs-2xs); margin-left: auto; letter-spacing: var(--ls-wide); }
+
+/* 结果列表：1px 分隔的“看板行” */
+.sauce-hits {
+  display: flex; flex-direction: column; gap: 1px;
+  margin-top: var(--sp-4);
+  background: var(--border);
+  border: 1px solid var(--border);
+}
+
+.sauce-hit {
+  display: grid;
+  grid-template-columns: 128px 86px minmax(0, 1fr);
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--bg-alt);
+  transition: background var(--ef-t-hover) var(--ease), box-shadow var(--ef-t-hover) var(--ease-snap);
+  animation: sauceIn var(--t-slow) var(--ease-snap) backwards;
+}
+.sauce-hit:hover { background: var(--bg); box-shadow: inset 3px 0 0 var(--trace); }
+.sauce-hit.is-dim { opacity: 0.58; }
+.sauce-hit.is-dim:hover { opacity: 1; }
+@keyframes sauceIn {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 缩略图：直角 + 墨框；hover 轻微放大（同 gallery 卡片手感） */
+.sauce-hit__thumb {
+  position: relative; overflow: hidden;
+  width: 128px; height: 128px;
+  border: 1px solid var(--border-hard);
+  background: var(--bg-sunk);
+}
+.sauce-hit__thumb img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  cursor: zoom-in;
+  filter: saturate(0.92);
+  transition: transform var(--t-slow) var(--ease), filter var(--t-mid) var(--ease);
+}
+.sauce-hit:hover .sauce-hit__thumb img { transform: scale(1.045); filter: saturate(1.05); }
+.sauce-hit__ph {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: var(--ink-25); font-size: var(--fs-2xs); letter-spacing: var(--ls-wider);
+}
+.sauce-hit__zoom {
+  position: absolute; right: 0; bottom: 0;
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border: 0; border-top: 1px solid var(--console-line); border-left: 1px solid var(--console-line);
+  background: var(--console-bg); color: var(--console-fg);
+  font-size: 12px; line-height: 1; cursor: zoom-in;
+  opacity: 0; transition: opacity var(--t-fast) var(--ease), background var(--t-fast);
+}
+.sauce-hit:hover .sauce-hit__zoom, .sauce-hit__zoom:focus-visible { opacity: 1; }
+.sauce-hit__zoom:hover { background: var(--signal); color: var(--signal-ink); }
+
+/* 相似度：黄块数字 = 高置信；墨线 = 中；弱化 = 低 */
+.sauce-hit__sim {
+  align-self: start;
+  display: flex; align-items: baseline; justify-content: center; gap: 1px;
+  padding: 10px 6px;
+  border: 1px solid var(--border-hard);
+  background: var(--bg);
+  font-family: var(--font-wide); font-stretch: 112%;
+}
+.sauce-hit__sim b { font-size: 1.45rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.sauce-hit__sim i { font-style: normal; font-size: var(--fs-xs); opacity: 0.75; }
+.sauce-hit__sim.is-high { background: var(--signal); border-color: var(--signal); color: var(--signal-ink); }
+.sauce-hit__sim.is-mid { box-shadow: inset 3px 0 0 var(--trace); }
+.sauce-hit__sim.is-low { border-color: var(--border); color: var(--fg-faint); }
+
+/* 正文列 */
+.sauce-hit__body { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.sauce-hit__top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sauce-hit__rank { margin-left: auto; font-size: var(--fs-2xs); letter-spacing: var(--ls-wider); }
+.sauce-hit__title { font-size: 1.02rem; line-height: 1.3; letter-spacing: var(--ls-snug); margin: 0; }
+.sauce-hit__meta {
+  display: flex; gap: var(--sp-2) var(--sp-4); flex-wrap: wrap;
+  font-size: var(--fs-2xs); letter-spacing: var(--ls-wide); color: var(--fg-muted);
+}
+.sauce-hit__meta span { min-width: 0; }
+.sauce-hit__links { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: var(--sp-2); }
+
+/* ═══════════════ 灯箱：控制台配色 ═══════════════ */
+
+.sauce-lb {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  display: grid; place-items: center;
+  padding: var(--sp-6) var(--sp-4);
+  background: color-mix(in srgb, var(--console-bg) 93%, transparent);
+  backdrop-filter: blur(6px);
+}
+.sauce-lb__img {
+  max-width: 92vw; max-height: 86vh;
+  display: block;
+  border: 1px solid var(--console-line);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  animation: sauceZoom var(--t-mid) var(--ease-snap);
+}
+@keyframes sauceZoom {
+  from { opacity: 0; transform: scale(0.965); }
+  to   { opacity: 1; transform: none; }
+}
+.sauce-lb__close {
+  position: absolute; top: var(--sp-4); right: var(--sp-4);
+  width: 42px; height: 42px;
+  display: grid; place-items: center;
+  border: 1px solid var(--console-line);
+  background: var(--console-bg); color: var(--console-fg);
+  font-size: 15px; cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.sauce-lb__close:hover { background: var(--signal); border-color: var(--signal); color: var(--signal-ink); }
+
+/* ═══════════════ 响应式 ═══════════════ */
+
+@media (max-width: 980px) {
+  .sauce-input__grid { grid-template-columns: 1fr; }
+  .sauce-drop { min-height: 160px; }
+  .sauce-ext { margin-left: 0; }
+}
+
+@media (max-width: 720px) {
+  .sauce-hit {
+    grid-template-columns: 92px 64px minmax(0, 1fr);
+    gap: var(--sp-3);
+    padding: var(--sp-3);
+  }
+  .sauce-hit__thumb { width: 92px; height: 92px; }
+  .sauce-hit__sim b { font-size: 1.1rem; }
+  .sauce-go-row { gap: var(--sp-3); }
+  .sauce-go { width: 100%; justify-content: center; }
+  .sauce-cmp .mono.faint { margin-left: 0; width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .sauce-hit {
+    grid-template-columns: 76px 56px minmax(0, 1fr);
+  }
+  .sauce-hit__thumb { width: 76px; height: 76px; }
+  .sauce-hit__rank { display: none; }
+}
+
+/* ==== liuli.css ==== */
+/* ============================================================
+   liuli.css — 琉璃主题层（Material 3 × Fluent 2 磨砂玻璃）
+   ------------------------------------------------------------
+   只在 <html data-theme="liuli"> / <html data-theme="liuli-day"> 下生效，
+   其他主题（paper / night / blueprint / matcha / sakura）一行都不受影响。
+
+   移植参考（只借配方，不引依赖）：
+     · github.com/LilycleHeart/dsh-liuli-ui-enhance  docs/style-guide.md、liuli-palette.ts、liuli-runtime.ts
+     · github.com/LilycleHeart/qqnt-liuli-theme       assets/liuli.css、renderer/index.js
+
+   颜色从哪来：src/ui/liuli.js 从当前壁纸取色，用 src/ui/liuli-color.js 派生整套
+   M3 近似色板，写进 <style id="liuliPalette">（选择器 :root[data-theme="..."]，
+   特异性高于本文件，所以这里的静态值只是「JS 还没跑起来」时的兜底）。
+
+   ─── 材质三铁律（照抄原项目，违反任一条都会看出毛病）──────────
+   1. 材质只有一个来源：--liuli-material-opacity + --liuli-material-blur
+      + --liuli-acrylic-rgb，任何地方都不许写死 rgba(...) 数值。
+   2. 玻璃只挂最外层承载层。承载层内部的子容器一律 transparent 且
+      backdrop-filter:none —— 否则 alpha 叠加，同一材质在嵌套处深浅不一
+      （原项目原话："玻璃叠玻璃"）。
+   3. 中间容器全部打透，让壁纸透出来。
+
+   另外两条踩坑（原项目实测，与本站同样成立）：
+   · 弹层/菜单不要挂 backdrop-filter 或 transform：内部 position:fixed 的
+     子菜单会以它为包含块而错位，模糊要挂在 ::before 上。
+   · 不要盖全屏噪点层、不要给半透明面上的文字加文字阴影：字会发虚。
+     噪点只放进材质自己的 background-image（--liuli-noise），
+     所以本站的 .grain / .scanlines 在这个主题下整层关掉。
+   ============================================================ */
+
+/* ════════════════════════════════════════════════════════════
+   1. 静态兜底色板（默认源色 #1d9bf0 派生；运行时会被覆盖）
+      数值由 tools/test-liuli-color.mjs 打印，改派生逻辑后要同步这里
+   ════════════════════════════════════════════════════════════ */
+
+/* 昼（liuli-day） */
+[data-theme="liuli-day"] {
+  /* 由 tools/gen-liuli-fallback.mjs 生成，请勿手改。
+     源色 #1d9bf0，共 38 个变量；运行时会被壁纸取色的结果覆盖。 */
+  --paper: #f4faff;
+  --paper-2: #e1eef8;
+  --paper-3: #d7e4ef;
+  --paper-sunk: #cbdae7;
+  --ink: #161c22;
+  --ink-2: #161c22;
+  --ink-100: #161c22;
+  --ink-80: #3a4956;
+  --ink-60: #51606e;
+  --ink-40: #8393a2;
+  --ink-25: #9daebd;
+  --ink-12: #c8daea;
+  --signal: #196398;
+  --signal-deep: #074a77;
+  --signal-ink: #ffffff;
+  --alert: #9e3533;
+  --ok: #3b653c;
+  --link: #196398;
+  --line: #b8c9d9;
+  --line-strong: #697988;
+  --line-soft: #d3e5f5;
+  --selection-bg: #196398;
+  --selection-fg: #ffffff;
+  --trace: #196398;
+  --console-bg: #1a2026;
+  --console-fg: #e9f2fa;
+  --console-muted: #9daebd;
+  --console-line: #3a4956;
+  --grid-line: rgba(22, 28, 34, 0.06);
+  --liuli-source: #1d9bf0;
+  --liuli-brand-rgb: 25, 99, 152;
+  --liuli-acrylic-rgb: 215, 228, 239;
+  --liuli-acrylic-rgb-low: 225, 238, 248;
+  --liuli-acrylic-rgb-high: 192, 210, 223;
+  --liuli-control-rgb: 203, 218, 231;
+  --liuli-stroke-rgb: 105, 121, 136;
+  --liuli-shadow-rgb: 22, 28, 34;
+  --liuli-veil-rgb: 255, 255, 255;
+}
+
+/* 夜（liuli，默认） */
+[data-theme="liuli"] {
+  /* 由 tools/gen-liuli-fallback.mjs 生成，请勿手改。
+     源色 #1d9bf0，共 38 个变量；运行时会被壁纸取色的结果覆盖。 */
+  --paper: #0e1419;
+  --paper-2: #1d252d;
+  --paper-3: #242e37;
+  --paper-sunk: #313d47;
+  --ink: #dbe4eb;
+  --ink-2: #dbe4eb;
+  --ink-100: #dbe4eb;
+  --ink-80: #b8c9d9;
+  --ink-60: #92a3b2;
+  --ink-40: #5d6d7b;
+  --ink-25: #43525f;
+  --ink-12: #2d3b48;
+  --signal: #98cdfb;
+  --signal-deep: #cbe6ff;
+  --signal-ink: #043354;
+  --alert: #ffafa7;
+  --ok: #a1cfa1;
+  --link: #98cdfb;
+  --line: #3a4956;
+  --line-strong: #8393a2;
+  --line-soft: #2d3b48;
+  --selection-bg: #98cdfb;
+  --selection-fg: #043354;
+  --trace: #98cdfb;
+  --console-bg: #161c22;
+  --console-fg: #e9f2fa;
+  --console-muted: #9daebd;
+  --console-line: #3a4956;
+  --grid-line: rgba(219, 228, 235, 0.07);
+  --liuli-source: #1d9bf0;
+  --liuli-brand-rgb: 152, 205, 251;
+  --liuli-acrylic-rgb: 36, 46, 55;
+  --liuli-acrylic-rgb-low: 29, 37, 45;
+  --liuli-acrylic-rgb-high: 62, 75, 87;
+  --liuli-control-rgb: 49, 61, 71;
+  --liuli-stroke-rgb: 131, 147, 162;
+  --liuli-shadow-rgb: 0, 0, 0;
+  --liuli-veil-rgb: 0, 0, 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   2. 材质 / 形状 / 阴影令牌
+   ════════════════════════════════════════════════════════════ */
+
+html[data-theme^="liuli"] {
+  /* 形状阶梯：14 卡片 / 10 控件 / 7 小件 / 999 药丸（M3 形状系统） */
+  --liuli-radius: 14px;
+  --liuli-radius-sm: 10px;
+  --liuli-radius-xs: 7px;
+  --liuli-pill: 999px;
+
+  /* 材质：唯一来源。暗色更透一点（原项目：亮 0.55 / 暗 0.5）。
+     本站是长文站点，正文直接压在材质上，所以比原项目再实一档。 */
+  --liuli-material-opacity: 0.6;
+  --liuli-material-blur: blur(18px) saturate(1.6);
+  /* 嵌套 backdrop 采样会衰减，弹层/菜单/顶栏用这一档补偿 */
+  --liuli-material-blur-strong: blur(28px) saturate(1.7);
+  --liuli-material: rgba(var(--liuli-acrylic-rgb, 30, 37, 48), var(--liuli-material-opacity));
+
+  /* 材质噪声：只进材质的 background-image，绝不铺满全屏（会糊字） */
+  --liuli-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.045'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /* 阴影与品牌辉光 */
+  --liuli-shadow: 0 2px 10px rgba(var(--liuli-shadow-rgb, 0, 0, 0), 0.24);
+  --liuli-shadow-float: 0 10px 32px rgba(var(--liuli-shadow-rgb, 0, 0, 0), 0.32);
+  --liuli-glow: 0 4px 20px rgba(var(--liuli-brand-rgb, 29, 155, 240), 0.18);
+  --liuli-glow-strong: 0 6px 28px rgba(var(--liuli-brand-rgb, 29, 155, 240), 0.3);
+
+  /* 壁纸遮罩：压住照片让正文可读。可由「琉璃：壁纸浓度」命令切档 */
+  --liuli-veil-alpha: 0.46;
+
+  /* 内嵌面（面板头、缩略图底）用的轻染色，代替不透明的 --bg-sunk */
+  --liuli-inset: rgba(var(--liuli-acrylic-rgb-high, 63, 74, 92), 0.34);
+
+  /* 顶栏浮起来之后，锚点跳转 / 目录点击要多让出一点，否则标题会被压在 bars 下面 */
+  scroll-padding-top: calc(var(--topbar-h) + 28px);
+
+  color-scheme: dark;
+}
+
+/* 昼：遮罩用白、材质更实一点 */
+html[data-theme="liuli-day"] {
+  --liuli-material-opacity: 0.66;
+  --liuli-veil-alpha: 0.6;
+  --liuli-shadow: 0 2px 10px rgba(var(--liuli-shadow-rgb, 0, 0, 0), 0.16);
+  --liuli-shadow-float: 0 10px 32px rgba(var(--liuli-shadow-rgb, 0, 0, 0), 0.2);
+  color-scheme: light;
+}
+
+/* ════════════════════════════════════════════════════════════
+   3. 壁纸承载层（由 src/ui/liuli.js 创建并挂到 body 直下）
+      挂 body 直下而不是 .shell 里：天然避开 fixed 后代的包含块陷阱
+   ════════════════════════════════════════════════════════════ */
+
+.liuli-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  /* 壁纸磨砂：**不在这里挂 CSS filter**。
+     全屏 fixed 层上的 blur() 会让每次重绘都重新光栅化整屏模糊 —— 无头浏览器
+     （软件渲染）实测能把页面拖到不响应，低端安卓 WebView 同理。
+     模糊由 ui/liuli.js 在换壁纸时**一次性烤进一张缩小图**（canvas.filter +
+     降采样 + dataURL），之后它就是一张普通图片，运行时零成本。
+     边缘发虚的问题也在那一步解决（画的时候放大一圈再裁），所以这里不需要 scale。 */
+  transition: opacity var(--t-slow) var(--ease);
+}
+/* 遮罩层：亮色盖白、暗色盖黑（颜色由 --liuli-veil-rgb 派生）。
+   刻意开得很轻 —— 可读性主要由壁纸磨砂 + 面板玻璃 + .prose 的垫子负责，
+   不靠这层硬压（第一版开到 0.7/0.8，站主实测「看不出是壁纸」）。 */
+.liuli-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--liuli-veil-rgb, 0, 0, 0), var(--liuli-veil-alpha, 0.46));
+}
+/* 图还没加载出来时不要闪白：先透明 */
+.liuli-bg[hidden] { display: none; }
+
+/* ════════════════════════════════════════════════════════════
+   4. 页面底与装饰层
+      body 的底色会被传播成画布背景（画在最底），壁纸层在它之上，
+      所以 --bg 保持不透明正好当「没有壁纸时」的兜底底色。
+   ════════════════════════════════════════════════════════════ */
+
+/* 关掉全屏噪点与扫描线：它们压在文字上会让半透明面上的字发虚（踩坑 6） */
+html[data-theme^="liuli"] .grain,
+html[data-theme^="liuli"] .scanlines { display: none; }
+
+/* HUD 角标是工业风的东西，琉璃下收掉，画面更干净 */
+html[data-theme^="liuli"] .hud-corner { display: none; }
+
+/* 半透明表面：凡是消费 --bg-alt / --bg-sunk 的盒子都自动变成玻璃底。
+   --paper-2/3/sunk 保持不透明（它们是「没有模糊可用时」的实底兜底，
+   也被滚动条等小面积地方直接用），所以这里只改 --bg-* 两个。 */
+html[data-theme^="liuli"] {
+  --bg-alt: rgba(var(--liuli-acrylic-rgb), var(--liuli-material-opacity));
+  --bg-sunk: rgba(var(--liuli-acrylic-rgb-high), calc(var(--liuli-material-opacity) * 0.62));
+}
+
+/* ════════════════════════════════════════════════════════════
+   5. 材质：分两批，只有「浮在内容之上的少数几层」才挂 backdrop-filter
+   ------------------------------------------------------------
+   为什么不给每个面板都挂模糊：壁纸已经在换图时烤成磨砂图了（见 ui/liuli.js
+   的 wallpaperTexture），内容层再逐个实时模糊，视觉上几乎没差别，代价却是
+   一页十几个 backdrop-filter 层 —— 没有 GPU 合成时（无头浏览器 / 老安卓 WebView /
+   软件渲染）每次重绘都要重算一遍高斯模糊，实测能把页面拖到不响应
+   （命令面板一打开就卡死，就是这么来的）。
+   这也正是原项目铁律 2 的意思：玻璃只挂最外层承载层，不是每块板子都挂。
+   ════════════════════════════════════════════════════════════ */
+
+/* 5a. 内容层：半透明材质 + 噪声 + 阴影，**不挂模糊**
+   注意这里的 `a.row` 不是 `.row`：列表行是 `<a class="row">`（ui/bits.js），
+   但首页大标题的每一行也是 `<span class="row">`（views/home.js 的 heroTitleHTML）。
+   写成 `.row` 会把标题两行也套上玻璃框 —— 站主截图反馈过「标题别加琉璃框」，就是这个原因。
+   凡是泛用类名（.row / .card / .tag …）在加材质前，先确认它在别处没被当布局类用。 */
+html[data-theme^="liuli"] .panel,
+html[data-theme^="liuli"] .card,
+html[data-theme^="liuli"] a.row,
+html[data-theme^="liuli"] .notice,
+html[data-theme^="liuli"] .empty,
+html[data-theme^="liuli"] .mr-card,
+html[data-theme^="liuli"] .dl-card,
+html[data-theme^="liuli"] .acard,
+html[data-theme^="liuli"] .neacct__panel,
+html[data-theme^="liuli"] .lstage__helpcard,
+html[data-theme^="liuli"] .gallery__bar,
+html[data-theme^="liuli"] .leisure-toolbar,
+html[data-theme^="liuli"] .photo-album__bar,
+html[data-theme^="liuli"] .tool-bar,
+html[data-theme^="liuli"] .sauce-bar,
+html[data-theme^="liuli"] .readbar,
+html[data-theme^="liuli"] .bgpicker {
+  background-color: var(--liuli-material);
+  background-image: var(--liuli-noise);
+  border-color: rgba(var(--liuli-stroke-rgb, 120, 130, 140), 0.45);
+  box-shadow: var(--liuli-shadow);
+}
+
+/* 5b. 浮层：这些是真的浮在内容之上（底下是页面/遮罩，不是壁纸），模糊才有意义。
+   数量控制在个位数，且都不大。 */
+html[data-theme^="liuli"] .drawer,
+html[data-theme^="liuli"] .cmdk__panel,
+html[data-theme^="liuli"] .miniplayer,
+html[data-theme^="liuli"] .almanac,
+html[data-theme^="liuli"] .authpanel,
+html[data-theme^="liuli"] .authbox__menu,
+html[data-theme^="liuli"] .lightbox__bar,
+html[data-theme^="liuli"] .amodal {
+  background-color: var(--liuli-material);
+  background-image: var(--liuli-noise);
+  -webkit-backdrop-filter: var(--liuli-material-blur);
+  backdrop-filter: var(--liuli-material-blur);
+  border-color: rgba(var(--liuli-stroke-rgb, 120, 130, 140), 0.45);
+  box-shadow: var(--liuli-shadow-float);
+}
+
+/* 轻提示（toast）用实底，不挂模糊 —— 和原项目一致（它的 toast-bg 直接取 M3 的
+   onSurface 实色）。两个理由：① 提示文字必须一眼可读，实底最稳；② 它出现的时机
+   往往正是页面在忙的时候（换壁纸、切主题、跑命令），没必要再叠一层实时模糊。 */
+html[data-theme^="liuli"] .toast {
+  background-color: rgba(var(--liuli-acrylic-rgb, 30, 37, 48), 0.94);
+  background-image: var(--liuli-noise);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: rgba(var(--liuli-stroke-rgb, 120, 130, 140), 0.4);
+  box-shadow: var(--liuli-shadow-float);
+}
+
+/* ── 顶栏：一条浮起来的玻璃胶囊，不是横贯屏幕的实心板 ──
+   站主实测反馈：sticky 顶栏压下来会「挡住东西」，而且它那条 1px 硬边和下面的
+   区域过渡割裂。所以琉璃下让它离开屏幕边缘（top/margin 各 10px）、四角圆起来、
+   用浮起阴影代替硬边线，底色也比第一版透 —— 内容从它下面过时是「糊的」，
+   不是「被切掉一块」。原来的 base.css 经验（顶栏必须够实，否则字叠 logo）
+   在这里由 blur-strong 那一档补偿：透但糊得够狠。 */
+html[data-theme^="liuli"] .topbar {
+  /* 浮起来，但要让开刘海 / 状态栏：mobile.css 给顶栏加了安全区 padding 与高度，
+     这里的 padding 简写会盖掉它，所以把 --safe-* 显式带回来（没有就是 0px） */
+  top: calc(10px + var(--safe-t, 0px));
+  margin-top: 10px;
+  padding: var(--safe-t, 0px) max(var(--sp-4), var(--safe-r, 0px)) 0 max(var(--sp-4), var(--safe-l, 0px));
+  border: 1px solid rgba(var(--liuli-stroke-rgb, 120, 130, 140), 0.26);
+  border-radius: var(--liuli-radius);
+  background-color: rgba(var(--liuli-acrylic-rgb, 30, 37, 48), calc(var(--liuli-material-opacity) + 0.06));
+  background-image: var(--liuli-noise);
+  -webkit-backdrop-filter: var(--liuli-material-blur-strong);
+  backdrop-filter: var(--liuli-material-blur-strong);
+  box-shadow: var(--liuli-shadow-float);
+}
+
+/* 手机 / 平板 / 安卓 App：顶栏是页面最顶上的一条，不该做成「悬浮胶囊」——
+   左右各留 16px 缝 + 14px 圆角，窄屏上会露出壁纸，看着像浮在状态栏下面的一块板子。
+   桌面（≥861px）保留悬浮：那里它确实是浮在内容之上的一层。
+   这条必须写在 liuli 的作用域里：mobile.css 的 `.topbar` 只有 (0,1,0)，
+   压不过 `html[data-theme^="liuli"] .topbar` 的 (0,1,1)。 */
+@media (max-width: 860px) {
+  html[data-theme^="liuli"] .topbar {
+    top: 0;
+    margin-top: 0;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    border-top: 0;
+    /* 通栏：抹掉 .shell 的左右内边距（手机上就是那 16px 的缝） */
+    width: 100vw;
+    margin-left: calc(50% - 50vw);
+    padding: var(--safe-t, 0px) max(var(--sp-4), var(--safe-r, 0px)) 0 max(var(--sp-4), var(--safe-l, 0px));
+    box-shadow: none;
+  }
+  /* 播报条跟着通栏，否则顶栏满宽、下面缩进，中间留一个凹口 */
+  html[data-theme^="liuli"] .ticker {
+    border-radius: 0;
+    width: 100vw;
+    margin-left: calc(50% - 50vw);
+  }
+}
+
+/* 顶栏那颗水滴（#liuliBtn）：进了琉璃就点亮 —— 品牌色描边 + 一点辉光。
+   放在这里而不是 base.css：它只有在这个主题下才可能是亮着的，
+   其它主题里它就是一个普通 .iconbtn。 */
+html[data-theme^="liuli"] .iconbtn--liuli {
+  color: var(--signal);
+  border-color: rgba(var(--liuli-brand-rgb, 128, 197, 255), 0.45);
+  background: rgba(var(--liuli-brand-rgb, 128, 197, 255), 0.14);
+}
+html[data-theme^="liuli"] .iconbtn--liuli.is-on svg {
+  filter: drop-shadow(0 0 6px rgba(var(--liuli-brand-rgb, 128, 197, 255), 0.55));
+}
+
+/* 播报条：顶栏已经浮起来了，下面再压一条带硬边的实板会很碎。
+   底与边全打透，只留文字，让它和壁纸融在一起。 */
+html[data-theme^="liuli"] .ticker {
+  background: transparent;
+  border-bottom: 0;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* 长文正文：琉璃下 .prose 是直接压在壁纸上的（它自己没有底），遮罩一轻就会花。
+   给它一块玻璃垫 —— 读起来稳，视觉上也像「玻璃上摊开的一页」。
+   刻意不用负外边距去补偿 padding：宁可让 74ch 的版面窄一点，也不要在窄屏上溢出。 */
+html[data-theme^="liuli"] .prose {
+  background: rgba(var(--liuli-acrylic-rgb, 30, 37, 48), calc(var(--liuli-material-opacity) * 0.78));
+  border-radius: var(--liuli-radius);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--liuli-shadow);
+}
+
+/* 「占满整宽」的滚动条处理已提到全站（styles/base.css 末尾 + ui/scroll-rail.js）：
+   它不属于琉璃这一套视觉语言，纯色主题同样会留出那条 10~12px 的槽。
+   这里不再写任何 scrollbar 规则 —— 尤其别把 `scrollbar-width: none` 加回主题作用域，
+   它是可继承属性，会把内层滚动条（代码块 / 列表 / 预览窗）一起藏掉。 */
+
+/* 硬边线：工业风靠 1px 实线分区，琉璃靠材质与阴影分区。
+   页头下面、页脚上面那两条最粗的 --border-hard 线在这里压淡，
+   否则每条线都像贴上去的胶带，和玻璃的过渡很割裂。 */
+html[data-theme^="liuli"] .viewhead,
+html[data-theme^="liuli"] .footer {
+  border-color: rgba(var(--liuli-stroke-rgb, 120, 130, 140), 0.22);
+}
+
+/* 浮层用强磨砂 + 浮起阴影（嵌套 backdrop 采样衰减，见踩坑清单）。
+   toast 不在这里 —— 它是实底，见上面那条。 */
+html[data-theme^="liuli"] .almanac,
+html[data-theme^="liuli"] .authpanel,
+html[data-theme^="liuli"] .lightbox__bar,
+html[data-theme^="liuli"] .authbox__menu {
+  -webkit-backdrop-filter: var(--liuli-material-blur-strong);
+  backdrop-filter: var(--liuli-material-blur-strong);
+  box-shadow: var(--liuli-shadow-float);
+}
+
+/* ── 全屏层一律不挂模糊（预防性性能红线）──
+   backdrop-filter 的成本 ≈ 面积 × 每帧重算。铺满视口的遮罩是所有模糊层里最贵的一个，
+   而琉璃下它背后正好是一张铺满整屏的壁纸图，页面里还有播报条那条无限动画在跑 ——
+   没有 GPU 合成的环境（软件渲染、集显省电模式、老安卓 WebView）会每帧付一次全屏
+   高斯模糊的代价。遮罩的职责本来只是「压暗」，模糊交给面板自己那一小块就够，
+   所以这里把全屏层的模糊一律摘掉，只留半透明底。
+   ⚠️ 以后再加任何铺满视口的浮层，都要在这里挂个名。 */
+html[data-theme^="liuli"] .cmdk__scrim,
+html[data-theme^="liuli"] .drawer-scrim,
+html[data-theme^="liuli"] .authpanel__scrim,
+html[data-theme^="liuli"] .bgpicker,
+html[data-theme^="liuli"] .bgpicker__scrim,
+html[data-theme^="liuli"] .lstage__help,
+html[data-theme^="liuli"] .anime-modal::backdrop {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* 悬停 / 选中：品牌色淡染，而不是换成另一块不透明底 */
+html[data-theme^="liuli"] .card:hover,
+html[data-theme^="liuli"] a.row:hover {
+  background-color: rgba(var(--liuli-brand-rgb, 29, 155, 240), 0.12);
+  border-color: rgba(var(--liuli-brand-rgb, 29, 155, 240), 0.42);
+  box-shadow: var(--liuli-glow);
+}
+
+/* ════════════════════════════════════════════════════════════
+   6. 内部打透：承载层里面不要再挂一层玻璃（铁律 2 / 3）
+   ════════════════════════════════════════════════════════════ */
+
+html[data-theme^="liuli"] .panel .panel,
+html[data-theme^="liuli"] .card .panel,
+html[data-theme^="liuli"] .panel__head,
+html[data-theme^="liuli"] .card__thumb,
+html[data-theme^="liuli"] .row__date,
+html[data-theme^="liuli"] .drawer__nav,
+html[data-theme^="liuli"] .amodal__side,
+html[data-theme^="liuli"] .dl-card__head {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* 面板头 / 缩略图底这类「内嵌面」给一层轻染色，保留层次但不叠玻璃 */
+html[data-theme^="liuli"] .panel__head,
+html[data-theme^="liuli"] .card__thumb,
+html[data-theme^="liuli"] .dl-card__head {
+  background: var(--liuli-inset);
+}
+
+/* ════════════════════════════════════════════════════════════
+   7. 形状阶梯：本站原来是「全局零圆角」的工业直角（--radius: 0 且没人消费它），
+      所以这里逐个面给圆角，而不是改一个令牌
+   ════════════════════════════════════════════════════════════ */
+
+/* 7a. 大容器 14px：卡片 / 面板 / 浮层 */
+html[data-theme^="liuli"] .panel,
+html[data-theme^="liuli"] .card,
+html[data-theme^="liuli"] .notice,
+html[data-theme^="liuli"] .empty,
+html[data-theme^="liuli"] .cmdk__panel,
+html[data-theme^="liuli"] .almanac,
+html[data-theme^="liuli"] .bgpicker__panel,
+html[data-theme^="liuli"] .authpanel,
+html[data-theme^="liuli"] .mr-card,
+html[data-theme^="liuli"] .dl-card,
+html[data-theme^="liuli"] .acard,
+html[data-theme^="liuli"] .amodal,
+html[data-theme^="liuli"] .neacct__panel,
+html[data-theme^="liuli"] .lstage__helpcard,
+html[data-theme^="liuli"] .authbox__menu,
+html[data-theme^="liuli"] .toast,
+html[data-theme^="liuli"] .masonry__item,
+html[data-theme^="liuli"] .stage,
+html[data-theme^="liuli"] .lstage__cover,
+html[data-theme^="liuli"] .sauce-more__item,
+html[data-theme^="liuli"] .pixiv__link { border-radius: var(--liuli-radius); }
+
+/* 7b. 控件 10px。
+   这里直接用元素选择器兜底（button / input / select / textarea）：站点原来是
+   「全局零圆角」，各模块的控件类名有几十个（.chip .mr-tab .tool-tab .leisure-tab
+   .tl-label .ms-lv .acard__track …），逐个列一定会漏 —— 审计脚本第一版就查出
+   115 类直角元素。先兜底，再在下面按需要提级成药丸或小件。 */
+html[data-theme^="liuli"] button,
+html[data-theme^="liuli"] input,
+html[data-theme^="liuli"] select,
+html[data-theme^="liuli"] textarea,
+html[data-theme^="liuli"] .btn,
+html[data-theme^="liuli"] .iconbtn,
+html[data-theme^="liuli"] a.row,
+html[data-theme^="liuli"] .cmdk__item,
+html[data-theme^="liuli"] .miniplayer,
+html[data-theme^="liuli"] .gallery__bar,
+html[data-theme^="liuli"] .leisure-toolbar,
+html[data-theme^="liuli"] .photo-album__bar,
+html[data-theme^="liuli"] .tool-bar,
+html[data-theme^="liuli"] .sauce-bar,
+html[data-theme^="liuli"] .readbar,
+html[data-theme^="liuli"] .lightbox__bar,
+html[data-theme^="liuli"] .nav__link,
+html[data-theme^="liuli"] .mr-tab,
+html[data-theme^="liuli"] .tool-tab,
+html[data-theme^="liuli"] .leisure-tab,
+html[data-theme^="liuli"] .tl-row,
+html[data-theme^="liuli"] .tl-label,
+html[data-theme^="liuli"] .ms-stat,
+html[data-theme^="liuli"] .brand__glyph,
+html[data-theme^="liuli"] .footer__logo,
+html[data-theme^="liuli"] .acard__poster,
+html[data-theme^="liuli"] .poster { border-radius: var(--liuli-radius-sm); }
+
+/* 7b-2. 表单控件必须单独写一条：ef.css 用
+   `input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"])`
+   把 border-radius 钉成 0，特异性 (0,4,1) —— 上面那条 `html[data-theme^="liuli"] input`
+   只有 (0,1,2)，赢不了它（审计脚本第一版就是这么查出「所有 input 还是直角」的）。
+   这里把它的选择器原样抄一遍再叠一层主题属性，(0,5,2) 才赢得干净。 */
+html[data-theme^="liuli"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+html[data-theme^="liuli"] select,
+html[data-theme^="liuli"] textarea { border-radius: var(--liuli-radius-sm); }
+
+/* 画廊的缩略图与大图：ef.css 里有一条 `.gallery .thumb, … { border-radius: 0 }`
+   （图片永远直角是工业风的规矩），琉璃下要圆回来。 */
+html[data-theme^="liuli"] .thumb,
+html[data-theme^="liuli"] .stage__img,
+html[data-theme^="liuli"] .card__thumb img,
+html[data-theme^="liuli"] .masonry__item img { border-radius: var(--liuli-radius-sm); }
+
+/* 7c. 药丸：标签 / 筛选 chip / 徽标 / 小圆按钮 */
+html[data-theme^="liuli"] .tag,
+html[data-theme^="liuli"] .chip,
+html[data-theme^="liuli"] .nav__badge,
+html[data-theme^="liuli"] .status-dot,
+html[data-theme^="liuli"] .ticker__tag,
+html[data-theme^="liuli"] .btn--sm,
+html[data-theme^="liuli"] .sect__no,
+html[data-theme^="liuli"] .notice__icon,
+html[data-theme^="liuli"] .stage__badge,
+html[data-theme^="liuli"] .poster__season,
+html[data-theme^="liuli"] .acard__track,
+html[data-theme^="liuli"] .tl-label__del,
+html[data-theme^="liuli"] .leisure-hero__title-sub { border-radius: var(--liuli-pill); }
+
+/* 7d. 小件 7px：行内代码、快捷键、卡片角标 */
+html[data-theme^="liuli"] code,
+html[data-theme^="liuli"] kbd,
+html[data-theme^="liuli"] .card__idx,
+html[data-theme^="liuli"] .tl-label__in { border-radius: var(--liuli-radius-xs); }
+
+/* 7e. 媒体容器要裁子元素：海报 / 封面上叠了好几层方角装饰
+   （poster__wash / poster__grid / poster__shine、card__thumb img…），
+   父级不裁的话，圆角外面会露出一圈直角。 */
+html[data-theme^="liuli"] .acard__poster,
+html[data-theme^="liuli"] .poster,
+html[data-theme^="liuli"] .masonry__item,
+html[data-theme^="liuli"] .stage,
+html[data-theme^="liuli"] .hero__media,
+html[data-theme^="liuli"] .lstage__cover { overflow: hidden; }
+
+/* 面板头是方的、面板是圆的 —— 头上要跟面板同样的上圆角，否则两个角会戳出来 */
+html[data-theme^="liuli"] .panel__head {
+  border-radius: var(--liuli-radius) var(--liuli-radius) 0 0;
+}
+
+/* 7f. 终末地的「切角」在琉璃下一律取消（两种语言不能混）：
+   clip-path 不吃 border-radius，留着就是圆角旁边缺一块。 */
+html[data-theme^="liuli"] .card__idx,
+html[data-theme^="liuli"] .leisure-hero__title-sub,
+html[data-theme^="liuli"] .lstage__cover { clip-path: none; }
+/* 首页那道斜切色块是纯装饰，琉璃下直接收掉 */
+html[data-theme^="liuli"] .hero__slash { display: none; }
+
+/* 7g. 硬直角阴影（终末地的 `Npx Npx 0` 偏移实心影）一律换成琉璃的软影。
+   它就是站主说的「后边还有直角的阴影」：圆角元素配一个方角偏移影，
+   四个角外面会露出方形轮廓。最扎眼的是选图面板的 14px。 */
+html[data-theme^="liuli"] .bgpicker__panel,
+html[data-theme^="liuli"] .dl-card,
+html[data-theme^="liuli"] .authpanel { box-shadow: var(--liuli-shadow-float); }
+html[data-theme^="liuli"] .card:hover,
+html[data-theme^="liuli"] .acard:hover { box-shadow: var(--liuli-glow); }
+
+/* 抽屉：只圆朝内的那两个角（它贴屏幕右边） */
+html[data-theme^="liuli"] .drawer { border-radius: var(--liuli-radius) 0 0 var(--liuli-radius); }
+
+/* 卡片左侧那条信号色竖条是工业风的记号，琉璃下换成品牌辉光更合适 */
+html[data-theme^="liuli"] .card::after { display: none; }
+
+/* 7i. 模块级容器补漏。
+   这一批是审计脚本扫出来的（遍历所有板块，找「有底色 / 有边框、又没被圆角父级裁掉」
+   的直角元素）：音乐台、论坛、首页横幅这些自己画底的盒子，不在上面的通用名单里。 */
+html[data-theme^="liuli"] .hero__media,
+html[data-theme^="liuli"] .post__info,
+html[data-theme^="liuli"] .ne-search,
+html[data-theme^="liuli"] .neacct,
+html[data-theme^="liuli"] .np,
+html[data-theme^="liuli"] .forum__banner { border-radius: var(--liuli-radius); }
+
+/* 容器里的条带：上圆角跟容器对齐，否则两个方角会戳出来（同 .panel__head） */
+html[data-theme^="liuli"] .ne-search__head {
+  border-radius: var(--liuli-radius) var(--liuli-radius) 0 0;
+}
+
+/* 控件级的 10px */
+html[data-theme^="liuli"] .hero__media-bar,
+html[data-theme^="liuli"] .mr-tabs,
+html[data-theme^="liuli"] .tools-tabs,
+html[data-theme^="liuli"] .forum__search,
+html[data-theme^="liuli"] .ne-search__field,
+html[data-theme^="liuli"] .toc a { border-radius: var(--liuli-radius-sm); }
+
+/* 小徽标与头像 */
+html[data-theme^="liuli"] .hero__media-no,
+html[data-theme^="liuli"] .leisure-hero__title-sub i { border-radius: var(--liuli-pill); }
+html[data-theme^="liuli"] .neacct__avatar,
+html[data-theme^="liuli"] .forum__avatar,
+html[data-theme^="liuli"] .profile__avatar { border-radius: var(--liuli-pill); }
+
+/* 7i-2. 各模块自己画底的容器：音乐台 / 文娱 / 相册。
+   名字各不相同（.np / .tracks / .leisure-hero / .leisure-week / .photo-album …），
+   逐个列一定会漏，所以除了点名这几块，再补一条 section / article / aside 的兜底。 */
+html[data-theme^="liuli"] .np,
+html[data-theme^="liuli"] .np-empty,
+html[data-theme^="liuli"] .tracks,
+html[data-theme^="liuli"] .ne-results,
+html[data-theme^="liuli"] .photo-album,
+html[data-theme^="liuli"] .leisure-hero,
+html[data-theme^="liuli"] .leisure-week,
+html[data-theme^="liuli"] .leisure-hero__aside,
+html[data-theme^="liuli"] .leisure-hero__stamp { border-radius: var(--liuli-radius); }
+
+/* 容器里的头/条带：上圆角跟容器对齐 */
+html[data-theme^="liuli"] .np__head,
+html[data-theme^="liuli"] .tracks__head { border-radius: var(--liuli-radius) var(--liuli-radius) 0 0; }
+
+html[data-theme^="liuli"] .tracks__hist,
+html[data-theme^="liuli"] .lweek__day,
+html[data-theme^="liuli"] .np-empty__mark,
+html[data-theme^="liuli"] .ms-hud,
+html[data-theme^="liuli"] .ms-hud__group,
+html[data-theme^="liuli"] .ms-stage,
+/* 文章信息条里每一格自己画了底（.post__info > div 的 background: var(--bg)），
+   不圆的话四个方角会把外面那圈圆角戳掉 —— 审计里那条匿名的 341×64 就是它。 */
+html[data-theme^="liuli"] .post__info > div { border-radius: var(--liuli-radius-sm); }
+
+html[data-theme^="liuli"] .np__src { border-radius: var(--liuli-pill); }
+
+/* 兜底：视图里的 section / article / aside 一律按容器给圆角。
+   纯包裹层（没有底色或边框）加了也看不出来；有底色的正好一次覆盖到。
+   这条比逐个点名的清单更重要 —— 审计里剩下的容器，十有八九是这类语义标签。 */
+html[data-theme^="liuli"] #view section,
+html[data-theme^="liuli"] #view article,
+html[data-theme^="liuli"] #view aside { border-radius: var(--liuli-radius); }
+
+/* 7j. 45° 切角 —— 「圆角导不彻底」的另一半原因（第一版审计完全漏了它）。
+   本站的切角是照 **mask 渐变** 实现的（ef.css 的 --ef-cut / --ef-cut-sm，
+   components.css 里还有几处写死像素的），不是 clip-path。mask 同样不吃 border-radius：
+   只要留着一个 --cut，圆角旁边就会缺掉一个角。
+   两个办法一起用：① 把切角令牌归零，ef.css 里 --cut: var(--ef-cut) 的那批自动失效；
+   ② 对写死像素的几处显式摘掉 mask。 */
+html[data-theme^="liuli"] {
+  --ef-cut: 0px;
+  --ef-cut-sm: 0px;
+}
+
+html[data-theme^="liuli"] .btn,
+html[data-theme^="liuli"] .chip,
+html[data-theme^="liuli"] .iconact,
+html[data-theme^="liuli"] .ms-lv,
+html[data-theme^="liuli"] .tool-tab,
+html[data-theme^="liuli"] .admin__tab,
+html[data-theme^="liuli"] .mr-tab,
+html[data-theme^="liuli"] .leisure-tab,
+html[data-theme^="liuli"] .pbtn,
+html[data-theme^="liuli"] .np-controls .pbtn,
+html[data-theme^="liuli"] .np-aux,
+html[data-theme^="liuli"] .np-progress,
+html[data-theme^="liuli"] .lstage__ctl,
+html[data-theme^="liuli"] .lstage__close,
+html[data-theme^="liuli"] .lstage__queuebtn,
+html[data-theme^="liuli"] .lstage__seek,
+html[data-theme^="liuli"] .lstage__mini,
+html[data-theme^="liuli"] .lstage__brandmark,
+html[data-theme^="liuli"] .miniplayer__stage,
+html[data-theme^="liuli"] .ne-alt,
+html[data-theme^="liuli"] .hero__media-fab,
+html[data-theme^="liuli"] .nav__link,
+html[data-theme^="liuli"] .nav__link.is-active,
+html[data-theme^="liuli"] .mr-tab.is-on { -webkit-mask: none; mask: none; }
+
+/* 切角在的时候，ef.css 给这些控件留了不对称的右内边距（给切掉的角让位）。
+   角不要了，右边多出来的空白也要收回来，否则字会偏左。数值取自各自的基础内边距。 */
+html[data-theme^="liuli"] .btn,
+html[data-theme^="liuli"] .music .btn { padding-right: 18px; }
+html[data-theme^="liuli"] .chip { padding-right: 10px; }
+html[data-theme^="liuli"] .ms-lv { padding-right: 12px; }
+html[data-theme^="liuli"] .tool-tab { padding-right: var(--sp-4); }
+html[data-theme^="liuli"] .mr-tab.is-on { padding-right: 16px; }
+
+/* 7k. 角上的小条装饰与容器底边线。
+   ef.css 给 .panel / .empty / .section-block 挂了一条 ::before 黑条（悬停时从 14% 长到 100%），
+   leisure 给 .acard 挂了一条 left/right: -1px 的 2px 信号线 —— 在圆角容器上都会从圆角外面戳出来。
+   让容器裁掉最省事。 */
+html[data-theme^="liuli"] .panel,
+html[data-theme^="liuli"] .empty,
+html[data-theme^="liuli"] .section-block,
+html[data-theme^="liuli"] .acard { overflow: hidden; }
+
+/* 7h. 明确保持直角的例外（必须排在最后：同特异性靠顺序取胜）
+   扫雷棋盘是格子，圆角会毁掉「哪格挨着哪格」的读图性；表格同理。 */
+html[data-theme^="liuli"] .ms-cell,
+html[data-theme^="liuli"] .ms-grid,
+html[data-theme^="liuli"] td,
+html[data-theme^="liuli"] th { border-radius: 0; }
+
+/* ════════════════════════════════════════════════════════════
+   8. 级联入场（原项目 motion.css 的做法：长属性拆开写，nth-child 阶梯，
+      末尾封顶，prefers-reduced-motion 全关）
+      卡片已经有 JS 的 data-reveal-delay 阶梯（bits.js），这里不重复，
+      只给「视图 / 面板 / 列表行」补级联。
+   ════════════════════════════════════════════════════════════ */
+
+@keyframes liuli-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes liuli-in {
+  from { opacity: 0; transform: translateY(9px) scale(0.995); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme^="liuli"] #view > section {
+    animation-name: liuli-rise;
+    animation-duration: 420ms;
+    animation-timing-function: var(--ease);
+    animation-fill-mode: backwards;
+  }
+
+  html[data-theme^="liuli"] .panel,
+  html[data-theme^="liuli"] a.row {
+    animation-name: liuli-in;
+    animation-duration: 450ms;
+    animation-timing-function: var(--ease);
+    animation-fill-mode: backwards;
+  }
+
+  html[data-theme^="liuli"] .panel:nth-of-type(1),
+  html[data-theme^="liuli"] a.row:nth-of-type(1) { animation-delay: 0ms; }
+  html[data-theme^="liuli"] .panel:nth-of-type(2),
+  html[data-theme^="liuli"] a.row:nth-of-type(2) { animation-delay: 40ms; }
+  html[data-theme^="liuli"] .panel:nth-of-type(3),
+  html[data-theme^="liuli"] a.row:nth-of-type(3) { animation-delay: 80ms; }
+  html[data-theme^="liuli"] .panel:nth-of-type(4),
+  html[data-theme^="liuli"] a.row:nth-of-type(4) { animation-delay: 120ms; }
+  html[data-theme^="liuli"] .panel:nth-of-type(5),
+  html[data-theme^="liuli"] a.row:nth-of-type(5) { animation-delay: 150ms; }
+  html[data-theme^="liuli"] .panel:nth-of-type(n+6),
+  html[data-theme^="liuli"] a.row:nth-of-type(n+6) { animation-delay: 170ms; }
+}
+
+/* 减少动画：系统设置或站内开关都认（core/motion.js 用的是同一个 dataset） */
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme^="liuli"] #view > section,
+  html[data-theme^="liuli"] .panel,
+  html[data-theme^="liuli"] a.row { animation: none !important; }
+}
+html[data-theme^="liuli"][data-reduce-motion="1"] #view > section,
+html[data-theme^="liuli"][data-reduce-motion="1"] .panel,
+html[data-theme^="liuli"][data-reduce-motion="1"] a.row { animation: none !important; }
+
+/* ════════════════════════════════════════════════════════════
+   9. 降级
+   ════════════════════════════════════════════════════════════ */
+
+/* 拿不到 backdrop-filter（软件渲染 / 省电模式 / 老 WebView）：
+   半透明只剩「透字」这一种效果，直接改成不透明底，宁可少一层质感 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-theme^="liuli"] {
+    --bg-alt: var(--paper-2);
+    --bg-sunk: var(--paper-sunk);
+  }
+  html[data-theme^="liuli"] .topbar,
+  html[data-theme^="liuli"] .panel,
+  html[data-theme^="liuli"] .card,
+  html[data-theme^="liuli"] .drawer,
+  html[data-theme^="liuli"] .cmdk__panel,
+  html[data-theme^="liuli"] .miniplayer {
+    background-color: var(--paper-2);
+    background-image: none;
+  }
+}
+
+/* 缩放 / 拖动窗口期间关掉模糊（原项目的性能护栏 data-liuli-blur-off）：
+   只需要列真正挂了模糊的那几层（顶栏 + 5b 的浮层），内容层本来就没有 */
+html[data-liuli-blur-off] .topbar,
+html[data-liuli-blur-off] .drawer,
+html[data-liuli-blur-off] .cmdk__panel,
+html[data-liuli-blur-off] .miniplayer,
+html[data-liuli-blur-off] .almanac,
+html[data-liuli-blur-off] .bgpicker,
+html[data-liuli-blur-off] .authpanel,
+html[data-liuli-blur-off] .authbox__menu,
+html[data-liuli-blur-off] .lightbox__bar,
+html[data-liuli-blur-off] .amodal,
+html[data-liuli-blur-off] .toast {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }

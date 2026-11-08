@@ -462,9 +462,12 @@ async function main() {
       galleryText: gal ? gal.textContent.trim().replace(/\\s+/g, ' ') : '',
     };
   })()`);
+  // 导航里 GALLERY 旁边的红色 PIXIV 角标已按要求删除（NOTICE 的未读角标保留）。
+  // 不再断言「角标总数」：LOGS 的未读数、NAV 里显式声明的 badge（如 SAUCE 的 NEW）
+  // 都是合法角标，数目会随配置变。要盯的是「GALLERY 上没有、且谁都不叫 PIXIV」。
   record('导航：GALLERY 旁的红色 PIXIV 角标已删除',
     navBadges?.gallery === null && !/PIXIV/.test(navBadges?.galleryText || '')
-      && (navBadges?.badges || []).length === 1,
+      && !(navBadges?.badges || []).some((b) => /PIXIV/i.test(b)),
     JSON.stringify(navBadges));
 
   // 品牌标记 + 站点图标（品牌插画 → tools/make-brand.py 生成整套尺寸）
@@ -1331,6 +1334,54 @@ async function main() {
   const themeAfter = await evaluate(`document.documentElement.dataset.theme`);
   record('交互：主题切换', themeBefore !== themeAfter, `${themeBefore} → ${themeAfter}`);
 
+  // 交互：顶栏那颗琉璃水滴 —— **只在琉璃两档里循环**（夜 ⇄ 昼），和纯色主题彻底分开。
+  // 两件事都要守住：① 点它不会掉进纯色主题；② 纯色主题按钮（和命令面板的「主题」组）
+  // 里不能再出现琉璃，否则「两条线分开」就白做了。
+  const liuliBtn = await evaluate(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const b = document.getElementById('liuliBtn');
+    if (!b) return { exists: false };
+    const theme = () => document.documentElement.dataset.theme;
+    const out = { exists: true, from: theme(), steps: [] };
+    b.click(); await wait(1400);
+    out.steps.push({ theme: theme(), on: b.classList.contains('is-on'), pressed: b.getAttribute('aria-pressed'), title: b.title });
+    b.click(); await wait(1400);
+    out.steps.push({ theme: theme(), on: b.classList.contains('is-on') });
+    b.click(); await wait(1000);
+    out.steps.push({ theme: theme(), on: b.classList.contains('is-on') });
+    // 纯色主题按钮必须能把人带出琉璃
+    document.getElementById('themeBtn').click();
+    await wait(600);
+    out.afterSolid = theme();
+    // 命令面板的「主题」组里不能有琉璃
+    document.getElementById('searchBtn').click();
+    await wait(400);
+    const inp = document.getElementById('cmdkInput');
+    inp.value = '主题';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(400);
+    out.paletteThemes = [...document.querySelectorAll('#cmdkList .cmdk__item')]
+      .map((n) => n.textContent.trim().replace(/\\s+/g, ' '))
+      .filter((t) => /主题 ·/.test(t));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(300);
+    // 还原成测试前的主题，后面的检查不受影响
+    window.Terminal.Theme.set(out.from);
+    await wait(500);
+    out.restored = theme();
+    return out;
+  })()`);
+  record('交互：顶栏琉璃按钮（只在琉璃两档循环；纯色主题里没有琉璃）',
+    liuliBtn?.exists === true
+      && /^liuli/.test(liuliBtn.steps?.[0]?.theme || '') && liuliBtn.steps[0].on === true && liuliBtn.steps[0].pressed === 'true'
+      && liuliBtn.steps?.[1]?.theme !== liuliBtn.steps?.[0]?.theme && /^liuli/.test(liuliBtn.steps[1].theme)
+      && liuliBtn.steps?.[2]?.theme === liuliBtn.steps?.[0]?.theme
+      && !/^liuli/.test(liuliBtn.afterSolid || '')
+      && (liuliBtn.paletteThemes || []).length === 5
+      && !(liuliBtn.paletteThemes || []).some((t) => /LIULI|琉璃/.test(t))
+      && liuliBtn.restored === liuliBtn.from,
+    JSON.stringify(liuliBtn));
+
   // 交互：命令面板
   await evaluate(`document.getElementById('searchBtn').click()`);
   await sleep(300);
@@ -1339,6 +1390,42 @@ async function main() {
   await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
   await sleep(250);
   record('交互：命令面板可关闭', await evaluate(`document.getElementById('cmdk').hasAttribute('hidden')`));
+
+  // 交互：点面板里的命令，绝不能碰到 window.close()。
+  // 回归记录：runCursor() 里曾把 closePalette() 写成 close() —— 模块里没有 close 这个绑定，
+  // 于是它落到全局的 window.close()。浏览器只在「会话历史只有 1 条」时才允许它生效，
+  // 也就是：新开标签页直接进站 → Ctrl+K → 点任意一条命令 → 标签页被关掉。
+  // 这里不去凑 history.length === 1 的场景（自检跑到这一步历史已经几十条了，
+  // window.close 会被浏览器直接拒绝，测不出东西），改成**监听 close 有没有被调用**，
+  // 与历史长度无关，也就不会因为跑的位置不同而漏掉。
+  // 挑「壁纸浓度」是因为它无副作用（不改主题、不跳转）。
+  await evaluate(`(() => {
+    window.__closeCalls = 0;
+    window.__closeSpy = window.close;
+    window.close = function () { window.__closeCalls += 1; };
+    document.getElementById('searchBtn').click();
+    return true;
+  })()`);
+  await sleep(300);
+  const clickedCmd = await evaluate(`(() => {
+    const it = [...document.querySelectorAll('#cmdkList .cmdk__item')].find((n) => n.textContent.includes('壁纸浓度'));
+    if (!it) return '';
+    it.click();
+    return it.textContent.trim().replace(/\\s+/g, ' ').slice(0, 26);
+  })()`);
+  await sleep(700);
+  const afterCmd = await evaluate(`(() => {
+    const r = {
+      closeCalls: window.__closeCalls,
+      closed: document.getElementById('cmdk').hasAttribute('hidden'),
+      theme: document.documentElement.dataset.theme,
+    };
+    if (window.__closeSpy) window.close = window.__closeSpy;
+    return r;
+  })()`);
+  record('交互：点命令面板里的命令不会调用 window.close（标签页被关掉的回归）',
+    !!clickedCmd && afterCmd?.closeCalls === 0 && afterCmd?.closed === true,
+    `点了「${clickedCmd || '未找到命令'}」 window.close 被调用 ${afterCmd?.closeCalls} 次 · 面板已关=${afterCmd?.closed} · 主题=${afterCmd?.theme}`);
 
   // 交互：随机插画（本地源，离线可用）
   await visit('#/gallery');
@@ -3209,6 +3296,10 @@ async function main() {
       tabs: [...document.querySelectorAll('.tool-tab')].map((t) => t.dataset.tab),
       drop: !!document.querySelector('.tool-drop'),
       text: ((document.getElementById('view') || {}).innerText || '').length,
+      // 页头标题是「渲染出了工具台」的硬信号；文本长度只当「不是一片空白」的粗筛。
+      // 以前这里卡 text > 300，是照着「板块标题下还有一段说明小字」量的；
+      // 说明小字按站主要求撤掉之后长度掉到 298，断言就成了假警报 —— 改成认标题。
+      title: ((document.querySelector('.viewhead__title') || {}).textContent || '').trim(),
     };
     document.querySelector('.tool-tab[data-tab="text"]').click();
     await wait(400);
@@ -3340,7 +3431,7 @@ async function main() {
   record('工具台：三个标签与拖放区就位，标签可切换',
     JSON.stringify(toolsUI?.ui?.tabs) === JSON.stringify(['convert', 'image', 'text'])
       && toolsUI?.ui?.drop === true && toolsUI?.ui?.textPanel === true
-      && (toolsUI?.ui?.text || 0) > 300,
+      && toolsUI?.ui?.title === 'TOOLBOX' && (toolsUI?.ui?.text || 0) > 200,
     JSON.stringify(toolsUI?.ui));
   record('工具台：ZIP 能打包与解包（含中文与二进制）',
     (toolsUI?.zip?.bytes || 0) > 100 && toolsUI?.zip?.text === 'hello 鱼'

@@ -17,7 +17,7 @@
  * 真要用 WinUI/WPF 重写控件，那是另一个项目——这个仓库 3 万行 JS 全在界面上。
  */
 
-const { app, BrowserWindow, Menu, dialog, shell, session, protocol, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, dialog, shell, session, protocol, clipboard, ipcMain } = require('electron');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
@@ -471,12 +471,18 @@ function createWindow() {
     title: WINDOW_TITLE,
     icon: path.join(__dirname, 'icon.ico'),
     autoHideMenuBar: true,
+    // 无边框窗口：Windows 原生标题栏会白占 ~30px，深色标题栏压在纸色页面顶上也很割裂。
+    // 现在窗口的最上面就是站点自己的顶栏，最小化 / 最大化 / 关闭由页面按钮画（见
+    // injectWindowChrome），点击经 preload.cjs → ipcMain 回到主进程执行。
+    // thickFrame 默认 true：无边框窗口依旧可以用系统边缘拖拽缩放。
+    frame: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
       webSecurity: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
 
@@ -503,7 +509,107 @@ function createWindow() {
   mainWindow.on('close', () => writeState());
   mainWindow.on('closed', () => { mainWindow = null; });
 
+  // 无边框窗口的自绘标题栏：注入拖拽区 + 三个窗口按钮（只在桌面版里注入，
+  // 网页版没有 -webkit-app-region 这回事，注入也只发生在 app 里）
+  mainWindow.webContents.on('did-finish-load', () => injectWindowChrome());
+  const syncWinState = () => {
+    try { mainWindow?.webContents.send('win:state', mainWindow.isMaximized()); } catch { /* 忽略 */ }
+  };
+  mainWindow.on('maximize', syncWinState);
+  mainWindow.on('unmaximize', syncWinState);
+
   mainWindow.loadURL(`${ORIGIN}/index.html#/`);
+}
+
+/* ---------------- 无边框窗口：把站点顶栏当标题栏 ---------------- */
+
+/**
+ * 给页面注入两样东西：
+ *  1) 一段 CSS：顶栏贴到窗口最上沿、整条可拖动；内部链接/按钮设为 no-drag
+ *     （否则点不动）；窗口按钮贴在最右。
+ *  2) 三个窗口按钮 + 事件，点击走 window.desktopWindow（preload 暴露）。
+ * 只在桌面版注入，网页版完全不受影响。
+ */
+function injectWindowChrome() {
+  if (!mainWindow) return;
+
+  const css = `
+    /* 无边框窗口里顶栏就是标题栏：贴满窗口顶部，左右不留缝、四角不要圆角 ——
+       原来它是「悬浮胶囊」（左右各缩进 49px、14px 圆角），在窗口顶部会露出
+       页面背景，看起来像浮在标题栏位置上的一块板子。 */
+    .topbar {
+      -webkit-app-region: drag;
+      margin-top: 0 !important;
+      top: 0 !important;
+      width: 100vw !important;
+      margin-left: calc(50% - 50vw) !important;
+      border-radius: 0 !important;
+      border-left: 0 !important;
+      border-right: 0 !important;
+      border-top: 0 !important;
+      padding-left: var(--sp-5, 24px) !important;
+      padding-right: var(--sp-5, 24px) !important;
+    }
+    /* 下面那条播报跟着拉通，否则顶栏满宽、播报缩进，中间会留一个凹口 */
+    .ticker {
+      width: 100vw !important;
+      margin-left: calc(50% - 50vw) !important;
+      border-radius: 0 !important;
+    }
+    /* 顶栏里的可点东西都要还原成可点，否则整条都被拖拽吃掉 */
+    .topbar a, .topbar button, .topbar input, .topbar select,
+    .topbar .iconbtn, .topbar .nav__link, .topbar .brand { -webkit-app-region: no-drag; }
+    /* 窗口按钮：放在顶栏右侧簇的末尾，尺寸压到 32px */
+    .desktop-winbar {
+      display: flex; align-items: center; gap: 2px; margin-left: 6px;
+      flex: 0 0 auto; -webkit-app-region: no-drag;
+    }
+    .desktop-winbar .iconbtn { width: 32px; height: 32px; border-radius: 8px; }
+    .desktop-winbar .iconbtn svg { width: 10px; height: 10px; }
+    .desktop-winbar .iconbtn--close:hover {
+      background: #E2452B !important;
+      border-color: transparent !important;
+      color: #fff !important;
+    }
+    /* 顶栏在 1550px 左右的窗口宽度下本来就没有余量（品牌 + 11 个导航 + 5 个图标 + 头像），
+       再加三个窗口按钮必挤。把装饰性的时钟让出来 —— Windows 任务栏右下角本来就有时间。
+       宽度换算是实测的：时钟 117px，窗口按钮簇 100px，正好腾出空间且导航不再截断。 */
+    #clock { display: none !important; }
+  `;
+  mainWindow.webContents.insertCSS(css).catch(() => {});
+
+  const js = `(function () {
+    if (document.querySelector('.desktop-winbar')) return;
+    var host = document.querySelector('.topbar__right');
+    if (!host) return;
+    var ICON = {
+      min: '<svg viewBox="0 0 12 12" fill="none"><path d="M2 6h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+      max: '<svg viewBox="0 0 12 12" fill="none"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>',
+      restore: '<svg viewBox="0 0 12 12" fill="none"><rect x="4" y="4" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M8 4V2.2H2.2V8H4" stroke="currentColor" stroke-width="1.2"/></svg>',
+      close: '<svg viewBox="0 0 12 12" fill="none"><path d="M2.6 2.6l6.8 6.8M9.4 2.6l-6.8 6.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+    };
+    var wrap = document.createElement('div');
+    wrap.className = 'desktop-winbar';
+    wrap.innerHTML =
+      '<button class="iconbtn" id="winMin" type="button" title="最小化" aria-label="最小化">' + ICON.min + '</button>' +
+      '<button class="iconbtn" id="winMax" type="button" title="最大化" aria-label="最大化">' + ICON.max + '</button>' +
+      '<button class="iconbtn iconbtn--close" id="winClose" type="button" title="关闭" aria-label="关闭">' + ICON.close + '</button>';
+    host.appendChild(wrap);
+
+    var api = window.desktopWindow;
+    document.getElementById('winMin').addEventListener('click', function () { api && api.min(); });
+    document.getElementById('winMax').addEventListener('click', function () { api && api.toggleMax(); });
+    document.getElementById('winClose').addEventListener('click', function () { api && api.close(); });
+
+    var maxBtn = document.getElementById('winMax');
+    function setMax(maxed) {
+      maxBtn.title = maxed ? '还原' : '最大化';
+      maxBtn.setAttribute('aria-label', maxBtn.title);
+      maxBtn.innerHTML = maxed ? ICON.restore : ICON.max;
+    }
+    if (api && api.onState) api.onState(setMax);
+  })();`;
+  mainWindow.webContents.executeJavaScript(js).catch(() => {});
 }
 
 /* ---------------- 菜单 / 下载 ---------------- */
@@ -667,6 +773,16 @@ protocol.registerSchemesAsPrivileged([{
   scheme: SCHEME,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
 }]);
+
+/* ---------------- 无边框窗口的按钮（页面 → 主进程） ---------------- */
+
+ipcMain.on('win:min', () => mainWindow?.minimize());
+ipcMain.on('win:toggle-max', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
+ipcMain.on('win:close', () => mainWindow?.close());
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

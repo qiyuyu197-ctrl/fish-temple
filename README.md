@@ -171,6 +171,9 @@ git tag desktop-v1.5.4 && git push origin desktop-v1.5.4   # 自动构建并挂�
 │   │   ├── comments.js     帖子评论区（自包含组件，详情页两行接入）
 │   │   ├── bits.js         可复用展示片段（卡片 / 列表行 / 分区标题）
 │   │   ├── tools-tabs.js   TOOLS 板块的页签条（工具台 / Tier List / 提取音频 / 分离纯音乐/人声）
+│   │   ├── liuli.js        琉璃主题运行时（壁纸层 / 取色 / 写动态色板 / 来源与遮罩浓度切换）
+│   │   ├── liuli-color.js  琉璃取色与 M3 近似派生（OKLCH，纯函数，可在 node 里自测）
+│   │   ├── scroll-rail.js  全站悬浮滚动指示条（根滚动条被收掉，页面占满右侧，位置感靠它）
 │   │   ├── boot.js         开机自检动画
 │   │   └── toast.js        轻提示 / 复制 / 下载
 │   ├── util/
@@ -265,6 +268,8 @@ git tag desktop-v1.5.4 && git push origin desktop-v1.5.4   # 自动构建并挂�
     ├── album-build.py      把原图压成站点素材 + 生成 data/album.json（需 Pillow）
     ├── shrink-images.py    图片瘦身体检 / 压缩（一次性工具，不参与站点运行）
     ├── webp-migrate.py     两阶段把 assets/img 迁到 WebP 并精确改写引用（convert → check → delete）
+    ├── test-liuli-color.mjs 琉璃色板自测（色相一致性 / 明度方向 / WCAG 对比度 / 灰图回退）
+    ├── gen-liuli-fallback.mjs 把派生结果同步进 styles/liuli.css 的静态兜底色板
     ├── cdp.mjs / eval.mjs  无头浏览器截图与取值（eval 支持 @脚本文件）
     └── shot.mjs            指定主题 / 路由截图（开发期用）
 ```
@@ -1426,6 +1431,55 @@ export const THEMES = [
 `--signal-ink` 作字色（见 `styles/base.css`），所以换主题时高亮色会自动跟着变，
 不需要为每个主题单独写导航样式。
 
+### 琉璃主题（颜色跟着壁纸走）
+
+`liuli`（夜）与 `liuli-day`（昼）是**特例**：颜色不写死在 tokens.css 里，而是运行时
+从当前壁纸取色、按 Material 3 的 tone 表派生出来（OKLCH 近似，不引 MCU 依赖），
+再写进 `<style id="liuliPalette">` 覆盖同名变量。材质是 Fluent 亚克力：
+半透明底 + 噪声 + `backdrop-filter` 磨砂 + 14/10/7/999 圆角阶梯。
+
+> 注意这与 `styles/ef.css` 的「全局零圆角 / 切角=可点击」是**相反**的取向 —— 有意的：
+> 琉璃是另一套视觉语言，规则全部关在自己的主题选择器里，切回其它主题就完全恢复工业风。
+
+| 文件 | 作用 |
+| --- | --- |
+| `src/ui/liuli-color.js` | 取色（64×64 挑最鲜艳像素）+ 色板派生（纯函数，可在 node 里自测） |
+| `src/ui/liuli.js` | 顶栏按钮三态、壁纸层、写色板、来源与浓度切换、命令注册、缩放期关模糊的性能护栏 |
+| `styles/liuli.css` | 静态兜底色板 + 材质配方 + 形状阶梯（7a–7i）+ 级联入场 + 降级（全部关在 `[data-theme^="liuli"]` 里） |
+| `tools/liuli-radius-audit.js` | 圆角审计：遍历各板块，报告「有底/有边、又没被圆角父级裁掉」的直角元素 |
+| `design/liuli-theme.md` | 为什么这么做：算法出处、tone→OKLCH 换算的坑、材质三铁律、特异性陷阱、验收数据 |
+
+**入口**：顶栏那颗水滴（`#liuliBtn`）—— 它**只在琉璃的两档里循环**（夜 ⇄ 昼），
+从别的主题点进来会回到上次待的那一档；想退出就按旁边的主题按钮。
+纯色主题（`#themeBtn`）与命令面板的「主题」组里**没有琉璃** —— 两条线互不干扰，
+`site.config.js` 里 `THEMES`（纯色）与 `LIULI_THEMES`（琉璃）是两份列表，
+`core/theme.js` 的 `cycle()` 只走纯色、`Theme.liuliList` 只给水滴按钮用。
+细项（换壁纸 / 来源 / 浓度 / 磨砂）在命令面板（`Ctrl/⌘+K` 搜「琉璃」）。
+
+**跟首页横幅是默认档**：全站底色和首页那张横幅是**同一张照片**，横幅一换（随机 / 换一张 /
+固定 / 选图）整站配色跟着换 —— 靠 `views/home.js` 广播的 `hero:change` 事件；
+不在首页时读横幅固定下来的那张（`ft.terminal.heroPinned`）兜底。
+另外两档是「跟随机插画」和「用固定的那张」，三种模式都保证有图，
+**不选图也一定有壁纸**，不会出现「切了琉璃却是一片纯色」。
+
+可读性靠的是**壁纸磨砂**（`blur(16px)` 抹掉高频细节）+ 面板玻璃 + `.prose` 的一块垫子，
+遮罩只是配角 —— 第一版把遮罩开到 0.7/0.8，照片被压成一块脏色，站主看不出那是壁纸。
+
+改琉璃之后要跑这几条：
+
+```bash
+node tools/test-liuli-color.mjs      # 色板自测：色相一致性 / 明度方向 / WCAG 对比度
+node tools/gen-liuli-fallback.mjs    # 把新的兜底色值同步进 styles/liuli.css（别手抄）
+node tools/eval.mjs "http://127.0.0.1:5173/#/" @tools/liuli-radius-audit.js 10000
+                                     # 圆角审计：加了新组件后跑，看还有没有漏网的直角
+```
+
+> 圆角为什么需要审计：本站原本是「全局零圆角」的工业直角（`--radius: 0` 且没人消费），
+> 琉璃只能逐个面给圆角；更隐蔽的是 45° 切角是用 `mask` 渐变实现的（不是 `clip-path`），
+> `mask` 同样不吃 `border-radius`，所以每个按钮旁边都会缺一个角。
+> 首轮审计查出 115 类直角元素，现在收敛到 18 类且都是刻意保留的（扫雷格、表格、装饰条码），
+> 报告里「切角 / 硬直角阴影 / clip-path」三项都是 0。详见设计文档第六节。
+
 ### 改品牌标记 / 图标
 
 顶栏左上角、浏览器页签、开机画面、页脚用的是**同一张品牌插画**（`assets/img/brand/source.jpg`，
@@ -2068,7 +2122,7 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 - 焦点可见环、`aria-label`、`aria-live` 提示、语义化标题层级
 - 键盘可达：导航、命令面板（`/` 或 `Ctrl/⌘+K`）、播放器、灯箱
 - 打印样式：文章页可直接打印 / 存 PDF（自动隐藏导航与侧栏）
-- 三种主题 + 两种信息密度，选择会持久化
+- 七套主题（含两套「琉璃」动态取色主题）+ 两种信息密度，选择会持久化
 - **移动端适配层**（`styles/mobile.css`，在 `components.css` 之后加载）：
   - 安全区适配（`env(safe-area-inset-*)`）：刘海屏与底部手势条不压内容
   - 360–430px 手机断点；可点元素的触控目标 ≥ 44px

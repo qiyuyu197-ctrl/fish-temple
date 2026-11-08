@@ -21,7 +21,6 @@ export default {
     <div class="dl-page">
     ${viewhead({
       title: 'DOWNLOADS',
-      sub: '移动版与 Windows 桌面版都把站点、相册和文娱档案打进包里；装上之后断网也能用。网页版永远是最新的。',
       idx: 'RELEASES / 2026.11',
       meta: [
         { label: 'ANDROID', value: '2.4.4' },

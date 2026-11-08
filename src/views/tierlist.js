@@ -230,7 +230,6 @@ export default {
     board = board || load();
     return `${viewhead({
       title: 'TIER LIST',
-      sub: '把卡片拖进档位里排个高低。拖到某张卡上就是插到它前面，档内顺序也管用；自动保存在当前浏览器，刷新还在。',
       idx: 'TOOLS / TIER',
     })}
     <div id="tlRoot">${boardHTML()}</div>

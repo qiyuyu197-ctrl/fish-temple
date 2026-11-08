@@ -35,6 +35,8 @@ const ListeningStage = {
   close: (...args) => import('./ui/listening-stage.js').then((m) => m.ListeningStage.close(...args)),
 };
 import { initWaveRow } from './ui/wave-row.js';
+import { ScrollRail } from './ui/scroll-rail.js';
+import { Liuli } from './ui/liuli.js';
 import { Boot } from './ui/boot.js';
 import { initPWA } from './ui/pwa.js';
 
@@ -91,6 +93,7 @@ const downloadView = lazyView('download', '下载 App', () => import('./views/do
 const tierlist = lazyView('tierlist', 'Tier List', () => import('./views/tierlist.js'));
 const fishrun = lazyView('fishrun', '像素小鱼', () => import('./views/fish-run.js'));
 const tools = lazyView('tools', '工具台', () => import('./views/tools.js'));
+const saucenao = lazyView('saucenao', '以图搜图', () => import('./views/saucenao.js'));
 const admin = lazyView('admin', '发布', () => import('./views/admin.js'));
 const notfound = lazyView('notfound', '404', () => import('./views/notfound.js'));
 
@@ -181,6 +184,9 @@ async function boot() {
   // 3) 外壳
   Toast.init();
   Shell.init();
+  // 3.1) 悬浮滚动指示条：根滚动条被 styles/base.css 收成 0 宽（让页面占满右侧），
+  //      位置感由这颗 fixed 的细条补，不占布局宽度。
+  ScrollRail.init();
 
   // 3.5) 账号（Auth0 PKCE）
   //      先读 /api/auth/config：服务端没说启用就整块降级（顶栏不显示登录入口）。
@@ -222,6 +228,10 @@ async function boot() {
   // 5) 插画引擎
   Stage.init();
 
+  // 5.1) 琉璃主题运行时（壁纸层 + 取色 + 动态色板）。
+  //      只在 <html data-theme="liuli*"> 下干活，其它主题它只负责把自己清干净。
+  Liuli.init();
+
   // 5.5) 歌词引擎 + 板块标题栏与首页的歌词显示 + 首页圆形音浪
   Lyrics.init();
   initLyricsUI();
@@ -233,7 +243,7 @@ async function boot() {
   //    注册成兼容跳转，老链接不会 404（见 views/redirect.js）
   //    Tier List（TOOLS 板块）放在 tools 后面：注册顺序就是导航顺序 ✓
   [
-    home, logs, forum, music, gallery, leisure, downloadView, mine, fishrun, tools, admin, notfound,
+    home, logs, forum, music, gallery, leisure, downloadView, mine, fishrun, tools, saucenao, admin, notfound,
     redirectView('posts', 'logs'),
     redirectView('post', 'logs'),
     redirectView('news', 'logs'),

@@ -36,7 +36,7 @@ export const SITE = {
 };
 
 /**
- * 主题。首个为默认主题；切换顺序按数组顺序循环。
+ * 纯色主题。首个为默认主题；主题按钮（顶栏那个）只在这条列表里循环。
  * 新增主题：在 styles/tokens.css 里加 [data-theme="your-id"] 变量块，然后在此追加。
  * scheme 决定这一套是浅色还是深色：CSS 里「浅色用深强调色 / 深色用亮强调色」
  * 这类分支统一走 <html data-scheme="light|dark">，不用再逐个主题写选择器。
@@ -49,6 +49,22 @@ export const THEMES = [
   { id: 'sakura',    label: 'SAKURA',    hint: '樱花 · 日间',   scheme: 'light' },
 ];
 
+/**
+ * 琉璃主题（Material 3 × Fluent 2 磨砂玻璃）。**和纯色主题分开两条循环**：
+ * 顶栏那颗水滴按钮只在这条列表里切（夜 ⇄ 昼），纯色主题按钮不碰琉璃 ——
+ * 两套是两种视觉语言，混在一个循环里每次都要点七八下才能过去/回来。
+ *
+ * 颜色不是写死的，而是从当前壁纸取色派生；样式在 styles/liuli.css，
+ * 运行时在 src/ui/liuli.js —— 两套 id 共用同一层样式（CSS 用 [data-theme^="liuli"] 匹配）。
+ */
+export const LIULI_THEMES = [
+  { id: 'liuli',     label: 'LIULI',     hint: '琉璃 · 壁纸取色 · 夜', scheme: 'dark', liuli: true },
+  { id: 'liuli-day', label: 'LIULI DAY', hint: '琉璃 · 壁纸取色 · 昼', scheme: 'light', liuli: true },
+];
+
+/** 两份合起来才是「所有可用的主题」：Theme.set() 用它解析 id（含存档恢复） */
+export const ALL_THEMES = [...THEMES, ...LIULI_THEMES];
+
 /** 导航。path 使用 hash 路由；badge 可写 'NEW'、'BETA' 或数字。 */
 export const NAV = [
   { id: 'home',    path: '#/',          label: 'HOME',    cn: '首页' },
@@ -59,6 +75,7 @@ export const NAV = [
   { id: 'leisure', path: '#/leisure',   label: 'LEISURE', cn: '文娱' },
   { id: 'mine',    path: '#/mine',      label: 'GAME',    cn: '游戏' },
   { id: 'tools',   path: '#/tools',     label: 'TOOLS',   cn: '工具台' },
+  { id: 'saucenao', path: '#/saucenao', label: 'SAUCE',   cn: '以图搜图', badge: 'NEW' },
   { id: 'admin',   path: '#/admin',     label: 'CONSOLE', cn: '发布' },
 ];
 
