@@ -1891,13 +1891,138 @@ async function handlePixiv(req, res, url, opts = {}) {
  */
 
 const SAUCE_MIME_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/bmp': '.bmp' };
+const SAUCE_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
-async function handleSauceNAOSearch(req, res, url) {
-  if (req.method !== 'POST') return fail(res, 405, '只支持 POST');
+/* ──── HTML → 结构化结果（纯转发路径用） ──── */
 
-  if (!sauceFindBrowser()) {
-    return fail(res, 503, '本机未找到 Edge / Chrome 浏览器，无法执行 SauceNAO 搜索（服务端依赖 Chromium 内核绕过 TLS 指纹阻断）。');
+const SAUCE_ENTITY = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&nbsp;': ' ' };
+const decodeSauce = (s) => String(s || '').replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (m) => SAUCE_ENTITY[m] || m);
+const stripSauceTags = (s) => decodeSauce(String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+
+/** 解析 saucenao 结果页 HTML（结构见 tools/sauce-fixture.html）
+ *  注意：result 块内部还有 resultcontent / resulttitle 等子 div，
+ *  切分必须匹配「class 恰好是 result 或 result hidden」的完整开标签。 */
+function parseSauceNAOHTML(html) {
+  const out = [];
+  const blockRe = /<div class="result( hidden)?"[^>]*>([\s\S]*?)(?=<div class="result(?: hidden)?"[^>]*>|$)/g;
+  let m;
+  while ((m = blockRe.exec(String(html || '')))) {
+    const hidden = !!m[1];
+    const chunk = m[2];
+    if (!chunk.includes('resulttable')) continue; // 跳过「显示隐藏结果」提示条
+
+    // 缩略图：blocked.gif 是 NSFW 占位，真图在 data-src
+    const imgTag = chunk.match(/<img id="resImage\d+"[^>]*>/i)?.[0] || '';
+    const titleAttr = imgTag.match(/title="([^"]*)"/i)?.[1] || '';
+    const idx = titleAttr.match(/Index #(\d+):\s*([^-]+)/i);
+    const src = imgTag.match(/\bsrc="([^"]*)"/i)?.[1] || '';
+    const dataSrc = imgTag.match(/data-src="([^"]*)"/i)?.[1] || '';
+    const thumb = /blocked\.gif/i.test(src) ? (dataSrc || '') : (src || dataSrc);
+
+    const similarity = parseFloat(chunk.match(/resultsimilarityinfo">([\d.]+)%/i)?.[1] || '0') || 0;
+    const title = stripSauceTags(chunk.match(/<div class="resulttitle">([\s\S]*?)<\/div>/i)?.[1] || '');
+
+    const field = (name) => {
+      const f = chunk.match(new RegExp(`<strong>\\s*${name}:\\s*</strong>\\s*(?:<a[^>]*>)?([^<]*)`, 'i'));
+      return decodeSauce(f ? f[1].trim() : '');
+    };
+
+    // 全部外链（排除 saucenao 自家）
+    const links = [];
+    const seen = new Set();
+    const re = /<a\s[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let a;
+    while ((a = re.exec(chunk))) {
+      const u = decodeSauce(a[1]);
+      if (/saucenao\.com/i.test(u) || seen.has(u)) continue;
+      seen.add(u);
+      let label = stripSauceTags(a[2]);
+      if (!label) { try { label = new URL(u).hostname.replace(/^www\./, ''); } catch { /* 忽略 */ } }
+      links.push({ url: u, label });
+    }
+    const primary = links.find((l) => /pixiv\.net/i.test(l.url))
+      || links.find((l) => /(twitter\.com|x\.com)/i.test(l.url))
+      || links[0] || null;
+
+    out.push({
+      similarity,
+      thumbnail: decodeSauce(thumb),
+      dbId: idx ? parseInt(idx[1], 10) : 0,
+      indexName: idx ? idx[2].trim() : '',
+      title,
+      creator: field('Creator'),
+      member: field('Member'),
+      author: field('Author'),
+      source: field('Source'),
+      material: field('Material'),
+      characters: field('Characters'),
+      primaryUrl: primary ? primary.url : '',
+      primaryLabel: primary ? primary.label : '',
+      links,
+      hidden,
+    });
   }
+  out.sort((a, b) => b.similarity - a.similarity);
+  return out;
+}
+
+/** 把前几条结果的缩略图抓成 base64（前端显示不再依赖 saucenao CDN 可达性） */
+async function attachSauceThumbnails(results) {
+  const top = results.filter((r) => !r.hidden && r.thumbnail).slice(0, 6);
+  const list = top.length >= 3 ? top : results.filter((r) => r.thumbnail).slice(0, 6);
+  let budget = 3 * 1024 * 1024;
+  await Promise.all(list.map(async (r) => {
+    if (budget <= 0) return;
+    try {
+      const resp = await fetch(r.thumbnail, { signal: AbortSignal.timeout(8000) });
+      if (!resp.ok) return;
+      const type = String(resp.headers.get('content-type') || 'image/jpeg');
+      const buf = Buffer.from(await resp.arrayBuffer());
+      if (!buf.length || buf.length > 700 * 1024) return;
+      const dataUrl = `data:${type};base64,${buf.toString('base64')}`;
+      if (dataUrl.length <= budget) { r.thumbnailData = dataUrl; budget -= dataUrl.length; }
+    } catch { /* 单张失败不影响主结果 */ }
+  }));
+}
+
+/** 纯转发搜索：Node 直接 POST saucenao.search.php，解析 HTML（海外/直连可用） */
+async function searchSaucePlain(buf, mime, { timeoutMs = 35000, thumbnails = true } = {}) {
+  const t0 = Date.now();
+  const form = new FormData();
+  form.append('file', new Blob([buf], { type: mime }), 'search.jpg');
+  const resp = await fetch('https://saucenao.com/search.php', {
+    method: 'POST',
+    body: form,
+    headers: { 'User-Agent': SAUCE_UA, Accept: 'text/html' },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!resp.ok) throw Object.assign(new Error(`saucenao HTTP ${resp.status}`), { status: resp.status });
+  const html = await resp.text();
+  if (!/class="resulttable"/i.test(html)) {
+    if (/too many requests|slow down|rate.?limit/i.test(html)) throw Object.assign(new Error('SauceNAO 限流：请求过于频繁，请稍后再试'), { status: 429 });
+    if (/checking your browser|just a moment|cf-challenge/i.test(html)) throw Object.assign(new Error('SauceNAO 触发了 Cloudflare 人机验证，请稍后重试'), { status: 502 });
+    throw Object.assign(new Error('saucenao 返回了未知页面（可能被限流）'), { status: 502 });
+  }
+  const results = parseSauceNAOHTML(html);
+  if (thumbnails) await attachSauceThumbnails(results);
+  return { ok: true, count: results.length, elapsedMs: Date.now() - t0, results };
+}
+
+/** 直连可达性（60 秒缓存；status 接口用来判定 READY/NO NET） */
+let SAUCE_NET_CACHE = { at: 0, ok: false };
+async function sauceNetReachable() {
+  if (Date.now() - SAUCE_NET_CACHE.at < 60_000) return SAUCE_NET_CACHE.ok;
+  let ok = false;
+  try {
+    const r = await fetch('https://saucenao.com/', { method: 'HEAD', signal: AbortSignal.timeout(4000), headers: { 'User-Agent': SAUCE_UA } });
+    ok = r.ok;
+  } catch { /* 不可达 */ }
+  SAUCE_NET_CACHE = { at: Date.now(), ok };
+  return ok;
+}
+
+async function handleSauceNAOSearch(req, res, url, opts = {}) {
+  if (req.method !== 'POST') return fail(res, 405, '只支持 POST');
 
   let body;
   try {
@@ -1920,32 +2045,45 @@ async function handleSauceNAOSearch(req, res, url) {
   if (buf.length < 100) return fail(res, 400, '图片数据过小，似乎不是有效图片');
   if (buf.length > 8 * 1024 * 1024) return fail(res, 400, '图片超过 8MB（SauceNAO 上限），请先压缩');
 
-  const tmpFile = path.join(os.tmpdir(), `sauce-in-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${SAUCE_MIME_EXT[mime] || '.jpg'}`);
-  try {
-    await fs.writeFile(tmpFile, buf);
-
-    const result = await searchSauceNAO({ filePath: tmpFile, timeoutMs: 40000, attempts: 3 });
-    if (!result.ok) {
-      const hint = /chrome-error|无法加载|网络中断|弹回首页|超时/.test(result.error || '')
-        ? '（提示：搜索依赖系统代理可达 saucenao.com，已自动重试 3 次；请确认代理节点可用后再试）'
-        : '';
-      return fail(res, 502, (result.error || '搜索失败（未知原因）') + hint);
-    }
-
-    // 给每条结果附平台标识（前端直接渲染彩色徽章，不用再猜域名）
-    const results = (result.results || []).map((r) => {
+  const finish = (payload, via) => {
+    const results = (payload.results || []).map((r) => {
       const p = identifySaucePlatform(r.dbId, r.primaryUrl || r.links?.[0]?.url || '');
       return { ...r, sourceSite: p.label, sourceIcon: p.icon, sourceColor: p.color };
     });
+    log(`[saucenao] ${via} 搜索完成：${results.length} 条结果（${payload.elapsedMs}ms）`);
+    return ok(res, { ok: true, via, count: results.length, elapsedMs: payload.elapsedMs, results });
+  };
 
-    log(`[saucenao] 搜索完成：${results.length} 条结果（${result.elapsedMs}ms）`);
-    return ok(res, { ok: true, count: results.length, elapsedMs: result.elapsedMs, results });
+  // ① 纯转发（快，约 5~10 秒；海外/直连可用）—— serverless 只有这一条路
+  let plainErr = null;
+  try {
+    const plain = await searchSaucePlain(buf, mime, { timeoutMs: opts.serverless ? 25000 : 35000 });
+    return finish(plain, 'plain');
   } catch (err) {
-    console.error('[saucenao]', err);
-    return fail(res, 500, String(err?.message || err));
-  } finally {
-    fs.unlink(tmpFile).catch(() => {});
+    plainErr = err;
+    log(`[saucenao] 纯转发失败：${err?.name || ''} ${err?.message || err}${err?.cause ? '（' + (err.cause.code || err.cause.message) + '）' : ''}`);
   }
+
+  // ② 本地有浏览器内核时，回落无头 Edge（国内被 TLS 指纹阻断时的兜底）
+  if (!opts.serverless && sauceFindBrowser()) {
+    const tmpFile = path.join(os.tmpdir(), `sauce-in-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${SAUCE_MIME_EXT[mime] || '.jpg'}`);
+    try {
+      await fs.writeFile(tmpFile, buf);
+      const result = await searchSauceNAO({ filePath: tmpFile, timeoutMs: 40000, attempts: 2 });
+      if (result.ok) return finish(result, 'cdp');
+      return fail(res, 502, (result.error || '搜索失败（未知原因）') + '（提示：直连与无头浏览器都失败，请确认系统代理节点可用后再试）');
+    } catch (err) {
+      console.error('[saucenao]', err);
+      return fail(res, 500, String(err?.message || err));
+    } finally {
+      fs.unlink(tmpFile).catch(() => {});
+    }
+  }
+
+  // ③ 两条路都不通
+  const status = plainErr?.status === 429 ? 429 : 502;
+  const hint = opts.serverless ? '' : '（提示：当前网络无法直连 saucenao，且本机没有可用的浏览器内核；请检查代理后重试）';
+  return fail(res, status, `${plainErr?.message || '搜索失败'}${hint}`);
 }
 
 /* ---------------- /api/trace/search — trace.moe 番剧场景搜索 ----------------
@@ -3189,11 +3327,21 @@ async function handleApi(req, res, url, opts = {}) {
   // GET /api/pixiv/* — Pixiv 随机作品代理（api.lolicon.app + pixiv.re 镜像）
   if (seg[0] === 'pixiv') return handlePixiv(req, res, url, opts);
 
-  // /api/saucenao/* — 反向图片搜索（无头 Edge CDP 执行真实搜索，见 saucenao-cdp.mjs）
-  if (seg[0] === 'saucenao' && seg[1] === 'search') return handleSauceNAOSearch(req, res, url);
+  // /api/saucenao/* — 反向图片搜索（纯转发优先，无头 Edge 兜底；详见 handleSauceNAOSearch）
+  if (seg[0] === 'saucenao' && seg[1] === 'search') return handleSauceNAOSearch(req, res, url, opts);
   if (seg[0] === 'saucenao' && seg[1] === 'status') {
+    if (opts.serverless) {
+      return ok(res, { ok: true, browser: null, mode: 'serverless', note: '线上转发搜索：服务端直接抓取 saucenao（无需浏览器 / 代理）' });
+    }
     const browser = sauceFindBrowser();
-    return ok(res, { ok: !!browser, browser: browser || null, note: '搜索由本机无头浏览器执行，依赖系统代理可达 saucenao.com' });
+    if (browser) {
+      return ok(res, { ok: true, browser, mode: 'browser', note: '直连优先，失败回落本机无头浏览器' });
+    }
+    const net = await sauceNetReachable();
+    return ok(res, {
+      ok: net, browser: null, mode: net ? 'plain' : 'none',
+      note: net ? '直连可用（纯转发搜索，无需浏览器）' : '直连不可用，且本机没有浏览器内核',
+    });
   }
 
   // /api/trace/search — trace.moe 番剧场景搜索（国内直连，Node 直接转发）

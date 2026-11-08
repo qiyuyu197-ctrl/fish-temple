@@ -9138,6 +9138,10 @@ select:focus, textarea:focus {
 
 .sauce { display: grid; gap: var(--sp-5); }
 
+/* 面板头：中文标题不拆字；窄屏允许整行换行 */
+.sauce .panel__head { flex-wrap: wrap; row-gap: 4px; }
+.sauce .panel__title { word-break: keep-all; }
+
 /* ═══════════════ 01 · INPUT 输入面板 ═══════════════ */
 
 .sauce-input__grid {

@@ -180,13 +180,24 @@ class SauceNAOEngine {
   /** 设置 SauceNAO API key */
   setApiKey(key) { this.apiKey = key; }
 
-  /** 服务端搜索能力探测（有没有 Edge/Chrome 可用） */
+  /**
+   * 服务端能力探测。返回 { reachable, ok, browser, reason }：
+   *   reachable=false → 连不上本地 API（服务未启动 / 手机不在同一网络 / 线上静态部署没有后端）
+   *   reachable=true, ok=false → 服务在但机器上没有 Edge/Chrome
+   *   reachable=true, ok=true  → 完全就绪
+   * 注意线上静态托管会把任意路径都回退成 index.html，因此还要校验 content-type 是否为 JSON。
+   */
   async probe() {
     try {
-      const r = await fetch(this.statusUrl);
-      return await r.json();
+      const r = await fetch(this.statusUrl, { cache: 'no-store' });
+      const ct = String(r.headers.get('content-type') || '');
+      if (!r.ok || !ct.includes('json')) {
+        return { reachable: false, ok: false, browser: null, reason: 'no-api' };
+      }
+      const d = await r.json();
+      return { reachable: true, ok: !!d.ok, browser: d.browser || null, reason: d.ok ? 'ready' : 'no-browser' };
     } catch {
-      return { ok: false, browser: null };
+      return { reachable: false, ok: false, browser: null, reason: 'offline' };
     }
   }
 
@@ -217,12 +228,78 @@ class SauceNAOEngine {
   }
 
   /**
-   * trace.moe 番剧场景搜索（经本站服务端转发；国内直连，不依赖代理）。
+   * trace.moe 番剧场景搜索。**优先浏览器直连**（api.trace.moe 允许 CORS，国内可达），
+   * 这样线上静态部署 / 手机不走本机服务也能用；直连失败才回退本站服务端转发。
    * 动画截图 → 是哪部番、第几集、第几秒，附预览图与视频片段。
    * @param {File|Blob} file
    * @returns {Promise<{ok:boolean, count:number, elapsedMs:number, quota:number, quotaUsed:number, results:Array}>}
    */
   async searchTrace(file) {
+    // ① 浏览器直连（CORS 已验证放行）
+    try {
+      return await this._traceDirect(file);
+    } catch (err) {
+      // ② 回退本站服务端（有节流与统一错误文案）
+      try {
+        return await this._traceViaServer(file);
+      } catch (err2) {
+        throw new Error(`trace.moe 搜索失败：${err2.message || err.message}`);
+      }
+    }
+  }
+
+  /** 浏览器直连 api.trace.moe + AniList 标题富化 */
+  async _traceDirect(file) {
+    const t0 = Date.now();
+    const form = new FormData();
+    form.append('image', file, file.name || 'search.jpg');
+
+    const resp = await fetch('https://api.trace.moe/search', {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data || data.error) {
+      throw new Error(data?.error || `HTTP ${resp.status}`);
+    }
+
+    const hits = Array.isArray(data.result) ? data.result : [];
+    let metaById = {};
+    try {
+      metaById = await fetchAnilistMeta([...new Set(hits.map((h) => h.anilist).filter(Boolean))]);
+    } catch { /* 标题富化失败不影响主结果 */ }
+
+    const results = hits.map((h) => {
+      const m = metaById[h.anilist] || {};
+      return {
+        anilist: h.anilist || 0,
+        titleRomaji: m.title?.romaji || '',
+        titleNative: m.title?.native || '',
+        titleEnglish: m.title?.english || '',
+        seasonYear: m.seasonYear || '',
+        totalEpisodes: m.episodes || '',
+        format: m.format || '',
+        cover: m.coverImage?.large || '',
+        filename: h.filename || '',
+        episode: h.episode ?? null,
+        from: h.from ?? 0,
+        to: h.to ?? 0,
+        at: h.at ?? 0,
+        similarity: Math.round((h.similarity || 0) * 10000) / 100,
+        video: h.video || '',
+        image: h.image || '',
+      };
+    });
+
+    return {
+      ok: true, engine: 'trace.moe (direct)', count: results.length,
+      elapsedMs: Date.now() - t0, quota: data.quota, quotaUsed: data.quotaUsed, results,
+    };
+  }
+
+  /** 走本站 /api/trace/search（服务端转发 + 节流） */
+  async _traceViaServer(file) {
     const dataUrl = await blobToDataUrl(file);
     const resp = await fetch('/api/trace/search', {
       method: 'POST',
@@ -232,7 +309,7 @@ class SauceNAOEngine {
     let data = null;
     try { data = await resp.json(); } catch { /* 非 JSON */ }
     if (!resp.ok || !data || data.ok === false) {
-      throw new Error(data?.error || `trace.moe 搜索失败 (HTTP ${resp.status})`);
+      throw new Error(data?.error || `HTTP ${resp.status}`);
     }
     return data;
   }
@@ -259,6 +336,28 @@ export function blobToDataUrl(blob) {
     fr.onerror = () => reject(new Error('读取图片数据失败'));
     fr.readAsDataURL(blob);
   });
+}
+
+/** AniList GraphQL 批量查番剧元数据（允许 CORS，浏览器直连可用） */
+export async function fetchAnilistMeta(ids) {
+  if (!Array.isArray(ids) || !ids.length) return {};
+  const resp = await fetch('https://graphql.anilist.co', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: `query ($ids: [Int]) { Page(page: 1, perPage: 50) {
+        media(id_in: $ids, type: ANIME) {
+          id title { romaji native english } seasonYear episodes format coverImage { large }
+        }
+      } }`,
+      variables: { ids },
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const j = await resp.json();
+  const out = {};
+  for (const m of j?.data?.Page?.media || []) out[m.id] = m;
+  return out;
 }
 
 /**

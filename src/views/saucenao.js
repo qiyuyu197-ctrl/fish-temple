@@ -24,7 +24,7 @@ import { viewhead } from '../ui/bits.js';
 const ENGINES = [
   {
     id: 'saucenao', icon: '🔍', name: 'SAUCENAO · 插画找源',
-    hint: '找画师与出处（Pixiv / X / Danbooru…）· 经服务端无头浏览器 · 需系统代理可用 · 约 10~25 秒',
+    hint: '找画师与出处（Pixiv / X / Danbooru…）· 服务端直连搜索 · 约 3~10 秒（必要时自动回退浏览器模式）',
     emptyTitle: 'SauceNAO 没有找到匹配',
     emptyDesc: '可以换一张更完整的图，或切到「番剧场景」引擎、页底的其他搜图网站再试。',
   },
@@ -302,19 +302,33 @@ const view = {
     };
     showOut('idle');
 
-    /* ---- 服务端能力探测 ---- */
+    /* ---- 服务端能力探测：区分「连不上本地服务」与「服务在但没浏览器」 ---- */
+    const showNotice = (text, tone = 'warn') => {
+      if (!notice || !noticeText) return;
+      notice.hidden = false;
+      notice.classList.toggle('is-warn', tone === 'warn');
+      noticeText.textContent = text;
+    };
+
     engine.probe().then((st) => {
       if (!statusMeta) return;
-      if (st?.ok) {
+      if (st.ok) {
         statusMeta.textContent = 'READY';
         statusMeta.style.color = 'var(--ok)';
-      } else {
+        return;
+      }
+      if (st.reachable) {
+        // 服务在，但既连不上 saucenao 也没有 Chromium 内核
         statusMeta.textContent = 'NO BROWSER';
         statusMeta.style.color = 'var(--alert)';
-        if (notice && noticeText) {
-          notice.hidden = false;
-          noticeText.textContent = '未检测到可用的浏览器内核（Edge / Chrome）——服务端无法执行 SauceNAO 真实搜索。';
-        }
+        showNotice('服务端既无法直连 saucenao，也没有可用的浏览器内核（Edge / Chrome）—— SauceNAO 插画搜索暂不可用。TRACE.MOE 引擎与页底外链不受影响。');
+      } else {
+        // 连不上本地 API：服务没开 / 手机不在同一网络 / 线上静态部署没有后端
+        statusMeta.textContent = 'LOCAL ONLY';
+        statusMeta.style.color = 'var(--alert)';
+        showNotice(st.reason === 'no-api'
+          ? '当前是静态部署（GitHub Pages 等没有后端的版本）：SauceNAO 插画搜索需要后端 —— 把本仓库部署到 Netlify（已内置 functions，服务端直接转发，手机随时可用），或在本机运行 node server.mjs 后用局域网地址访问。TRACE.MOE 引擎不依赖后端，随时可用。'
+          : '连不上本地搜索服务（node server.mjs 未启动，或手机与电脑不在同一 Wi-Fi）。SauceNAO 引擎仅在本机/局域网可用；如已部署 Netlify 版则不受此限制。TRACE.MOE 引擎与页底外链不依赖服务端，可直接使用。');
       }
     }).catch(() => {
       if (statusMeta) { statusMeta.textContent = 'OFFLINE'; statusMeta.style.color = 'var(--alert)'; }
@@ -496,9 +510,9 @@ const view = {
           if (statusMeta) { statusMeta.textContent = 'READY'; statusMeta.style.color = 'var(--ok)'; }
           renderTraceResults(lastTrace, data);
         } else {
-          /* ---- saucenao：插画找源（无头浏览器） ---- */
-          statusText.textContent = '> SEARCHING SAUCENAO VIA HEADLESS BROWSER…';
-          statusSub.textContent = '真实搜索约需 10~25 秒（网络抖动时服务端自动重试，最长约 2 分钟）';
+          /* ---- saucenao：插画找源（服务端直连，失败自动回退浏览器） ---- */
+          statusText.textContent = '> SEARCHING SAUCENAO…';
+          statusSub.textContent = '通常约 3~10 秒；直连不可用时服务端会自动回退无头浏览器（最长约 2 分钟）';
           const data = await engine.searchViaServer(outgoing);
           lastResults = data?.results || [];
           lastTrace = [];
@@ -509,8 +523,16 @@ const view = {
         }
       } catch (err) {
         showOut('error');
-        errorText.textContent = err?.message || String(err);
-        if (statusMeta) { statusMeta.textContent = 'ERROR'; statusMeta.style.color = 'var(--alert)'; }
+        const raw = String(err?.message || err);
+        // 浏览器 fetch 连不上本地 API 时是 TypeError("Failed to fetch")，换成能看懂的话
+        const offline = /Failed to fetch|NetworkError|Load failed|Unexpected token|not valid JSON/i.test(raw);
+        errorText.textContent = offline
+          ? '连不上本地搜索服务（node server.mjs 未启动，或手机与电脑不在同一 Wi-Fi）。\n' +
+            (currentEngine === 'saucenao'
+              ? 'SauceNAO 引擎需要本机服务；可切换到 TRACE.MOE 引擎（不依赖服务端），或使用页底的其他搜图网站。'
+              : '请确认图片可读取后重试。')
+          : raw;
+        if (statusMeta) { statusMeta.textContent = offline ? 'LOCAL ONLY' : 'ERROR'; statusMeta.style.color = 'var(--alert)'; }
       } finally {
         searching = false;
         goBtn.disabled = !currentFile;
