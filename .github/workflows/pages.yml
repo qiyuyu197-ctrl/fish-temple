@@ -63,6 +63,7 @@ jobs:
           # 站点的工具台模块 404、整站卡在启动画面。
           rsync -a \
             --exclude '.git' --exclude '.github' --exclude '.blobs-dev' --exclude '.shots' \
+            --exclude '.pv' --exclude '.srv.err' \
             --exclude '/pv' --exclude '/tools' --exclude '/deploy' --exclude '/netlify' \
             --exclude '/app' --exclude '/design' --exclude 'data/.backup' --exclude 'data/.cache' \
             --exclude 'node_modules' --exclude '*.md' --exclude 'server.mjs' --exclude 'auth.mjs' \
