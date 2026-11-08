@@ -259,6 +259,7 @@ public class MainActivity extends Activity {
         public void onPageFinished(WebView view, String url) {
             loadFailed = false;
             view.evaluateJavascript(INJECT_DOWNLOAD_BRIDGE, null);
+            view.evaluateJavascript(INJECT_NO_SAFE_AREA, null);
         }
 
         @Override
@@ -679,6 +680,20 @@ public class MainActivity extends Activity {
     private void toast(final String message) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
+
+    /**
+     * App 的 WebView 本来就排在系统状态栏 / 导航栏下面，页面如果还按
+     * env(safe-area-inset-*) 再加一次内边距，顶栏里就会多出一大块空白
+     * （刘海机上实测能到 47px）。这里把两个安全区变量清零 —— 只影响 App，
+     * 浏览器里 PWA 全屏时那个 padding 才是真的需要的。
+     */
+    private static final String INJECT_NO_SAFE_AREA =
+            "(function(){" +
+            "  if (window.__FT_NO_SAFE__) return; window.__FT_NO_SAFE__ = true;" +
+            "  var s = document.createElement('style');" +
+            "  s.textContent = ':root{--safe-t:0px !important;--safe-b:0px !important}';" +
+            "  (document.head || document.documentElement).appendChild(s);" +
+            "})();";
 
     /** 拦掉 <a download href="blob:...">，转成 base64 交给原生保存 */
     private static final String INJECT_DOWNLOAD_BRIDGE =

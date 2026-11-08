@@ -327,17 +327,19 @@ html[data-theme^="liuli"] .topbar {
     border-left: 0;
     border-right: 0;
     border-top: 0;
-    /* 通栏：抹掉 .shell 的左右内边距（手机上就是那 16px 的缝） */
-    width: 100vw;
-    margin-left: calc(50% - 50vw);
+    /* 通栏：用「负的外壳内边距」把左右那 16px 的缝吃掉。
+       不要用 width:100vw —— 手机上 100vw 有时比布局宽度大一点（滚动条 / 缩放），
+       页面就会多出横向滚动，左右滑的时候整个页面跟着晃。 */
+    margin-left: calc(-1 * var(--gutter));
+    margin-right: calc(-1 * var(--gutter));
     padding: var(--safe-t, 0px) max(var(--sp-4), var(--safe-r, 0px)) 0 max(var(--sp-4), var(--safe-l, 0px));
     box-shadow: none;
   }
   /* 播报条跟着通栏，否则顶栏满宽、下面缩进，中间留一个凹口 */
   html[data-theme^="liuli"] .ticker {
     border-radius: 0;
-    width: 100vw;
-    margin-left: calc(50% - 50vw);
+    margin-left: calc(-1 * var(--gutter));
+    margin-right: calc(-1 * var(--gutter));
   }
 }
 

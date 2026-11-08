@@ -39,6 +39,17 @@
   height: calc(var(--topbar-h) + var(--safe-t));
 }
 
+/* 手机上顶栏要通栏：负边距吃掉壳（.shell）的左右内边距，内容缩进改由 padding 提供。
+   否则顶栏左右各留 16px 的缝，看着就是「没占满」。桌面保留原来的内缩布局。 */
+@media (max-width: 860px) {
+  .topbar {
+    margin-left: calc(-1 * var(--gutter));
+    margin-right: calc(-1 * var(--gutter));
+    padding-left: max(var(--gutter), var(--safe-l));
+    padding-right: max(var(--gutter), var(--safe-r));
+  }
+}
+
 /* 底栏播放条：把 home indicator 那条算进高度，内部内容才不会被压在下面 */
 .miniplayer {
   height: calc(var(--miniplayer-h) + var(--safe-b));
@@ -228,6 +239,25 @@ body.has-miniplayer .footer { padding-bottom: calc(var(--miniplayer-h) + var(--s
   .brand__text i { display: none; }
   .brand__glyph { width: 28px; height: 28px; }
   .mp-wave { display: none; }
+}
+
+/* 首页顶栏压在横幅图上时会切成 is-over-media（透明底 + 白字），可是手机上
+   ≤430px 品牌文字已经让位、标记又被那条规则隐藏 —— 左半边就彻底空了，
+   站主截图里红圈的那块「空白」就是它。手机上给实底、把标记放回来，
+   顶栏读成一条完整的栏。琉璃有自己的材质，不在这个范围内。 */
+@media (max-width: 860px) {
+  html:not([data-theme^="liuli"]) .topbar.is-over-media {
+    background: color-mix(in srgb, var(--bg) 96%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    backdrop-filter: blur(14px) saturate(1.2);
+    border-bottom-color: var(--border-hard);
+  }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .brand__glyph { opacity: 1; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .brand__text b { color: var(--ink-100); text-shadow: none; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .brand__text i { color: var(--ink-40); text-shadow: none; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .nav__link { color: var(--ink-70); text-shadow: none; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .clock b { color: var(--ink-100); text-shadow: none; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .clock i { color: var(--ink-40); text-shadow: none; }
 }
 
 /* 顶栏在手机上要放 4 个图标按钮（搜索 / 黄历 / 主题 / 菜单）+ 品牌标记。

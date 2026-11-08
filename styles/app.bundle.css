@@ -414,6 +414,12 @@ code, pre { font-family: var(--font-mono); }
    ============================================================ */
 html { scrollbar-width: none; }
 
+/* 横向不要能滚：手机左右滑时整页跟着“晃”（橡皮筋 / 横向溢出）就是这里没锁住。
+   用 overflow-x: clip 而不是 hidden —— hidden 会让 html 变成滚动容器，
+   sticky 的顶栏会跟着失效；clip 只裁不滚，sticky 照常。 */
+html { overflow-x: clip; }
+body { overscroll-behavior-x: none; }
+
 .scroll-rail {
   position: fixed;
   top: 0;
@@ -4601,6 +4607,17 @@ html[data-reduce-motion="1"] .hero.is-playing .hero__playing { transition: none;
   height: calc(var(--topbar-h) + var(--safe-t));
 }
 
+/* 手机上顶栏要通栏：负边距吃掉壳（.shell）的左右内边距，内容缩进改由 padding 提供。
+   否则顶栏左右各留 16px 的缝，看着就是「没占满」。桌面保留原来的内缩布局。 */
+@media (max-width: 860px) {
+  .topbar {
+    margin-left: calc(-1 * var(--gutter));
+    margin-right: calc(-1 * var(--gutter));
+    padding-left: max(var(--gutter), var(--safe-l));
+    padding-right: max(var(--gutter), var(--safe-r));
+  }
+}
+
 /* 底栏播放条：把 home indicator 那条算进高度，内部内容才不会被压在下面 */
 .miniplayer {
   height: calc(var(--miniplayer-h) + var(--safe-b));
@@ -4790,6 +4807,25 @@ body.has-miniplayer .footer { padding-bottom: calc(var(--miniplayer-h) + var(--s
   .brand__text i { display: none; }
   .brand__glyph { width: 28px; height: 28px; }
   .mp-wave { display: none; }
+}
+
+/* 首页顶栏压在横幅图上时会切成 is-over-media（透明底 + 白字），可是手机上
+   ≤430px 品牌文字已经让位、标记又被那条规则隐藏 —— 左半边就彻底空了，
+   站主截图里红圈的那块「空白」就是它。手机上给实底、把标记放回来，
+   顶栏读成一条完整的栏。琉璃有自己的材质，不在这个范围内。 */
+@media (max-width: 860px) {
+  html:not([data-theme^="liuli"]) .topbar.is-over-media {
+    background: color-mix(in srgb, var(--bg) 96%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    backdrop-filter: blur(14px) saturate(1.2);
+    border-bottom-color: var(--border-hard);
+  }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .brand__glyph { opacity: 1; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .brand__text b { color: var(--ink-100); text-shadow: none; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .brand__text i { color: var(--ink-40); text-shadow: none; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .nav__link { color: var(--ink-70); text-shadow: none; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .clock b { color: var(--ink-100); text-shadow: none; }
+  html:not([data-theme^="liuli"]) .topbar.is-over-media .clock i { color: var(--ink-40); text-shadow: none; }
 }
 
 /* 顶栏在手机上要放 4 个图标按钮（搜索 / 黄历 / 主题 / 菜单）+ 品牌标记。
@@ -9754,17 +9790,19 @@ html[data-theme^="liuli"] .topbar {
     border-left: 0;
     border-right: 0;
     border-top: 0;
-    /* 通栏：抹掉 .shell 的左右内边距（手机上就是那 16px 的缝） */
-    width: 100vw;
-    margin-left: calc(50% - 50vw);
+    /* 通栏：用「负的外壳内边距」把左右那 16px 的缝吃掉。
+       不要用 width:100vw —— 手机上 100vw 有时比布局宽度大一点（滚动条 / 缩放），
+       页面就会多出横向滚动，左右滑的时候整个页面跟着晃。 */
+    margin-left: calc(-1 * var(--gutter));
+    margin-right: calc(-1 * var(--gutter));
     padding: var(--safe-t, 0px) max(var(--sp-4), var(--safe-r, 0px)) 0 max(var(--sp-4), var(--safe-l, 0px));
     box-shadow: none;
   }
   /* 播报条跟着通栏，否则顶栏满宽、下面缩进，中间留一个凹口 */
   html[data-theme^="liuli"] .ticker {
     border-radius: 0;
-    width: 100vw;
-    margin-left: calc(50% - 50vw);
+    margin-left: calc(-1 * var(--gutter));
+    margin-right: calc(-1 * var(--gutter));
   }
 }
 
