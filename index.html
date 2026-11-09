@@ -26,8 +26,8 @@
 <meta name="apple-mobile-web-app-title" content="鱼の灵庙" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="format-detection" content="telephone=no" />
-<link rel="modulepreload" href="app.bundle.js?v=2.5.7" fetchpriority="high" />
-<link rel="stylesheet" href="styles/app.bundle.css?v=2.5.7" />
+<link rel="modulepreload" href="app.bundle.js?v=2.5.8" fetchpriority="high" />
+<link rel="stylesheet" href="styles/app.bundle.css?v=2.5.8" />
 <!-- 黄历小组件的样式（顶栏那个按钮 + 面板） -->
 <!-- 移动端 / 触控适配层：必须最后加载（同优先级下靠顺序覆盖上面三个文件，
      桌面端样式完全不受影响 —— 里面的规则都关在媒体查询里） -->
@@ -320,7 +320,7 @@
     setTimeout(function () {
       var s = document.createElement('script');
       s.type = 'module';
-      s.src = 'app.bundle.js?v=2.5.7&retry=' + bundleTries;
+      s.src = 'app.bundle.js?v=2.5.8&retry=' + bundleTries;
       s.onerror = window.__bootScriptRetry;
       document.body.appendChild(s);
     }, delay);
@@ -359,7 +359,7 @@
 })();
 </script>
 
-<script type="module" src="app.bundle.js?v=2.5.7"
+<script type="module" src="app.bundle.js?v=2.5.8"
         onerror="window.__bootScriptRetry && window.__bootScriptRetry()"></script>
 </body>
 </html>

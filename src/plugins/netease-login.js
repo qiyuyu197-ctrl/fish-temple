@@ -119,8 +119,22 @@ function avatarHTML(bound) {
     : `<span class="neacct__avatar neacct__avatar--text" aria-hidden="true">${esc(initial)}</span>`;
 }
 
+/** 线上站点（Netlify）：它有 /api，GitHub Pages 没有。静态部署里要把人指过去。 */
+const ONLINE_SITE = 'https://yumiao.netlify.app/';
+
 function stripInner() {
-  if (!state.available) return '';
+  if (!state.available) {
+    return `<div class="neacct__row">
+      <span class="neacct__state mono">STATIC</span>
+      <div class="neacct__who">
+        <b class="neacct__name">这个地址是纯静态托管，扫码登录用不了</b>
+        <span class="neacct__meta"><span class="mono">${esc(location.host)}</span> 没有服务端，<span class="mono">/api/*</span> 不存在。
+          要去线上站点登录，或者用 App 版（登录与播放都在本机完成）。</span>
+      </div>
+      <span class="grow"></span>
+      <a class="btn btn--sm" href="${ONLINE_SITE}#/music" target="_blank" rel="noopener noreferrer">去线上站点</a>
+    </div>`;
+  }
   if (state.stale) {
     return `<div class="neacct__row">
       <span class="neacct__state mono">OLD</span>
@@ -156,14 +170,33 @@ function stripInner() {
   }
   if (!state.canBind) {
     const appOnly = state.mode === 'owner';
-    const reason = appOnly
-      ? '网页版网易云登录仅站长可用；普通用户请使用 App 版'
-      : (state.reason || '当前账号不能绑定网易云');
+    // 站长模式且没登录本站：把「为什么看不到扫码」和「该点哪里」说清楚，
+    // 而不是只甩一句「仅站长可用」（站主就卡在这一步）。
+    if (appOnly && !state.siteUser) {
+      return `<div class="neacct__row">
+        <span class="neacct__state mono">SIGNIN</span>
+        <div class="neacct__who">
+          <b class="neacct__name">先登录本站账号</b>
+          <span class="neacct__meta">网页版网易云登录只对<b>站长</b>开放（普通用户请用 App 版）。
+            用站长邮箱登录本站后，这里就会出现扫码入口。</span>
+        </div>
+        <span class="grow"></span>
+        <button class="btn btn--sm btn--signal" id="neSignIn" type="button">登录本站</button>
+      </div>`;
+    }
+    if (appOnly) {
+      return `<div class="neacct__row">
+        <span class="neacct__state mono">NOT OWNER</span>
+        <div class="neacct__who">
+          <b class="neacct__name">当前账号不是站长</b>
+          <span class="neacct__meta">网页版网易云登录只对站长开放；普通用户请用 App 版（登录与播放都在本机）。</span>
+        </div>
+      </div>`;
+    }
     return `<div class="neacct__row">
-      <span class="neacct__state mono">${appOnly ? 'APP' : (state.siteUser ? 'CLOSED' : 'LOGIN')}</span>
-      <span class="muted">${esc(reason)}</span>
-      ${!appOnly && !state.siteUser ? '<span class="grow"></span><span class="muted">先在右上角登录本站账号</span>' : ''}
-      ${appOnly && !state.siteUser ? '<span class="grow"></span><span class="muted">站长请先登录</span>' : ''}
+      <span class="neacct__state mono">${state.siteUser ? 'CLOSED' : 'LOGIN'}</span>
+      <span class="muted">${esc(state.reason || '当前账号不能绑定网易云')}</span>
+      ${!state.siteUser ? '<span class="grow"></span><span class="muted">先在右上角登录本站账号</span>' : ''}
     </div>`;
   }
   return `
@@ -195,7 +228,11 @@ function paintStrip() {
   const box = $('#neAccount');
   const body = $('#neAccountBody');
   if (!box || !body) return;
-  if (!state.available) { box.hidden = true; return; }
+  /**
+   * 以前是「服务端不在就整条隐藏」。在 GitHub Pages 这种纯静态部署上，
+   * 表现就是「音乐台里根本找不到登录入口」，站主以为是功能没上。
+   * 现在一律显示：没有 API 就明说没有 API 并给出去处，能不能用一眼就能看出来。
+   */
   box.hidden = false;
   body.innerHTML = stripInner();
 }
@@ -840,6 +877,7 @@ export async function mount(root) {
 
   // 事件委托挂在状态带上：它自己的 innerHTML 会随绑定状态重画
   box.addEventListener('click', (e) => {
+    if (e.target.closest('#neSignIn')) { void Auth.login(); return; }
     if (e.target.closest('#neLogin')) { void openPanel(); return; }
     if (e.target.closest('#neLibrary')) { void openLibrary('playlists'); return; }
     if (e.target.closest('#neRecommend')) { void openLibrary('recommend'); return; }
