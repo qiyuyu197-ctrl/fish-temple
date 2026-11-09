@@ -95,7 +95,17 @@ async function loadStatus() {
     bound: d.bound || null,
     error: '',
   });
+  announceBound();
   return state;
+}
+
+/**
+ * 绑定状态一变就广播。
+ * 播放器（plugins/netease.js）靠它决定「会员曲目要不要直接走登录态直放」——
+ * 绑了会员账号就不该再把歌推给官方 iframe（那边手机上后台不会切歌）。
+ */
+function announceBound() {
+  bus.emit('netease:login', { bound: !!state.bound, uid: state.bound?.uid || '' });
 }
 
 /* ------------------------------------------------------------------ */
@@ -477,6 +487,7 @@ async function pollOnce() {
     case 'confirmed':
       stopPolling();
       state.bound = d.binding || null;
+      announceBound();
       paintStrip();
       void refreshCloudUrls();   // 播放列表里已有的云盘曲目，换一遍新签名
       if (d.profile) Toast.ok(`已连接网易云：${d.profile.nickname || '账号'}`);
@@ -810,6 +821,7 @@ async function unbind() {
   const r = await api('/netease/login/logout', { method: 'POST' });
   if (!r.ok) { Toast.err(`解绑失败：${r.error || `HTTP ${r.status}`}`); return; }
   state.bound = null;
+  announceBound();
   paintStrip();
   closePanel();
   Toast.ok('已解绑');

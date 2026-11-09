@@ -1718,6 +1718,9 @@ async function main() {
       const wait = (ms) => new Promise(r => setTimeout(r, ms));
       const mod = await import('/src/plugins/netease.js');
       const P = window.Terminal.Player;
+      // 这段验的是「官方播放器槽位跟着搜索结果重新对齐」：必须真的走 iframe，
+      // 绑了网易云账号时默认会走站内直放（没有 iframe），所以显式按匿名处理。
+      window.Terminal.Netease.setLoginAudioOverride(false);
       const out = {};
       const search = document.querySelector('.music .ne-search');
       out.nextSibling = search?.nextElementSibling?.id || '';
@@ -2022,6 +2025,9 @@ async function main() {
   const vipUI = await evaluate(`(async () => {
     const wait = (ms) => new Promise(r => setTimeout(r, ms));
     const out = {};
+    // 这一段验的是「匿名访客」的回退链：强制按未绑定处理。
+    // 绑定网易云之后的直放路径另有专门一条测试（见下面的「会员曲目走站内直放」）。
+    window.Terminal.Netease.setLoginAudioOverride(false);
     // 等音乐台控件就绪（异步渲染；慢机上直接取值会拿到 null 而报成难懂的 TypeError）
     for (let i = 0; i < 40 && !document.getElementById('neInput'); i++) await wait(150);
     if (!document.getElementById('neInput')) throw new Error('音乐台没有渲染出搜索控件（#neInput）');
@@ -2114,12 +2120,60 @@ async function main() {
       && /is-silent/.test(vipUI?.lyricNote?.cls || ''),
     JSON.stringify(vipUI?.lyricNote));
 
+  /**
+   * 登录态直放（这条是「解锁网易云登录」的验收）：
+   *   ① 带登录态去取这首歌的音频流 → 200；同一首显式声明 noLogin（匿名）→ 404。
+   *      这一对结果就是"登录确实解锁了原本放不出来的歌"。
+   *   ② 清掉历史标记后，播放器给这首歌选的来源必须是站内直放（netease-audio），
+   *      而不是官方 iframe —— 只有 <audio> 才有 ended，手机后台才能自动切下一首。
+   */
+  const loginPlay = await (async () => {
+    try {
+      return await evaluate(`(async () => {
+        const N = window.Terminal.Netease;
+        const P = window.Terminal.Player;
+        N.setLoginAudioOverride(true);
+        const url = N.directAudioUrl(643982);
+        const withLogin = await fetch(url, { method: 'HEAD' });
+        const anon = await fetch('/api/netease/audio?id=643982&noLogin=1', { method: 'HEAD' });
+
+        // 来源选择：用一条干净的 track（不带 embedOnly 历史）单独问一次。
+        // 前面的用例可能把 directAudio 关过（那是为了验官方播放器回退），这里恢复成配置值。
+        P.setDirectAudio(null);
+        const clean = P.normalize({ id: 'verify-login-' + Date.now(), title: 'verify', artist: 'netease', neteaseId: 643982, duration: 255 });
+        P.tracks.push(clean);
+        P.prepare(P.tracks.indexOf(clean), { autoplay: true });
+        const providerId = P.providerId;
+        P.pause?.();
+        P.tracks.pop();
+
+        N.setLoginAudioOverride(null);
+        return {
+          url: String(url).slice(0, 60),
+          hasNoLogin: /noLogin=1/.test(url),
+          withLogin: withLogin.status,
+          withLoginType: withLogin.headers.get('content-type') || '',
+          anon: anon.status,
+          providerId,
+        };
+      })()`);
+    } catch (e) { return { error: String(e.message || e) }; }
+  })();
+  record('音乐台：绑定网易云账号后，会员曲目能放出音频且走站内直放（后台可自动切歌）',
+    loginPlay?.hasNoLogin === false
+      && loginPlay?.withLogin === 200
+      && /^audio\//.test(loginPlay?.withLoginType || '')
+      && loginPlay?.anon === 404
+      && loginPlay?.providerId === 'netease-audio',
+    JSON.stringify(loginPlay));
+
   // 探测是「服务端匿名」结论：真登录了会员的用户不该被反复打扰，给个可撤销的开关
   const vipDismiss = await (async () => {
     try {
       return await evaluate(`(async () => {
         const wait = (ms) => new Promise(r => setTimeout(r, ms));
         const out = {};
+        window.Terminal.Netease.setLoginAudioOverride(false);
         localStorage.removeItem('ft.terminal.vipLoggedIn');
         // 先播上那首会员曲目（服务端探测结论已缓存，这一步很快）
         // 等控件就绪：视图是异步渲染的，慢机上直接取值会炸成 TypeError
@@ -2188,7 +2242,6 @@ async function main() {
     out.defaults = {
       embedAutoNext: P.embedAutoNext,
       stored: T.Settings.get('autoplayNextEmbed') === undefined ? null : T.Settings.get('autoplayNextEmbed'),
-      timer: !!P._advanceTimer,
       toggleText: btn ? btn.textContent : '',
       ariaPressed: btn ? btn.getAttribute('aria-pressed') : '',
     };
@@ -2214,6 +2267,8 @@ async function main() {
     P.setDirectAudio(false);
     P.prepare(P.index, { autoplay: true });
     await wait(1600);
+    // 计时器要在**切到官方播放器路径之后**才存在：走站内直放时靠 ended，本来就没有这玩意
+    out.defaults.timer = !!P._advanceTimer;
 
     const real = Number((P.current && P.current.audioSeconds) || 0);
     const meta = Number((P.current && P.current.duration) || 0);

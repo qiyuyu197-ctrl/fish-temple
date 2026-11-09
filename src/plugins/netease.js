@@ -103,6 +103,21 @@ export function setUseLoginAudio(on) {
   try { on ? localStorage.setItem(USE_LOGIN_AUDIO_KEY, '1') : localStorage.removeItem(USE_LOGIN_AUDIO_KEY); } catch { /* noop */ }
 }
 
+/**
+ * 这个浏览器**是否已绑定网易云账号**（由 plugins/netease-login.js 广播）。
+ *
+ * 为什么播放器要知道：绑了会员账号之后，会员曲目应该走登录态直放（真实 <audio>），
+ * 而不是退回官方 iframe —— 后者在手机锁屏 / 后台拿不到结束回调，播完就停住。
+ * 注意和上面的 `useLoginAudio()` 区分：那是用户手动打的「浏览器已登录会员」标记，
+ * 这个是服务端确认过的绑定。
+ */
+let loginBound = false;
+bus.on('netease:login', ({ bound } = {}) => { loginBound = !!bound; });
+/** 自检 / 调试用：强制「当没绑定」或「当已绑定」，不改变服务端状态 */
+let loginOverride = null;
+export const setLoginAudioOverride = (v) => { loginOverride = v === null ? null : !!v; };
+export const hasLoginAccount = () => (loginOverride === null ? loginBound : loginOverride) === true;
+
 let cloudRefreshAt = 0;
 export async function refreshCloudUrls({ force = false } = {}) {
   if (!force && Date.now() - cloudRefreshAt < 30_000) return 0;
@@ -139,7 +154,7 @@ export async function refreshCloudUrls({ force = false } = {}) {
      * 把曲目打成 `embedOnly` / 切到官方 iframe —— 之后就算拿到会员地址也不播了。
      * 提前签好、并且清掉误判，播放路径就和普通直放一样干净。
      */
-    if (useLoginAudio()) {
+    if (useLoginAudio() || loginBound) {
       const need = Player.tracks.filter((t) => !t.cloud && t.neteaseId
         && (Number(t.fee) === 1 || Number(t.fee) === 4 || t.embedOnly));
       if (need.length) {
@@ -214,7 +229,12 @@ export const playlistUrl = (id) => `https://music.163.com/#/playlist?id=${id}`;
  */
 
 /** 站内直放地址（同源转发，支持 Range；见 server.mjs 的 /api/netease/audio） */
-export const directAudioUrl = (id) => `${API_BASE}/audio?id=${encodeURIComponent(String(id))}`;
+export const directAudioUrl = (id) => {
+  const q = new URLSearchParams({ id: String(id), level: getAudioLevel() });
+  // 客户端认定"这次不要用登录态"时，明确告诉服务端别回落（自检 / 用户手动关掉时要用）
+  if (!hasLoginAccount()) q.set('noLogin', '1');
+  return `${API_BASE}/audio?${q}`;
+};
 
 /**
  * 不做转发的原始外链（纯静态部署、没有 server.mjs 时的兜底）。
@@ -887,7 +907,7 @@ export const neteaseAudioProvider = {
        * 每次失败后 60 秒内不重复尝试，避免同一条卡住的歌反复请求。
        */
       const lastTry = Number(track._loginAudioAt) || 0;
-      if (!track.cloud && useLoginAudio() && Date.now() - lastTry > 60_000) {
+      if (!track.cloud && (useLoginAudio() || loginBound) && Date.now() - lastTry > 60_000) {
         track._loginAudioAt = Date.now();
         const urls = await signLoginAudio([track.neteaseId]).catch(() => ({}));
         const next = urls[String(track.neteaseId)];
@@ -1060,6 +1080,8 @@ export const Netease = {
   embedUrl,
   directAudioUrl,
   rawAudioUrl,
+  hasLoginAccount,
+  setLoginAudioOverride,
   pageUrl,
   playlistUrl,
   parseSongId,

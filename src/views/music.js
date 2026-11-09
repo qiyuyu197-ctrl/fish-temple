@@ -33,7 +33,7 @@ import {
   toTrack, savePlaylist,
   importPlaylist, PLAYLIST_IMPORT_LIMIT,
   isVipOnly, checkPlayable, findPlayableAlternatives, audioInfo, looksLikeFragment,
-  importFromLink, classifyLink, refreshCloudUrls, useLoginAudio,
+  importFromLink, classifyLink, refreshCloudUrls, useLoginAudio, hasLoginAccount,
 } from '../plugins/netease.js';
 // 网易云账号（扫码登录）：只负责"这条状态带 + 面板"，cookie 永远在服务端
 import { NeteaseLogin } from '../plugins/netease-login.js';
@@ -70,10 +70,14 @@ const fmtDur = (s) => (s ? fmtClock(s) : '--:--');
 /** 沉浸舞台图标：用 SVG 而不是 ⛶，避免不同系统字体把它画成豆腐块 */
 const STAGE_ICON = '<svg class="stage-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" stroke="currentColor" stroke-width="1.7"/></svg>';
 
-/** 会员 / 付费曲目的小标（官方外链播放器匿名态不出声） */
-const vipTag = (song) => (isVipOnly(song)
-  ? '<span class="tag tag--vip tag--alert" title="网易云会员曲目：未登录会员时官方外链播放器不会出声">VIP</span>'
-  : '');
+/** 会员 / 付费曲目的小标：绑定了网易云账号时不再是"警告"，而是"用你的会员直放" */
+const vipTag = (song) => {
+  if (!isVipOnly(song)) return '';
+  const bound = hasLoginAccount();
+  return bound
+    ? '<span class="tag tag--vip" title="网易云会员曲目 · 用你自己绑定的会员账号站内直放">VIP</span>'
+    : '<span class="tag tag--vip tag--alert" title="网易云会员曲目：未登录会员时官方外链播放器不会出声">VIP</span>';
+};
 
 /* ---------------- 片段 ---------------- */
 
@@ -577,7 +581,7 @@ export default {
        * 匿名拿不到 ≠ 这个账号拿不到。交给播放器用登录态试一次，
        * 真拿不到再走官方播放器（那条回退还留在 provider.onError 里）。
        */
-      if (useLoginAudio()) { state.sound = null; setLyricNote(''); paintNow(); return; }
+      if (useLoginAudio() || hasLoginAccount()) { state.sound = null; setLyricNote(''); paintNow(); return; }
       // 匿名态拿不到音频流：直接判定这一首只能走官方外链播放器，
       // 免得播放器先白试一次站内直放、再回退（会多一次请求和一条提示）
       track.embedOnly = true;
@@ -772,7 +776,11 @@ export default {
  * 这种用户不该被反复提示 —— 给他们一个「我知道了，别再提示」的开关。
  */
 const VIP_OK_KEY = 'ft.terminal.vipLoggedIn';
-const vipOkOn = () => { try { return localStorage.getItem(VIP_OK_KEY) === '1'; } catch { return false; } };
+const vipOkOn = () => {
+  // 绑定了网易云账号 = 服务端能确认"这个访客自己有会员"，比手动打勾更可信
+  if (hasLoginAccount()) return true;
+  try { return localStorage.getItem(VIP_OK_KEY) === '1'; } catch { return false; }
+};
 const setVipOk = (on) => { try { on ? localStorage.setItem(VIP_OK_KEY, '1') : localStorage.removeItem(VIP_OK_KEY); } catch { /* 忽略 */ } };
 
 function renderResults() {

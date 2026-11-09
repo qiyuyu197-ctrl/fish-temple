@@ -205,7 +205,7 @@ function build() {
       <button class="lstage__queuebtn" id="lsQueueBtn" type="button" title="播放队列" aria-label="打开播放队列" aria-expanded="false">
         <span>队列</span><b class="mono" id="lsQueueCount">00</b>
       </button>
-      <button class="lstage__queuebtn" id="lsBareBtn" type="button" title="无UI模式 (H)" aria-pressed="false">
+      <button class="lstage__queuebtn" id="lsBareBtn" type="button" title="无UI模式 (H) · 双击画面退出" aria-pressed="false">
         <span class="mono">无UI</span>
       </button>
       <button class="lstage__close" id="lsClose" type="button" title="退出沉浸模式 (Esc)" aria-label="退出沉浸模式">
@@ -302,6 +302,7 @@ function build() {
           <span><kbd>?</kbd> 快捷键</span>
           <span><kbd>H</kbd> 无UI</span>
         </div>
+        <p class="lstage__helphint">无 UI 模式下：<b>双击画面</b>（手机双击两下）退出，H / Esc 也行。</p>
       </div>
     </footer>
 
@@ -399,9 +400,32 @@ function bindStatic() {
     }
   });
   root.addEventListener('dblclick', (e) => {
+    // 无 UI 模式里双击 = 回到有 UI（手机上没有键盘，这是唯一好按的出口）
+    if (state.bare) { toggleBare(false); return; }
     if (e.target.closest('.lstage__transport, .lstage__queue')) return;
     closeListeningStage();
   });
+
+  /**
+   * 触屏没有可靠的 dblclick：Android WebView / Chrome 的双击会被当成缩放，
+   * 事件根本到不了这里。自己数两次 tap（320ms / 40px 以内）补上，
+   * 这样「双击任意处退出无 UI」在手机上也成立。
+   */
+  let tapAt = 0;
+  let tapX = 0;
+  let tapY = 0;
+  root.addEventListener('pointerup', (e) => {
+    if (e.pointerType === 'mouse') return;            // 鼠标交给上面的 dblclick
+    if (e.target.closest('button, a, input, .lstage__transport, .lstage__queue')) { tapAt = 0; return; }
+    const now = Date.now();
+    const near = Math.abs(e.clientX - tapX) < 40 && Math.abs(e.clientY - tapY) < 40;
+    if (now - tapAt < 320 && near) {
+      tapAt = 0;
+      if (state.bare) toggleBare(false);
+    } else {
+      tapAt = now; tapX = e.clientX; tapY = e.clientY;
+    }
+  }, { passive: true });
 }
 
 function toggleShuffle() {

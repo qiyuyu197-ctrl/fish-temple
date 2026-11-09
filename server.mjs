@@ -836,13 +836,55 @@ async function streamNeteaseAudio(req, res, url, opts = {}) {
   if (!/^\d{4,12}$/.test(id)) return fail(res, 400, '缺少合法的歌曲 id');
 
   const info = await resolveNeteaseAudio(id);
-  if (!info) {
-    // 把两个入口各自的结果带上：线上排查时一眼看出是"上游拒绝"还是"我们超时"
-    const tried = audioUrlCache.get(String(id))?.tried;
-    const detail = tried?.length ? `（${tried.join('、')}）` : '';
-    return fail(res, 404, `这首歌没有匿名可用的音频流（会员 / 版权限制），请改用官方外链播放器${detail}`);
+  if (info) return sendAudioStream(req, res, info, opts);
+
+  /**
+   * 匿名拿不到（会员曲目 / 版权受限）：用**这个访客自己**绑定的网易云账号再解析一次。
+   *
+   * 这是「登录态播放」的核心，也顺带解决手机端后台不切歌：
+   *   · 登录态返回的是真实音频地址 → 走站内 <audio> 直放，`ended` 由媒体管线触发，
+   *     锁屏 / 后台 / 息屏都照样接下一首；
+   *   · 匿名那条路只能退回官方 iframe，而 iframe 跨源、拿不到结束回调，
+   *     手机上后台又会被冻结定时器，于是「播完就停住」。
+   * 只对**绑定者本人**生效（用他的 sub 查绑定），不会把一个人的会员借给其他人。
+   */
+  const loginTry = await resolveNeteaseLoginAudio(req, id, url, opts);
+  if (loginTry.info) return sendAudioStream(req, res, loginTry.info, opts);
+
+  // 把两个入口各自的结果带上：线上排查时一眼看出是"上游拒绝"还是"我们超时"
+  const tried = audioUrlCache.get(String(id))?.tried;
+  const detail = tried?.length ? `（${tried.join('、')}）` : '';
+  return fail(res, 404, `这首歌没有匿名可用的音频流（会员 / 版权限制），请改用官方外链播放器${detail}${loginTry.why}`);
+}
+
+/**
+ * 用「当前访客自己绑定的网易云账号」解析一首歌的音频。
+ * 任何一步不成立都返回 { info: null, why }，why 会拼进 404 文案，方便现场判断到底是
+ * 没登录本站、没绑网易云，还是绑了但上游也不给（比如付费专辑）。
+ */
+async function resolveNeteaseLoginAudio(req, id, url, opts = {}) {
+  // 客户端明确说"这次别用登录态"（匿名回退链自检 / 用户手动关掉），就别去碰绑定
+  if ((url.searchParams.get('noLogin') || '') === '1') {
+    return { info: null, why: '（已按匿名处理）' };
   }
-  return sendAudioStream(req, res, info, opts);
+  try {
+    const viewer = await neteaseViewer(req, opts);
+    if (!viewer.ok) return { info: null, why: '（未登录本站账号）' };
+    const store = storageFor(opts);
+    const doc = await readBinding(store, viewer.sub).catch(() => null);
+    if (!doc) return { info: null, why: '（未绑定网易云账号）' };
+    const identity = await identityFor(store, doc.cookie);
+    const level = (url.searchParams.get('level') || '').trim() || 'exhigh';
+    const info = await resolveTrackAudio(identity, id, { level });
+    const safeUrl = httpsAudioUrl(info?.url);
+    if (!safeUrl) return { info: null, why: '（登录态也没有可用地址）' };
+    info.url = safeUrl;
+    log(`\x1b[36mNETEASE\x1b[0m 登录态音频 ${id} → ${info.type || '?'} ${info.bitrate || 0}bps（${viewer.sub}）`);
+    return { info, why: '' };
+  } catch (err) {
+    const msg = String(err?.message || err).slice(0, 80);
+    return { info: null, why: `（登录态解析失败：${msg}）` };
+  }
 }
 
 /**
