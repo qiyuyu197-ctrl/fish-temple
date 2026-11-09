@@ -4,8 +4,8 @@
 
 | 平台 | 版本 | 直接下载 | 要求 |
 | --- | --- | --- | --- |
-| **Android 移动版** | 2.4.4 | [APK · 约 263 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.4.4/fish-temple-android-full-2.4.4.apk) | Android 7.0+ |
-| **Windows 桌面版** | 1.5.4 | [ZIP · 约 359 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.5.4/fish-temple-desktop-1.5.4-win-x64.zip) | Windows 10/11 x64 |
+| **Android 移动版** | 2.4.6 | [APK · 约 263 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.4.6/fish-temple-android-full-2.4.6.apk) | Android 7.0+ |
+| **Windows 桌面版** | 1.5.6 | [ZIP · 约 359 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.5.6/fish-temple-desktop-1.5.6-win-x64.zip) | Windows 10/11 x64 |
 
 手机下载 APK 直接安装（允许「安装未知来源应用」）；Windows 下载 ZIP 解压后双击
 `FishTemple.exe`，**首次启动会自动在桌面创建快捷方式**。历史版本见
@@ -13,8 +13,8 @@
 
 > 安装包超过 GitHub 单文件 100 MB 限制，所以放在 **Releases**（不在仓库文件里）。
 > 带校验和与安装说明的下载页：
-> [GitHub Pages](https://qiyuyu197-ctrl.github.io/fish-temple/download.html) ·
-> [页面源文件](download.html)。
+> [线上站点](https://yumiao.netlify.app/#/download) ·
+> [GitHub Pages](https://qiyuyu197-ctrl.github.io/fish-temple/#/download)。
 
 > 🚀 **只是想在自己电脑上跑起来？直接看 [INSTALL.md](INSTALL.md)** ——
 > 只需要 Node.js 18+，三步启动，不用 `npm install`，不用配数据库。
