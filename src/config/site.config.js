@@ -28,7 +28,7 @@ export const SITE = {
   /** 站点语言 */
   lang: 'zh-CN',
   /** 版本号，显示在页脚 BUILD 区 */
-  version: '2.5.6',
+  version: '2.5.7',
   /** 建站年份（页脚版权起始年） */
   since: 2024,
   /** 音频/图片未就绪时的占位策略：'placeholder' | 'hide' */
