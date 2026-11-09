@@ -169,34 +169,34 @@ function stripInner() {
       </div>`;
   }
   if (!state.canBind) {
-    const appOnly = state.mode === 'owner';
-    // 站长模式且没登录本站：把「为什么看不到扫码」和「该点哪里」说清楚，
-    // 而不是只甩一句「仅站长可用」（站主就卡在这一步）。
-    if (appOnly && !state.siteUser) {
+    const ownerOnly = state.mode === 'owner';
+    // 没登录本站：把「为什么看不到扫码」和「该点哪里」说清楚。
+    // 默认策略是 members（任何站内账号都能绑），只有运维显式设成 owner 才收窄。
+    if (!state.siteUser) {
       return `<div class="neacct__row">
         <span class="neacct__state mono">SIGNIN</span>
         <div class="neacct__who">
           <b class="neacct__name">先登录本站账号</b>
-          <span class="neacct__meta">网页版网易云登录只对<b>站长</b>开放（普通用户请用 App 版）。
-            用站长邮箱登录本站后，这里就会出现扫码入口。</span>
+          <span class="neacct__meta">${ownerOnly
+            ? '本站当前设成「只有站长能绑网易云」。用站长邮箱登录后，这里会出现扫码入口。'
+            : '用任意站内账号登录后，这里就会出现扫码入口（凭据只存在你自己的账号下）。'}</span>
         </div>
         <span class="grow"></span>
         <button class="btn btn--sm btn--signal" id="neSignIn" type="button">登录本站</button>
       </div>`;
     }
-    if (appOnly) {
+    if (ownerOnly) {
       return `<div class="neacct__row">
         <span class="neacct__state mono">NOT OWNER</span>
         <div class="neacct__who">
           <b class="neacct__name">当前账号不是站长</b>
-          <span class="neacct__meta">网页版网易云登录只对站长开放；普通用户请用 App 版（登录与播放都在本机）。</span>
+          <span class="neacct__meta">本站把网易云登录设成了「仅站长」（NETEASE_LOGIN=owner）。想自己扫码，用站长账号登录，或让站长改成 members。</span>
         </div>
       </div>`;
     }
     return `<div class="neacct__row">
       <span class="neacct__state mono">${state.siteUser ? 'CLOSED' : 'LOGIN'}</span>
       <span class="muted">${esc(state.reason || '当前账号不能绑定网易云')}</span>
-      ${!state.siteUser ? '<span class="grow"></span><span class="muted">先在右上角登录本站账号</span>' : ''}
     </div>`;
   }
   return `

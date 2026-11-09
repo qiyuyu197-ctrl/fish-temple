@@ -56,17 +56,19 @@ const BIND_COLLECTION = 'netease-auth';
 
 /**
  * 登录开关。
- *   NETEASE_LOGIN=off     完全关闭（默认之外的显式关闭）
- *   NETEASE_LOGIN=owner   只有站长能绑（默认：把风险留给自己）
- *   NETEASE_LOGIN=members 所有已登录的站内账号都能绑
+ *   NETEASE_LOGIN=off     完全关闭
+ *   NETEASE_LOGIN=owner   只有站长能绑
+ *   NETEASE_LOGIN=members 所有已登录的站内账号都能绑（**默认**）
  *
- * 为什么默认 owner：README 里那条"第三方登录可能触发网易云风控"的风险是真实的
- * （YesPlayMusic / SPlayer 都发过公告）。让每个来访者都把账号交进来，不合算；
- * 站长自己想用，就把开关打开。
+ * 默认 members 是站主 2026-11-09 的明确要求：「开放给所有人登录」。
+ * 每个人扫码后凭据只存在**他自己**的 sub 下（`netease-auth/<sub哈希>`），
+ * 播放时服务端也只查请求者本人的绑定，不会把谁的会员借给别人。
+ * 风险提示仍然在绑定面板里显示（第三方登录可能触发网易云风控）。
+ * 想让网页版只留给自己，把环境变量设成 `NETEASE_LOGIN=owner` 即可。
  */
 export function neteaseLoginConfig() {
-  const raw = String(process.env.NETEASE_LOGIN ?? 'owner').trim().toLowerCase();
-  const mode = raw === 'off' ? 'off' : raw === 'members' ? 'members' : 'owner';
+  const raw = String(process.env.NETEASE_LOGIN ?? '').trim().toLowerCase();
+  const mode = raw === 'off' ? 'off' : raw === 'owner' ? 'owner' : 'members';
   return {
     enabled: mode !== 'off',
     mode,
@@ -83,7 +85,7 @@ export function canUseNeteaseLogin(user, cfg = neteaseLoginConfig()) {
   if (!cfg.enabled) return { ok: false, status: 501, error: '网易云登录没有开启（NETEASE_LOGIN=off）' };
   if (cfg.mode === 'members') return { ok: true };
   if (user?.role === 'owner') return { ok: true };
-  return { ok: false, status: 403, error: '网页版网易云登录仅站长可用；普通用户请使用 App 版' };
+  return { ok: false, status: 403, error: '网页版网易云登录当前只对站长开放（NETEASE_LOGIN=owner）' };
 }
 
 /* ------------------------------------------------------------------ */
