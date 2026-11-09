@@ -11,6 +11,7 @@ const ORDER = [
   'tokens.css', 'base.css', 'components.css', 'almanac.css', 'mobile.css',
   'authpanel.css', 'mine-room.css', 'leisure.css', 'download.css', 'ef.css',
   'comments.css', 'leaderboard.css', 'background-picker.css', 'patterns.css', 'saucenao.css',
+  'music-compact.css',
   // 琉璃主题层必须排最后：它靠顺序 + html[data-theme^="liuli"] 覆盖前面所有表面配方，
   // 且规则全部关在主题选择器里，其它主题一条都吃不到。
   'liuli.css',

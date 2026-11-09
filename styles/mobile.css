@@ -419,3 +419,34 @@ body.has-miniplayer .footer { padding-bottom: calc(var(--miniplayer-h) + var(--s
   .music .ne-row__acts .btn, .music .tracks__head .btn { min-height: 36px; }
   .music .chip { min-height: 32px; }
 }
+
+/* ============================================================
+   手机整体收一档（站主要求「压缩整体宽度」）
+   ------------------------------------------------------------
+   之前手机上沿用了桌面的大留白：页头上下各 48/32px、区块之间 24px、
+   标题按 5.4vw 算。小屏上一屏装不下多少东西，看起来又宽又散。
+   这里把边距和标题一起收窄 —— 不是加留白，而是让整页更紧凑、更窄一点。
+   ============================================================ */
+@media (max-width: 620px) {
+  :root {
+    --gutter: 14px;
+  }
+  .viewhead {
+    padding: var(--sp-4) 0 var(--sp-3);
+  }
+  .viewhead__title {
+    font-size: clamp(1.55rem, 7.2vw, 2.1rem);
+  }
+  .viewhead__meta {
+    margin-top: var(--sp-2);
+    gap: var(--sp-4);
+  }
+  .sect,
+  .section-block {
+    padding: var(--sp-4) 0;
+  }
+  .panel__body,
+  .panel__head {
+    padding-inline: var(--sp-3);
+  }
+}

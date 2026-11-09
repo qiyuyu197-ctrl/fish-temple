@@ -1,0 +1,104 @@
+/**
+ * music-compact.css — 音乐台（非沉浸模式）的紧凑版式
+ * ------------------------------------------------------------------
+ * 为什么单独一个文件：音乐台的默认版式沿用了「大标题 + 大留白」的通用页头，
+ * 结果一屏之内只能看到页头、账号条和搜索框，播放器要滚一屏才出现。
+ * 站主的要求是「占面积别那么大，干净简洁」，所以这里只收紧音乐台：
+ *   · 页头压到一行（模块序号在这一页没有信息量，直接不显示）
+ *   · 账号条收成一行（不占一块面板）
+ *   · 搜索说明降成小字两行
+ *   · 面板间距从 24px 收到 16px
+ * 只作用于 `.music`，其它板块的版式一行都不动。
+ */
+
+/* 1. 页头：大标题降一档，去掉上下的空 */
+.music .viewhead {
+  padding: var(--sp-4) 0 var(--sp-3);
+}
+.music .viewhead__title {
+  font-size: clamp(1.45rem, 2.6vw, 2rem);
+  letter-spacing: 0.01em;
+}
+.music .viewhead__meta {
+  margin-top: var(--sp-2);
+  gap: var(--sp-4);
+}
+.music .viewhead__idx {
+  display: none;
+}
+
+/* 2. 面板之间收一档 */
+.music > .np,
+.music > .ne-search,
+.music > .tracks,
+.music > .neacct {
+  margin-top: var(--sp-4) !important;
+}
+
+/* 3. 正在播放：内边距与头部收小 */
+.music .np__head {
+  padding: var(--sp-2) var(--sp-3);
+}
+.music .np__now {
+  padding: var(--sp-3);
+}
+.music .np__embed {
+  padding: 0 var(--sp-3) var(--sp-3);
+}
+
+/* 4. 网易云账号条：收成一行，别再像一块面板 */
+.music .neacct {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+}
+.music .neacct__head {
+  display: none;
+}
+.music .neacct__body {
+  padding: var(--sp-2) var(--sp-3);
+}
+.music .neacct__avatar {
+  width: 26px;
+  height: 26px;
+}
+.music .neacct__row {
+  gap: var(--sp-2);
+  align-items: center;
+}
+.music .neacct__row .btn {
+  padding: 4px 10px;
+  font-size: var(--fs-2xs);
+}
+
+/* 5. 搜索区：按钮与快捷标签收紧，说明降成小字 */
+.music .ne-search__head {
+  padding: var(--sp-2) var(--sp-3);
+}
+.music .ne-search__bar {
+  padding: var(--sp-3);
+  gap: 8px;
+}
+.music .ne-search__bar .btn {
+  padding: 8px 12px;
+}
+.music .ne-search__quick {
+  padding: 0 var(--sp-3) var(--sp-3);
+  gap: 6px;
+}
+.music .ne-search__hint {
+  padding: 0 var(--sp-3) var(--sp-3);
+  margin: 0;
+  font-size: var(--fs-2xs);
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+/* 手机上说明文字占地方，直接收起来（功能靠输入框占位符已经说清了） */
+@media (max-width: 620px) {
+  .music .ne-search__hint {
+    display: none;
+  }
+  .music .ne-search__quick .ne-search__sep {
+    display: none;
+  }
+}

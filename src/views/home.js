@@ -198,7 +198,7 @@ export default {
           { t: 'GAME', e: 'GAME', d: '单人扫雷 / 联机房间 / 像素小鱼，以及两个排行榜。', h: '#/mine', i: ICON.grid, n: '03' },
           { t: '工具台', e: 'TOOLS', d: '格式转换 / 图片压缩 / 文本 / Tier List / 音频 / AI 分轨。', h: '#/tools', i: ICON.tools, n: '06' },
           { t: '下载 App', e: 'DOWNLOAD', d: 'Android APK 与 Windows 桌面版，站点和相册随包自带。', h: '#/download', i: ICON.ext, n: 'APK · ZIP' },
-          { t: '发布', e: 'CONSOLE', d: '站长在浏览器里写文章、发公告、导出内容。', h: '#/admin', i: ICON.settings, n: 'IO' },
+          { t: '发布', e: 'WRITE', d: '站长在浏览器里写文章、发公告、导出内容。', h: '#/admin', i: ICON.settings, n: 'IO' },
           { t: '仪表盘', e: 'STATUS', d: '内容分布、运行状态与最近活动。', h: '#/dashboard', i: ICON.screen, n: 'SYS' },
         ].map((m, i) => `
           <a class="panel" href="${m.h}" data-nav data-reveal data-reveal-delay="${i * 50}" style="padding:var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-3);transition:border-color 120ms">

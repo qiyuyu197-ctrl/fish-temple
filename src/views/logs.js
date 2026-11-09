@@ -93,7 +93,8 @@ export default {
           { label: 'NOTICES', value: String(nNews).padStart(2, '0') },
           { label: 'UNREAD', value: String(unread).padStart(2, '0'), id: 'logsUnread' },
         ],
-        actions: `<a class="btn" href="#/admin?tab=posts&new=1" data-nav>+ 写内容</a>`,
+        actions: `<a class="btn" href="#/admin?tab=posts&new=1" data-nav>+ 写文章</a>
+                  <a class="btn btn--ghost" href="#/admin?tab=news&new=1" data-nav>+ 发公告</a>`,
       })}
 
       <div class="gallery__bar" style="margin-top:var(--sp-5)">

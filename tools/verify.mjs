@@ -415,7 +415,7 @@ async function main() {
       map: {},
       labels: [...document.querySelectorAll('#nav .nav__link')].map(a => a.textContent.trim().replace(/\\s+/g, ' ')),
     };
-    for (const h of ['#/', '#/logs', '#/logs/news_launch', '#/posts', '#/post/post_overview', '#/music', '#/gallery', '#/leisure', '#/mine', '#/tools', '#/admin', '#/dashboard', '#/nope']) {
+    for (const h of ['#/', '#/logs', '#/logs/news_launch', '#/posts', '#/post/post_overview', '#/music', '#/gallery', '#/leisure', '#/mine', '#/tools', '#/search', '#/saucenao', '#/admin', '#/dashboard', '#/nope']) {
       location.hash = h;
       await wait(620);
       out.map[h] = read();
@@ -429,7 +429,11 @@ async function main() {
     // 老地址会跳到 #/logs，所以高亮的也应该是合并后的那一项
     '#/posts': 'logs', '#/post/post_overview': 'logs',
     '#/music': 'music', '#/gallery': 'gallery', '#/leisure': 'leisure', '#/mine': 'mine', '#/tools': 'tools',
-    '#/admin': 'admin', '#/dashboard': 'dashboard',
+    // SAUCE 改名 SEARCH：老地址 #/saucenao 会跳到 #/search，高亮的应该是新导航项
+    '#/search': 'search', '#/saucenao': 'search',
+    // CONSOLE 板块已取消：发布/编辑页不再是导航项，所以 #/admin 不该高亮任何一条
+    // （没有高亮项时 read() 的 view 是 null）
+    '#/admin': null, '#/dashboard': 'dashboard',
   };
   record('导航：当前板块高亮跟随路由（合并板块 + 详情 + 老地址）',
     Object.entries(expectNav).every(([h, view]) => navMap[h]?.view === view),

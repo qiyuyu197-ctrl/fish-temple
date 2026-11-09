@@ -218,6 +218,24 @@ export default {
         </div>
       </div>` : ''}
 
+      <!-- 正在播放：站内传输键 + 官方控制带合成一块，避免同一份信息重复三遍 -->
+      <section class="np" style="margin-top:var(--sp-5)">
+        <div class="np__head">
+          <span class="np__titlewrap">
+            <span class="ne-eyebrow">// NOW PLAYING</span>
+            <b class="np__title">正在播放</b>
+          </span>
+          <span class="np__headmeta">
+            <span class="np__src mono" id="npSource">${cur ? (cur.provider === 'netease' ? 'NETEASE' : 'LOCAL') : 'STANDBY'}</span>
+            <span class="mono np__headfield">${String(Player.tracks.length).padStart(2, '0')} TRACKS</span>
+          </span>
+        </div>
+        <div class="np__body">
+          <div id="neNow" class="np__now">${renderNow()}</div>
+          <div id="embedWrap" class="np__embed" ${EmbedHost.active ? '' : 'hidden'}>${embedHTML()}</div>
+        </div>
+      </section>
+
       <!-- 网易云账号：本站账号的附属绑定。未开启 / 未登录本站时这里会自己收起，不占版面 -->
       ${NeteaseLogin.stripHTML()}
 
@@ -262,23 +280,6 @@ export default {
            没有搜索时不占版面（否则空占位会把「正在播放」顶到首屏外）。 -->
       <div class="ne-results" id="neResults" style="margin-top:var(--sp-4)"></div>
 
-      <!-- 正在播放：站内传输键 + 官方控制带合成一块，避免同一份信息重复三遍 -->
-      <section class="np" style="margin-top:var(--sp-5)">
-        <div class="np__head">
-          <span class="np__titlewrap">
-            <span class="ne-eyebrow">// NOW PLAYING</span>
-            <b class="np__title">正在播放</b>
-          </span>
-          <span class="np__headmeta">
-            <span class="np__src mono" id="npSource">${cur ? (cur.provider === 'netease' ? 'NETEASE' : 'LOCAL') : 'STANDBY'}</span>
-            <span class="mono np__headfield">${String(Player.tracks.length).padStart(2, '0')} TRACKS</span>
-          </span>
-        </div>
-        <div class="np__body">
-          <div id="neNow" class="np__now">${renderNow()}</div>
-          <div id="embedWrap" class="np__embed" ${EmbedHost.active ? '' : 'hidden'}>${embedHTML()}</div>
-        </div>
-      </section>
 
       <!-- 播放列表（最近播放收进底部细条，不再单独占一个面板） -->
       <section class="tracks" style="margin-top:var(--sp-5)">

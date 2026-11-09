@@ -93,7 +93,7 @@ const downloadView = lazyView('download', '下载 App', () => import('./views/do
 const tierlist = lazyView('tierlist', 'Tier List', () => import('./views/tierlist.js'));
 const fishrun = lazyView('fishrun', '像素小鱼', () => import('./views/fish-run.js'));
 const tools = lazyView('tools', '工具台', () => import('./views/tools.js'));
-const saucenao = lazyView('saucenao', '以图搜图', () => import('./views/saucenao.js'));
+const saucenao = lazyView('search', '以图搜图', () => import('./views/saucenao.js'));
 const admin = lazyView('admin', '发布', () => import('./views/admin.js'));
 const notfound = lazyView('notfound', '404', () => import('./views/notfound.js'));
 
@@ -248,6 +248,8 @@ async function boot() {
     redirectView('post', 'logs'),
     redirectView('news', 'logs'),
     redirectView('newsItem', 'logs'),
+    // SAUCE → SEARCH 改名：老地址 / 外部收藏里的 #/saucenao 自动跳到新路由
+    redirectView('saucenao', 'search'),
   ].forEach(defineView);
 
   // 7) 由 Registry 追加的路由（插件注册的页面都在这里生效）

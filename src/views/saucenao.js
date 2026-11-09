@@ -23,16 +23,16 @@ import { viewhead } from '../ui/bits.js';
 /* ──── 引擎定义 ──── */
 const ENGINES = [
   {
-    id: 'saucenao', icon: '🔍', name: 'SAUCENAO · 插画找源',
+    id: 'saucenao', icon: '🔍', name: 'SEARCH · 插画找源',
     hint: '找画师与出处（Pixiv / X / Danbooru…）· 服务端直连搜索 · 约 3~10 秒（必要时自动回退浏览器模式）',
-    emptyTitle: 'SauceNAO 没有找到匹配',
+    emptyTitle: 'SEARCH 没有找到匹配',
     emptyDesc: '可以换一张更完整的图，或切到「番剧场景」引擎、页底的其他搜图网站再试。',
   },
   {
     id: 'trace', icon: '📺', name: 'TRACE.MOE · 番剧场景',
     hint: '动画截图 → 是哪部番、第几集、第几秒 · 国内直连无需代理 · 约 5~15 秒 · 只认动画帧，插画/照片搜不到',
     emptyTitle: 'trace.moe 没有找到匹配的动画场景',
-    emptyDesc: '它只收录真实动画的帧——插画、照片、游戏截图都搜不到。找插画出处请切回 SAUCENAO 引擎。',
+    emptyDesc: '它只收录真实动画的帧——插画、照片、游戏截图都搜不到。找插画出处请切回 SEARCH 引擎。',
   },
 ];
 
@@ -54,10 +54,10 @@ function template() {
   return `
   <section class="sauce">
     ${viewhead({
-      idx: 'SAUCE / REVERSE IMAGE SEARCH',
+      idx: 'SEARCH / REVERSE IMAGE SEARCH',
       title: '以图搜图',
       meta: [
-        { label: 'ENGINE', value: 'SAUCENAO · CDP' },
+        { label: 'ENGINE', value: 'SEARCH · CDP' },
         { label: 'STATUS', value: 'DETECTING…', id: 'sauceStatus' },
         { label: 'MATCHES', value: '—', id: 'sauceMatches' },
       ],
@@ -232,7 +232,7 @@ const isPixivOrX = (r) => /pixiv\.net|twitter\.com|x\.com/i.test(r.primaryUrl ||
 
 /* ──── 视图 ──── */
 const view = {
-  id: 'saucenao',
+  id: 'search',
   title: '以图搜图',
 
   render() {

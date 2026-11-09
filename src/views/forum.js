@@ -147,9 +147,12 @@ function listHTML() {
       { label: 'POSTS', value: String(state.total).padStart(2, '0'), id: 'forumTotal' },
       { label: 'ACCOUNT', value: Auth.enabled ? (Auth.loggedIn ? esc(Auth.user?.name || '已登录') : '未登录') : '未启用' },
     ],
-    actions: canWrite
-      ? `<button class="btn btn--signal" id="forumNew">${ICON.edit}写新帖</button>`
-      : '',
+    actions: [
+      canWrite ? `<button class="btn btn--signal" id="forumNew">${ICON.edit}写新帖</button>` : '',
+      // CONSOLE 板块取消后，站长的「发公告 / 内容管理」入口放在这里：
+      // 论坛原本就是"发东西"的地方，公告与文章的管理从这里进最顺手。
+      Auth.isOwner ? '<a class="btn btn--ghost" href="#/admin?tab=news&new=1" data-nav>发公告</a>' : '',
+    ].join(''),
   })}
 
   ${!Auth.enabled ? `<div class="forum__banner mono">

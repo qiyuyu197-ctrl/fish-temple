@@ -28,7 +28,7 @@ export const SITE = {
   /** 站点语言 */
   lang: 'zh-CN',
   /** 版本号，显示在页脚 BUILD 区 */
-  version: '2.5.9',
+  version: '2.6.0',
   /** 建站年份（页脚版权起始年） */
   since: 2024,
   /** 音频/图片未就绪时的占位策略：'placeholder' | 'hide' */
@@ -65,7 +65,9 @@ export const LIULI_THEMES = [
 /** 两份合起来才是「所有可用的主题」：Theme.set() 用它解析 id（含存档恢复） */
 export const ALL_THEMES = [...THEMES, ...LIULI_THEMES];
 
-/** 导航。path 使用 hash 路由；badge 可写 'NEW'、'BETA' 或数字。 */
+/** 导航。path 使用 hash 路由；badge 可写 'NEW'、'BETA' 或数字。
+ *  ⚠️ CONSOLE 板块已经取消：发布/编辑入口放进了「文章与公告」（写文章 / 发公告）
+ *     和「论坛」（站长快捷入口），不再单独占一个导航位。见 views/logs.js、views/forum.js。 */
 export const NAV = [
   { id: 'home',    path: '#/',          label: 'HOME',    cn: '首页' },
   { id: 'logs',    path: '#/logs',      label: 'LOGS',    cn: '文章与公告', badgeKey: 'unreadNews' },
@@ -75,8 +77,7 @@ export const NAV = [
   { id: 'leisure', path: '#/leisure',   label: 'LEISURE', cn: '文娱' },
   { id: 'mine',    path: '#/mine',      label: 'GAME',    cn: '游戏' },
   { id: 'tools',   path: '#/tools',     label: 'TOOLS',   cn: '工具台' },
-  { id: 'saucenao', path: '#/saucenao', label: 'SAUCE',   cn: '以图搜图', badge: 'NEW' },
-  { id: 'admin',   path: '#/admin',     label: 'CONSOLE', cn: '发布' },
+  { id: 'search',  path: '#/search',    label: 'SEARCH',  cn: '以图搜图', badge: 'NEW' },
 ];
 
 /** 顶栏滚动播报条内容；{latest} 会替换成最新公告标题 */

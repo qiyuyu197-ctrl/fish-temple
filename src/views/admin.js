@@ -307,7 +307,7 @@ function authSig() {
 
 export default {
   id: 'admin',
-  title: '发布控制台',
+  title: '发布',
 
   render() {
     renderedAuthSig = authSig();
@@ -330,7 +330,7 @@ export default {
       return `
       <section class="admin">
         ${viewhead({
-          title: 'CONSOLE',
+          title: 'WRITE',
           idx: 'MODULE / 05',
           meta: [
             { label: 'ACCOUNT', value: Auth.loggedIn ? '已登录' : '未登录' },
@@ -381,7 +381,7 @@ export default {
     return `
     <section class="admin">
       ${viewhead({
-        title: 'CONSOLE',
+        title: 'WRITE',
         idx: 'MODULE / 05',
         meta: [
           { label: 'SERVER', value: `<span id="serverMeta">${serverOnline ? 'ONLINE' : 'STATIC'}</span>`, html: true },
