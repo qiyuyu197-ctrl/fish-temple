@@ -12,7 +12,7 @@
  *   · 页面不可见时停掉 rAF，不白烧 CPU ✓
  */
 
-import { viewhead } from '../ui/bits.js';
+import { viewhead, gameTabs } from '../ui/bits.js';
 // 排行榜 UI（共用组件 ✓）：一局结束后给「上传成绩」按钮
 import { uploadHTML, mountUpload } from '../ui/leaderboard.js';
 
@@ -327,10 +327,7 @@ export default {
       title: 'PIXEL FISH',
       idx: 'GAME / FISH',
     })}
-    <div class="mr-tabs" role="tablist" aria-label="小游戏">
-      <a class="mr-tab" href="#/mine?room=1">扫雷</a>
-      <a class="mr-tab is-on" href="#/fishrun" role="tab" aria-selected="true">像素小鱼</a>
-    </div>
+    ${gameTabs('fishrun')}
     <div class="mr-tabs" role="tablist" aria-label="难度" style="margin-top:calc(var(--sp-2) * -1)">
       ${Object.entries(LEVELS).map(([k, v]) => `<a class="mr-tab ${k === LEVEL ? 'is-on' : ''}" href="#/fishrun?lv=${k}" role="tab" aria-selected="${k === LEVEL}">${v.name}</a>`).join('')}
     </div>

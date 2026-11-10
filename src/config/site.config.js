@@ -28,7 +28,7 @@ export const SITE = {
   /** 站点语言 */
   lang: 'zh-CN',
   /** 版本号，显示在页脚 BUILD 区 */
-  version: '2.6.0',
+  version: '2.7.0',
   /** 建站年份（页脚版权起始年） */
   since: 2024,
   /** 音频/图片未就绪时的占位策略：'placeholder' | 'hide' */
@@ -87,7 +87,7 @@ export const TICKER = [
   'PIXIV 随机插画通道已连接',
   '2026 秋新番档案已上线 · 文娱板块',
   '论坛已开放 · 登录后可发帖与评论',
-  'GAME：单人扫雷 / 联机房间 / 像素小鱼',
+  'GAME：扫雷 / 五子棋（四位 bot）/ 像素小鱼',
   '{latest}',
   'CTRL + K 打开命令面板',
 ];
@@ -389,6 +389,8 @@ export const COMMANDS = [
   { id: 'goto-music',  label: '打开音乐台（网易云搜索）', hint: 'G M', run: (ctx) => ctx.navigate('#/music') },
   { id: 'goto-gallery',label: '打开插画画廊',    hint: 'G G', run: (ctx) => ctx.navigate('#/gallery') },
   { id: 'goto-leisure',label: '打开文娱（当季新番）', hint: 'G L', run: (ctx) => ctx.navigate('#/leisure') },
+  { id: 'goto-gomoku', label: '打开五子棋（人机对战）', hint: 'G K', run: (ctx) => ctx.navigate('#/gomoku') },
+  { id: 'watch-gomoku',label: '五子棋：AI 观战',     hint: 'G W', run: (ctx) => ctx.navigate('#/gomoku?mode=bots') },
   { id: 'random-anime',label: '文娱：随机挑一部', hint: 'R A', run: (ctx) => ctx.navigate('#/leisure?random=1') },
   { id: 'random-art',  label: '随机一张插画',    hint: 'R',   run: (ctx) => ctx.randomArt() },
   { id: 'toggle-play', label: '播放 / 暂停',     hint: 'SPC', run: (ctx) => ctx.togglePlay() },

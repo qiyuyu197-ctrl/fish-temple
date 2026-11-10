@@ -195,7 +195,7 @@ export default {
           { t: '音乐', e: 'MUSIC', d: '搜索 / 导入网易云曲目，站内直放与跟唱歌词。', h: '#/music', i: ICON.music, n: String(Player.tracks.length).padStart(2, '0') },
           { t: '插画', e: 'GALLERY', d: '1090 张相册照片 + 随机插画，灯箱与收藏都在这一页。', h: '#/gallery', i: ICON.image, n: `${Registry.imageProviders.length}` },
           { t: '文娱', e: 'LEISURE', d: '当季新番、放送表、追番标记与 Bangumi 搜索。', h: '#/leisure', i: ICON.screen, n: '22' },
-          { t: 'GAME', e: 'GAME', d: '单人扫雷 / 联机房间 / 像素小鱼，以及两个排行榜。', h: '#/mine', i: ICON.grid, n: '03' },
+          { t: 'GAME', e: 'GAME', d: '单人扫雷 / 联机房间 / 五子棋（四位 bot）/ 像素小鱼，以及两个排行榜。', h: '#/mine', i: ICON.grid, n: '03' },
           { t: '工具台', e: 'TOOLS', d: '格式转换 / 图片压缩 / 文本 / Tier List / 音频 / AI 分轨。', h: '#/tools', i: ICON.tools, n: '06' },
           { t: '下载 App', e: 'DOWNLOAD', d: 'Android APK 与 Windows 桌面版，站点和相册随包自带。', h: '#/download', i: ICON.ext, n: 'APK · ZIP' },
           { t: '发布', e: 'WRITE', d: '站长在浏览器里写文章、发公告、导出内容。', h: '#/admin', i: ICON.settings, n: 'IO' },

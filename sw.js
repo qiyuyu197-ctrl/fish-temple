@@ -1,7 +1,7 @@
 /**
  * sw.js — Service Worker（由 tools/gen-service-worker.mjs 生成，请勿手改）
  * ------------------------------------------------------------------
- * 版本：1d34343b31（壳资源 50 个，约 3389 KB）
+ * 版本：9bba0a0779（壳资源 51 个，约 3488 KB）
  * 生成：node tools/gen-service-worker.mjs
  *
  * 想让「装到主屏的 App」离线可用、启动更快，就靠这一份。
@@ -12,7 +12,7 @@
  * 永远拿到旧版本：壳资源走 stale-while-revalidate，下一次访问就会换新。
  */
 
-const VERSION = "1d34343b31";
+const VERSION = "9bba0a0779";
 const CACHE = 'fish-temple-' + VERSION;
 const SCOPE = self.registration.scope;
 const url = (p) => new URL(p, SCOPE).href;
@@ -21,7 +21,7 @@ const SHELL = url('index.html');
 const OFFLINE = url('offline.html');
 
 /** 预缓存清单（相对站点根，部署在子路径下也能用） */
-const PRECACHE = ["app.bundle.js","assets/icons/apple-touch-icon.png","assets/icons/favicon-32.png","assets/icons/icon-192.png","assets/icons/icon-512-maskable.png","assets/icons/logo.svg","assets/icons/mark-512.png","assets/icons/mark-64.png","assets/patterns/barcode.svg","assets/patterns/dot-matrix.svg","assets/patterns/hud-rings.svg","assets/patterns/hud-ticks.svg","assets/patterns/twill.svg","assets/vendor/lame.min.js","assets/vendor/lunar-javascript/lunar.js","data/album.json","data/anime-covers.json","data/anime-overrides.json","data/anime-sedai-green.json","data/anime-sedai.json","data/anime.json","data/gallery.json","data/netease-auth/76c5173f34e1fa5b7704157fe8e1868d.json","data/netease-meta/anonymous.json","data/netease-meta/device.json","data/netease-meta/secret.json","data/netease-meta/xeapi-key.json","data/news.json","data/posts.json","index.html","manifest.webmanifest","offline.html","styles/almanac.css","styles/app.bundle.css","styles/authpanel.css","styles/background-picker.css","styles/base.css","styles/comments.css","styles/components.css","styles/download.css","styles/ef.css","styles/leaderboard.css","styles/leisure.css","styles/liuli.css","styles/mine-room.css","styles/mobile.css","styles/music-compact.css","styles/patterns.css","styles/saucenao.css","styles/tokens.css"].map(url);
+const PRECACHE = ["app.bundle.js","assets/icons/apple-touch-icon.png","assets/icons/favicon-32.png","assets/icons/icon-192.png","assets/icons/icon-512-maskable.png","assets/icons/logo.svg","assets/icons/mark-512.png","assets/icons/mark-64.png","assets/patterns/barcode.svg","assets/patterns/dot-matrix.svg","assets/patterns/hud-rings.svg","assets/patterns/hud-ticks.svg","assets/patterns/twill.svg","assets/vendor/lame.min.js","assets/vendor/lunar-javascript/lunar.js","data/album.json","data/anime-covers.json","data/anime-overrides.json","data/anime-sedai-green.json","data/anime-sedai.json","data/anime.json","data/gallery.json","data/netease-auth/76c5173f34e1fa5b7704157fe8e1868d.json","data/netease-meta/anonymous.json","data/netease-meta/device.json","data/netease-meta/secret.json","data/netease-meta/xeapi-key.json","data/news.json","data/posts.json","index.html","manifest.webmanifest","offline.html","styles/almanac.css","styles/app.bundle.css","styles/authpanel.css","styles/background-picker.css","styles/base.css","styles/comments.css","styles/components.css","styles/download.css","styles/ef.css","styles/gomoku.css","styles/leaderboard.css","styles/leisure.css","styles/liuli.css","styles/mine-room.css","styles/mobile.css","styles/music-compact.css","styles/patterns.css","styles/saucenao.css","styles/tokens.css"].map(url);
 
 /** 图片缓存上限：超出后删最旧的（Cache API 的 key 按插入顺序返回） */
 const IMAGE_CACHE = 'fish-temple-images';

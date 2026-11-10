@@ -8,8 +8,8 @@
 import { viewhead } from '../ui/bits.js';
 import { ICON } from '../util/dom.js';
 
-const APK = 'https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.4.6/fish-temple-android-full-2.4.6.apk';
-const ZIP = 'https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.5.6/fish-temple-desktop-1.5.6-win-x64.zip';
+const APK = 'https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.5.0/fish-temple-android-full-2.5.0.apk';
+const ZIP = 'https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.6.0/fish-temple-desktop-1.6.0-win-x64.zip';
 const RELEASES = 'https://github.com/qiyuyu197-ctrl/fish-temple/releases';
 
 export default {
@@ -23,8 +23,8 @@ export default {
       title: 'DOWNLOADS',
       idx: 'RELEASES / 2026.11',
       meta: [
-        { label: 'ANDROID', value: '2.4.6' },
-        { label: 'WINDOWS', value: '1.5.6' },
+        { label: 'ANDROID', value: '2.5.0' },
+        { label: 'WINDOWS', value: '1.6.0' },
         { label: 'WEB', value: 'LATEST' },
       ],
       actions: `<a class="btn btn--sm" href="${RELEASES}" target="_blank" rel="noopener noreferrer">全部版本 ${ICON.ext}</a>
@@ -36,20 +36,21 @@ export default {
         <div class="dl-card__head"><b>01 / ANDROID</b><span>MOBILE</span></div>
         <div class="dl-card__body">
           <h2>移动版</h2>
-          <p class="dl-sub">离线随身版 · 相册 / 音乐 / 扫雷 / 工具台</p>
+          <p class="dl-sub">离线随身版 · 相册 / 音乐 / 扫雷 / 五子棋 / 工具台</p>
           <dl class="dl-meta">
-            <div><dt>Version</dt><dd>2.4.6</dd></div>
+            <div><dt>Version</dt><dd>2.5.0</dd></div>
             <div><dt>Size</dt><dd>≈ 263 MB</dd></div>
             <div><dt>Requires</dt><dd>Android 7.0+</dd></div>
           </dl>
           <ul class="dl-features">
             <li>内置文章 / 公告与网页版同步</li>
+            <li>五子棋：四位 bot、AI 观战、破规则能力</li>
             <li>2026 秋新番档案 + Bangumi 站内搜索</li>
             <li>账号 / 播放列表 / 主题跨重启保留</li>
           </ul>
           <div class="dl-actions">
             <a class="btn btn--signal" href="${APK}" target="_blank" rel="noopener noreferrer">下载 APK <span class="arrow">↓</span></a>
-            <a class="btn btn--ghost" href="${RELEASES}/tag/app-v2.4.6" target="_blank" rel="noopener noreferrer">版本说明 ${ICON.ext}</a>
+            <a class="btn btn--ghost" href="${RELEASES}/tag/app-v2.5.0" target="_blank" rel="noopener noreferrer">版本说明 ${ICON.ext}</a>
           </div>
         </div>
         <span class="dl-card__glyph" aria-hidden="true">APK</span>
@@ -59,20 +60,21 @@ export default {
         <div class="dl-card__head"><b>02 / WINDOWS</b><span>DESKTOP</span></div>
         <div class="dl-card__body">
           <h2>桌面版</h2>
-          <p class="dl-sub">绿色便携 · 断网可用 · 可当扫雷局域网主机</p>
+          <p class="dl-sub">绿色便携 · 断网可用 · 五子棋 / 扫雷局域网主机</p>
           <dl class="dl-meta">
-            <div><dt>Version</dt><dd>1.5.6</dd></div>
+            <div><dt>Version</dt><dd>1.6.0</dd></div>
             <div><dt>Size</dt><dd>≈ 359 MB</dd></div>
             <div><dt>Requires</dt><dd>Win 10/11 x64</dd></div>
           </dl>
           <ul class="dl-features">
             <li>内置文章 / 公告与网页版同步</li>
+            <li>五子棋：四位 bot、AI 观战、台词与破规则</li>
             <li>首次启动自动创建桌面快捷方式</li>
             <li>文件 → 局域网联机，手机用房间号加入扫雷</li>
           </ul>
           <div class="dl-actions">
             <a class="btn btn--signal" href="${ZIP}" target="_blank" rel="noopener noreferrer">下载 ZIP <span class="arrow">↓</span></a>
-            <a class="btn btn--ghost" href="${RELEASES}/tag/desktop-v1.5.6" target="_blank" rel="noopener noreferrer">版本说明 ${ICON.ext}</a>
+            <a class="btn btn--ghost" href="${RELEASES}/tag/desktop-v1.6.0" target="_blank" rel="noopener noreferrer">版本说明 ${ICON.ext}</a>
           </div>
         </div>
         <span class="dl-card__glyph" aria-hidden="true">ZIP</span>
@@ -85,7 +87,7 @@ export default {
         <ol>
           <li>下载 <b>.apk</b> 到手机（微信 / QQ 传过去也可以）。</li>
           <li>点开文件，允许「安装未知来源应用」。</li>
-          <li>覆盖安装 2.4.6；如果签名不一致，先卸载旧版（会丢 App 内数据）。</li>
+          <li>覆盖安装 2.5.0；如果签名不一致，先卸载旧版（会丢 App 内数据）。</li>
         </ol>
         <p class="dl-fine">需要 Android 7.0（API 24）及以上；安装包约 263 MB，相册图都打进去了。</p>
       </div>

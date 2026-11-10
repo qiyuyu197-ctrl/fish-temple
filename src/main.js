@@ -92,6 +92,7 @@ const leisure = lazyView('leisure', '文娱', () => import('./views/leisure.js')
 const downloadView = lazyView('download', '下载 App', () => import('./views/download.js'));
 const tierlist = lazyView('tierlist', 'Tier List', () => import('./views/tierlist.js'));
 const fishrun = lazyView('fishrun', '像素小鱼', () => import('./views/fish-run.js'));
+const gomoku = lazyView('gomoku', '五子棋', () => import('./views/gomoku.js'));
 const tools = lazyView('tools', '工具台', () => import('./views/tools.js'));
 const saucenao = lazyView('search', '以图搜图', () => import('./views/saucenao.js'));
 const admin = lazyView('admin', '发布', () => import('./views/admin.js'));
@@ -243,7 +244,7 @@ async function boot() {
   //    注册成兼容跳转，老链接不会 404（见 views/redirect.js）
   //    Tier List（TOOLS 板块）放在 tools 后面：注册顺序就是导航顺序 ✓
   [
-    home, logs, forum, music, gallery, leisure, downloadView, mine, fishrun, tools, saucenao, admin, notfound,
+    home, logs, forum, music, gallery, leisure, downloadView, mine, gomoku, fishrun, tools, saucenao, admin, notfound,
     redirectView('posts', 'logs'),
     redirectView('post', 'logs'),
     redirectView('news', 'logs'),

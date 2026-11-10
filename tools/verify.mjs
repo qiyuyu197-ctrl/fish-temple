@@ -291,6 +291,7 @@ async function main() {
     ['#/gallery', '插画'],
     ['#/leisure', '文娱'],
     ['#/mine', '扫雷'],
+    ['#/gomoku', '五子棋'],
     ['#/tools', '工具台'],
     ['#/admin', '控制台'],
     ['#/dashboard', '插件仪表盘'],
@@ -1171,6 +1172,287 @@ async function main() {
         && ms?.layout?.cell === '34px',
       JSON.stringify(ms?.layout));
   }
+
+  /* ---------------- 五子棋板块（#/gomoku） ---------------- */
+  // 和扫雷一样两条腿：引擎用 Terminal.Gomoku 直接跑规则 / AI / 破规则能力，
+  // 界面用真实指针与键盘事件驱动，确认人机、悔棋、观战、同名对局都接得上。
+  await visit('#/gomoku');
+  const gk = await evaluate(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const T = window.Terminal;
+    const G = T?.Gomoku;
+    if (!G) return { skipped: true };
+    const $ = (s) => document.querySelector(s);
+    const out = {};
+    const game = () => G.state;
+    const svg = $('#gkSvg');
+    const clickIdx = (idx, el = svg) => {
+      const r = el.getBoundingClientRect();
+      const c = idx % 15;
+      const row = Math.floor(idx / 15);
+      el.dispatchEvent(new MouseEvent('click', {
+        clientX: r.left + (c + 0.5) / 15 * r.width,
+        clientY: r.top + (row + 0.5) / 15 * r.height,
+        bubbles: true,
+        cancelable: true,
+      }));
+    };
+
+    // ① 导航 / 页签 / 骨架
+    const nav = document.querySelector('.nav__link[data-view="mine"]');
+    out.shell = {
+      hash: location.hash,
+      navActive: !!nav && nav.classList.contains('is-active'),
+      tabs: [...document.querySelectorAll('.mr-tab')].map((a) => a.textContent.trim()).join(','),
+      activeTab: document.querySelector('.mr-tab.is-on')?.textContent.trim(),
+      hasSvg: !!svg,
+      stones: document.querySelectorAll('#gkSvg .gk-stone').length,
+      meta: [$('#gkMetaMode')?.textContent, $('#gkMetaMoves')?.textContent, $('#gkMetaState')?.textContent],
+      players: [$('#gkName1')?.textContent, $('#gkName2')?.textContent],
+      board: (() => { const r = svg.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; })(),
+      overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    };
+
+    // ② 引擎：五连判胜
+    const g1 = G.createGame({ blackBot: 'gexiaojie', whiteBot: 'luoyu', allowCheat: true });
+    for (const i of [112, 113, 114, 115]) G.place(g1, i, 1, { passTurn: false });
+    const win = G.place(g1, 116, 1, { passTurn: true });
+    out.win = {
+      ok: win.ok, win: !!win.win, over: g1.over, winner: g1.winner,
+      line: g1.winLine?.length || 0,
+    };
+
+    // ②.5 引擎：开局不再永远是 H8
+    const openingSeen = new Set();
+    for (let k = 0; k < 12; k++) {
+      const g = G.createGame({ blackBot: 'wotaishuaile', whiteBot: 'luoyu', allowCheat: true });
+      openingSeen.add(G.chooseMove(g, 1));
+    }
+    out.variety = {
+      distinct: openingSeen.size,
+      sample: [...openingSeen].slice(0, 8),
+    };
+
+    // ③ 引擎：对方已经四连时，会堵成五点
+    const g2 = G.createGame({ blackBot: 'gexiaojie', whiteBot: 'luoyu', allowCheat: true });
+    g2.turn = 2;
+    for (const i of [50, 51, 52, 53]) G.place(g2, i, 2, { passTurn: false });
+    g2.turn = 1;
+    const block = G.chooseMove(g2, 1, { level: 3, budget: 80 });
+    out.block = { move: block, expected: [49, 54].includes(block) };
+
+    // ④ 引擎：三种破规则能力，各限一次
+    const g3 = G.createGame({ blackBot: 'wotaishuaile', whiteBot: 'gexiaojie', allowCheat: true });
+    g3.board[0] = 2;                       // 白棋一颗给偷
+    const steal1 = G.applySteal(g3, 1, 0);
+    const steal2 = G.applySteal(g3, 1, 0);
+    const seal1 = G.applySeal(g3, 1, 60);
+    const seal2 = G.applySeal(g3, 1, 61);
+    const dbl1 = G.applyDouble(g3, 1);
+    const dbl2 = G.applyDouble(g3, 1);
+    out.abilities = {
+      steal: { first: steal1.ok, second: steal2.ok, stolen: g3.board[0] === 0, left: g3.abilities[1].steal },
+      seal: {
+        first: seal1.ok, second: seal2.ok,
+        opponentBlocked: G.canPlay(g3, 60, 2) === false,
+        ownerAllowed: G.canPlay(g3, 60, 1) === true,
+        mark: g3.sealed[60] === 1,
+      },
+      double: { first: dbl1.ok, second: dbl2.ok, left: g3.abilities[1].double },
+    };
+
+    // ��� 战绩：只写本机、可清空
+    G.resetRecord();
+    G.recordResult('luoyu', 'win');
+    G.recordResult('luoyu', 'loss');
+    const rec = G.loadRecord().luoyu;
+    G.resetRecord();
+    out.records = { win: rec.win, loss: rec.loss, draw: rec.draw };
+
+    // ⑥ 人机：落子 → bot 回复 → 悔棋
+    const sel = $('#gkBot');
+    sel.value = 'luoyu';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await wait(350);
+    clickIdx(112);
+    await wait(2200);
+    out.human = {
+      moves: game().moves.length,
+      stones: document.querySelectorAll('#gkSvg .gk-stone').length,
+      turn: game().turn,
+      human: G.humanSide,
+      logRows: document.querySelectorAll('#gkLog .gk-log__i').length,
+      canUndo: $('#gkUndo')?.disabled === false,
+      say: {
+        hidden: $('#gkSay')?.hidden,
+        name: $('#gkSayName')?.textContent,
+        text: $('#gkSayText')?.textContent,
+        known: G.BOTS.find((b) => b.id === 'luoyu').quotes
+          .some((q) => ($('#gkSayText')?.textContent || '').includes(q)),
+        rows: document.querySelectorAll('#gkLog .gk-log__i.is-say').length,
+      },
+    };
+    $('#gkUndo').click();
+    await wait(350);
+    out.undo = {
+      moves: game().moves.length,
+      turn: game().turn,
+      left: $('#gkUndoLeft')?.textContent,
+      resultHidden: $('#gkResult')?.hidden === true,
+    };
+
+    // ⑦ 键盘：方向键出现光标，回车 / 空格落子
+    svg.focus();
+    svg.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    const cursor = !!document.querySelector('.gk-cursor');
+    svg.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await wait(1800);
+    out.keyboard = {
+      cursor,
+      moves: game().moves.length,
+      stones: document.querySelectorAll('#gkSvg .gk-stone').length,
+    };
+
+    // ⑧ 观战：自动对局 / 暂停 / 单步 / 同名
+    $('[data-mode-btn="bots"]').click();
+    await wait(500);
+    const setSel = (id, val) => {
+      const s = $(id);
+      s.value = val;
+      s.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    setSel('#gkBlack', 'luoyu');
+    setSel('#gkWhite', 'chishenme');
+    await wait(500);
+    out.startGate = {
+      started: G.started,
+      moves: game().moves.length,
+      startHidden: $('#gkStart')?.hidden,
+      pauseDisabled: $('#gkPause')?.disabled,
+      status: ($('#gkTurn')?.innerText || '').replace(/\\s+/g, ' ').trim(),
+    };
+    $('#gkStart').click();
+    await wait(2400);
+    out.spectate = {
+      started: G.started,
+      mode: G.mode,
+      bots: [game().sides[1].bot, game().sides[2].bot],
+      moves: game().moves.length,
+      pauseEnabled: $('#gkPause')?.disabled === false,
+      sayRows: document.querySelectorAll('#gkLog .gk-log__i.is-say').length,
+      sayHidden: $('#gkSay')?.hidden,
+    };
+    for (let k = 0; k < 40 && G.busy; k++) await wait(100);
+    await wait(250);
+    $('#gkPause').click();
+    await wait(350);
+    const before = game().moves.length;
+    await wait(1100);
+    const after = game().moves.length;
+    $('#gkStep').click();
+    await wait(1100);
+    out.spectate.pause = { before, after, afterStep: game().moves.length, paused: G.paused };
+    setSel('#gkBlack', 'wotaishuaile');
+    setSel('#gkWhite', 'wotaishuaile');
+    await wait(700);
+    out.sameName = {
+      bots: [game().sides[1].bot, game().sides[2].bot],
+      pills: document.querySelectorAll('#gkAbs1 .gk-ab, #gkAbs2 .gk-ab').length,
+      series: (document.querySelector('.gk-series__score')?.textContent || '').replace(/\\s+/g, ''),
+      started: G.started,
+      startHidden: $('#gkStart')?.hidden,
+    };
+
+    // ⑨ 最强者：界面上的三个破规则能力
+    $('[data-mode-btn="human"]').click();
+    await wait(400);
+    setSel('#gkBot', 'wotaishuaile');
+    await wait(500);
+    out.cheatUI = {
+      name: $('#gkName2')?.textContent,
+      hidden: $('#gkAbs2')?.hidden,
+      pills: document.querySelectorAll('#gkAbs2 .gk-ab').length,
+      label: $('#gkKind2')?.textContent,
+      warning: /\u7834\u89c4\u5219/.test($('#gkKind2')?.textContent || ''),
+    };
+
+    // ⑩ 棋盘尺寸
+    const bb = $('#gkSvg').getBoundingClientRect();
+    out.layout = {
+      w: Math.round(bb.width), h: Math.round(bb.height),
+      square: Math.abs(bb.width - bb.height) <= 2,
+      overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    };
+    return out;
+  })()`);
+
+  if (gk?.skipped) {
+    record('五子棋：板块可用（跳过）', true, '没有拿到运行时句柄');
+  } else {
+    record('五子棋：GAME 导航高亮 / 页签 / 15×15 棋盘骨架',
+      gk?.shell?.hash === '#/gomoku' && gk?.shell?.navActive === true
+        && /扫雷,五子棋,像素小鱼/.test(gk?.shell?.tabs || '')
+        && gk?.shell?.activeTab === '五子棋'
+        && gk?.shell?.hasSvg === true && gk?.shell?.board?.w === gk?.shell?.board?.h,
+      JSON.stringify(gk?.shell));
+    record('五子棋：五连判胜并返回完整获胜线',
+      gk?.win?.ok === true && gk?.win?.win === true && gk?.win?.over === true
+        && gk?.win?.winner === 1 && (gk?.win?.line || 0) >= 5,
+      JSON.stringify(gk?.win));
+    record('五子棋：开局不固定（连续 12 次空盘第一手至少 3 种；去套路化）',
+      (gk?.variety?.distinct || 0) >= 3,
+      JSON.stringify(gk?.variety));
+    record('五子棋：对方四连时，葛小姐会去堵成五点',
+      gk?.block?.expected === true,
+      JSON.stringify(gk?.block));
+    record('五子棋：偷子 / 封点 / 连手各只能用一次，封点只锁对方',
+      gk?.abilities?.steal?.first === true && gk?.abilities?.steal?.second === false
+        && gk?.abilities?.steal?.stolen === true && gk?.abilities?.steal?.left === 0
+        && gk?.abilities?.seal?.first === true && gk?.abilities?.seal?.second === false
+        && gk?.abilities?.seal?.opponentBlocked === true && gk?.abilities?.seal?.ownerAllowed === true
+        && gk?.abilities?.seal?.mark === true
+        && gk?.abilities?.double?.first === true && gk?.abilities?.double?.second === false
+        && gk?.abilities?.double?.left === 0,
+      JSON.stringify(gk?.abilities));
+    record('五子棋：人机落子 → bot 在 2 秒内回复（棋谱与台词同步）',
+      gk?.human?.moves === 2 && gk?.human?.stones === 2 && gk?.human?.turn === 1
+        && gk?.human?.logRows === 3 && gk?.human?.canUndo === true
+        && gk?.human?.say?.hidden === false && gk?.human?.say?.name === '落鱼鱼'
+        && gk?.human?.say?.known === true && gk?.human?.say?.rows === 1,
+      JSON.stringify(gk?.human));
+    record('五子棋：悔棋回到你的回合（次数递减，结算条不出现）',
+      gk?.undo?.moves === 0 && gk?.undo?.turn === 1 && gk?.undo?.left === '2'
+        && gk?.undo?.resultHidden === true,
+      JSON.stringify(gk?.undo));
+    record('五子棋：键盘能移动光标并落子',
+      gk?.keyboard?.cursor === true && (gk?.keyboard?.moves || 0) >= 1
+        && gk?.keyboard?.stones >= 1,
+      JSON.stringify(gk?.keyboard));
+    record('五子棋：观战先停在等待开始；点「开始观战」后才自动落子（暂停/单步可用）',
+      gk?.startGate?.started === false && gk?.startGate?.moves === 0
+        && gk?.startGate?.startHidden === false && gk?.startGate?.pauseDisabled === true
+        && /等待开始/.test(gk?.startGate?.status || '')
+        && gk?.spectate?.started === true && gk?.spectate?.mode === 'bots'
+        && (gk?.spectate?.moves || 0) > 0
+        && gk?.spectate?.sayRows === gk?.spectate?.moves && gk?.spectate?.sayHidden === false
+        && gk?.spectate?.pause?.before === gk?.spectate?.pause?.after
+        && gk?.spectate?.pause?.afterStep > gk?.spectate?.pause?.after,
+      JSON.stringify({ gate: gk?.startGate, spectate: gk?.spectate }));
+    record('五子棋：两侧可以选同一个 bot（同名对局）',
+      gk?.sameName?.bots?.[0] === 'wotaishuaile' && gk?.sameName?.bots?.[1] === 'wotaishuaile'
+        && gk?.sameName?.pills === 6 && /0:0|\d+:\d+/.test(gk?.sameName?.series || '')
+        && gk?.sameName?.started === false && gk?.sameName?.startHidden === false,
+      JSON.stringify(gk?.sameName));
+    record('五子棋：我太帅了 的界面带三个破规则能力与红框警告',
+      gk?.cheatUI?.name === '我太帅了' && gk?.cheatUI?.hidden === false
+        && gk?.cheatUI?.pills === 3 && gk?.cheatUI?.warning === true,
+      JSON.stringify(gk?.cheatUI));
+    record('五子棋：棋盘是正方形且页面不横向溢出',
+      gk?.layout?.square === true && gk?.layout?.overflowX === false
+        && (gk?.layout?.w || 0) >= 320,
+      JSON.stringify(gk?.layout));
+  }
+
 
   // Pixiv：国内网络下 pixiv.net / i.pximg.net 被 DNS 污染 + 防盗链，直连必然失败。
   // 现在走 server.mjs 代理（api.lolicon.app 随机作品）+ pixiv.re 镜像显示图片。

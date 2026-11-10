@@ -27,6 +27,12 @@
 .mr-tab:hover { color: var(--fg); background: color-mix(in srgb, var(--ink-100) 6%, transparent); }
 .mr-tab.is-on { background: var(--signal); color: var(--signal-ink); }
 
+/* 二级页签（游戏板块 > 扫雷 > 单人/联机）：紧贴公共页签下沿 */
+.mr-tabs--sub { margin-top: calc(2px - var(--sp-5)); background: transparent; }
+@media (max-width: 640px) {
+  .mr-tabs--sub { margin-top: calc(2px - var(--sp-4)); }
+}
+
 .mr-card {
   border: 2px solid var(--ink-100);
   background: var(--bg-sunk);

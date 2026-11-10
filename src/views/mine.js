@@ -16,7 +16,7 @@
 import { esc } from '../util/dom.js';
 import { Toast } from '../ui/toast.js';
 import { Motion } from '../core/motion.js';
-import { viewhead } from '../ui/bits.js';
+import { viewhead, gameTabs } from '../ui/bits.js';
 import {
   LEVELS, getLevel, createGame, reveal, toggleFlag, chord, canChord,
   revealMines, wrongFlags, minesLeft, elapsed, elapsedMs, progress,
@@ -63,10 +63,10 @@ export default {
     if (/[?&]room=/.test(String(location.hash || ''))) return mineRoom.render();
     return `
     <section class="ms">
-      <div class="mr-tabs" role="tablist" aria-label="扫雷模式">
+    ${gameTabs('mine')}
+      <div class="mr-tabs mr-tabs--sub" role="tablist" aria-label="扫雷模式">
         <a class="mr-tab is-on" href="#/mine" role="tab" aria-selected="true">单人</a>
         <a class="mr-tab" href="#/mine?room=1" role="tab">联机</a>
-        <a class="mr-tab" href="#/fishrun" role="tab">像素小鱼</a>
       </div>
       ${viewhead({
         title: 'MINESWEEPER',

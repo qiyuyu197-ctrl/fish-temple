@@ -1,11 +1,11 @@
-# FISH 鱼の灵庙 · 静态站点
+﻿# FISH 鱼の灵庙 · 静态站点
 
 ## 下载
 
 | 平台 | 版本 | 直接下载 | 要求 |
 | --- | --- | --- | --- |
-| **Android 移动版** | 2.4.6 | [APK · 约 263 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.4.6/fish-temple-android-full-2.4.6.apk) | Android 7.0+ |
-| **Windows 桌面版** | 1.5.6 | [ZIP · 约 359 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.5.6/fish-temple-desktop-1.5.6-win-x64.zip) | Windows 10/11 x64 |
+| **Android 移动版** | 2.5.0 | [APK · 约 263 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/app-v2.5.0/fish-temple-android-full-2.5.0.apk) | Android 7.0+ |
+| **Windows 桌面版** | 1.6.0 | [ZIP · 约 359 MB](https://github.com/qiyuyu197-ctrl/fish-temple/releases/download/desktop-v1.6.0/fish-temple-desktop-1.6.0-win-x64.zip) | Windows 10/11 x64 |
 
 手机下载 APK 直接安装（允许「安装未知来源应用」）；Windows 下载 ZIP 解压后双击
 `FishTemple.exe`，**首次启动会自动在桌面创建快捷方式**。历史版本见
@@ -78,13 +78,13 @@ npm run verify:pwa -- http://127.0.0.1:5173
 ```
 
 **② Android APK** —— 到 [Releases](../../releases) 下载 `.apk` 装上（[最新一版](../../releases/latest)）。
-从 2.0 起它也是**纯本地**的：站点打进 APK（约 290MB），启动时在本机 `127.0.0.1`
+从 2.0 起它也是**纯本地**的：站点打进 APK（约 263MB），启动时在本机 `127.0.0.1`
 起一个只给自己用的小服务（`SiteServer.java`），账号是本机账号（`LocalAuth.java`）。
 网易云**搜索 / 试听 / 歌词**和 **Pixiv 抽卡**在 2.1 里用 Java 重做了代理，能直接用；
 **扫码登录 / 我的歌单**在 2.2、**云盘 / 每日推荐 / 登录态音频**在 2.3 补上（需先绑定账号）。
 
 ```bash
-git tag app-v2.4.4 && git push origin app-v2.4.4   # 自动构建并挂到 Release
+git tag app-v2.5.0 && git push origin app-v2.5.0   # 自动构建并挂到 Release
 
 node tools/verify-android-server.mjs               # 不用模拟器：在电脑上跑 Java 那套本地服务自检
 ```
@@ -106,7 +106,7 @@ node tools/verify-android-server.mjs               # 不用模拟器：在电脑
 网站那边配了 Auth0 就还是 Auth0，两边互不影响。
 
 ```bash
-git tag desktop-v1.5.4 && git push origin desktop-v1.5.4   # 自动构建并挂到 Release
+git tag desktop-v1.6.0 && git push origin desktop-v1.6.0   # 自动构建并挂到 Release
 ```
 
 完整版解压 520MB、zip 386MB（236MB 是相册图）；手动跑工作流勾 **lite** 是解压 284MB / zip 119MB。
@@ -179,11 +179,12 @@ git tag desktop-v1.5.4 && git push origin desktop-v1.5.4   # 自动构建并挂�
 │   ├── util/
 │   │   ├── dom.js          DOM 助手 + 图标库
 │   │   └── markdown.js     Markdown 渲染器（含 XSS 转义）
-│   ├── views/              页面：home / logs / music / gallery / leisure / mine / tools /
+│   ├── views/              页面：home / logs / music / gallery / leisure / mine / gomoku / tools /
 │   │                       admin / notfound（+ post、newsItem 作为详情渲染器）
 │   │                       redirect.js 负责老路由跳转（#/posts → #/logs）
 │   │                       forum.js 论坛板块（#/forum：列表 / 详情 / 发帖 / 编辑，作者或站长才能改）
 │   │                       leisure.js 文娱板块（#/leisure：当季新番 / 推荐动漫 / 追番）
+│   │                       gomoku.js 五子棋（#/gomoku：人机对战 / AI 观战 / 同名对局）
 │   │                       fish-run.js 像素小鱼（单键跳跃的跑酷小游戏，越久越快）
 │   │                       mine-room.js 联机扫雷的房间界面（棋盘与反馈复用单人局那一套）
 │   │                       tierlist.js Tier List 视图（TOOLS 里的一个工具，逻辑在 plugins/tierlist.js）
@@ -195,6 +196,7 @@ git tag desktop-v1.5.4 && git push origin desktop-v1.5.4   # 自动构建并挂�
 │       ├── netease.js      网易云集成（搜索 / 直放 provider `netease-audio` / 官方播放器回退 / 列表持久化）
 │       ├── almanac.js      黄历判定（干支 / 建除十二神 / 二十八宿 / 黄道黑道 / 宜忌 → 吉凶 + 依据）
 │       ├── minesweeper.js  扫雷规则引擎（纯逻辑，视图在 views/mine.js）
+│       ├── gomoku.js       五子棋引擎：15×15 规则 / 胜负 / 四档搜索 AI / 三个破规则能力
 │       ├── mine-room.js    联机扫雷房间客户端（短请求轮询 version，不用 WebSocket，VPS / Netlify 都能跑）
 │       ├── victory-song.js 高级扫雷通关后自动播放「关羽之歌」（单人 / 联机都生效）
 │       ├── tierlist.js     Tier List 引擎（纯逻辑，状态可 JSON 序列化，视图在 views/tierlist.js）
@@ -212,6 +214,7 @@ git tag desktop-v1.5.4 && git push origin desktop-v1.5.4   # 自动构建并挂�
 │   ├── authpanel.css       页内登录面板（只收邮箱，密码交给 Auth0）
 │   ├── comments.css        帖子评论区（ui/comments.js 配套，楼中楼用左侧竖线 + 缩进表层级）
 │   ├── mine-room.css       联机扫雷房间界面（共享棋盘用 --mr-cols 控制列数）
+│   ├── gomoku.css          五子棋：SVG 棋盘 / 棋子 / 封点 / RULE BROKEN 遮罩 / bot 卡
 │   ├── mobile.css          移动端 / 触控适配层（在 components.css 之后加载）
 │   └── ef.css              ★ 全站 endfield 层 v3：切角 / 宽体 / 卡片页签 / 当前行 trace
 ├── data/
@@ -239,7 +242,7 @@ git tag desktop-v1.5.4 && git push origin desktop-v1.5.4   # 自动构建并挂�
 │       ├── web-audio-separation/  MIT；浏览器端 MDX-Net 推理（改了 ORT 的导入与 wasm 路径）
 │       └── onnxruntime-web/      MIT；ONNX Runtime Web 1.29（只留 CPU / WebGPU 两个 wasm）
 └── tools/                  开发期自检脚本（不影响站点运行）
-    ├── verify.mjs          全站自动化自检（222 项）
+    ├── verify.mjs          全站自动化自检（241 项）
     ├── responsive.mjs      多断点布局溢出检查 + 截图（1920→360）
     ├── verify-playback.mjs 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏黄历按钮不被裁切（53 项）
     ├── netlify-dev.mjs     本地模拟 Netlify：静态托管（无 SPA 兜底）+ 真实调用 netlify/functions/api.mjs + 注入 Blobs 替身（默认 5199）
@@ -1181,7 +1184,69 @@ src/views/mine.js            画面与交互：HUD、棋盘、动效、键盘、
 > 3. 「离开即暂停」判断起没起表要用 `startedAt`，**不能**看 `elapsedBefore` 是否非零 ——
 >    玩了不到一秒就走它是 0，那样会把离开的时间也算进去。
 
-### 6. 工具台（`#/tools`）
+### 6. 五子棋（`#/gomoku`）
+
+GAME 板块里的第二个小游戏。和扫雷一样是「纯逻辑引擎 + 视图」两层：
+
+```
+src/plugins/gomoku.js   15×15 棋盘 / 胜负 / 四档 AI / 三个破规则能力 / 本机战绩
+src/views/gomoku.js     SVG 棋盘、人机与观战两种模式、棋谱、动效
+```
+
+**四位 bot**（强度依次递增，level 是搜索档位，strength 只给界面画强度条）
+
+| bot | 档位 | 行为 |
+| --- | --- | --- |
+| 落鱼鱼 | Lv.1 | 一层启发式 + 随机噪声，四成概率只看进攻，会漏防 |
+| 吃什么 | Lv.2 | 两层搜索，必堵四，但看不穿双威胁 |
+| 葛小姐 | Lv.3 | 四层 α-β + 迭代加深，会主动做活三 / 冲四 |
+| 我太帅了 | Lv.4 | 六层迭代加深（时间预算 720ms），正常棋力的天花板 |
+
+**「我太帅了」的三个破规则能力**（每局各一次，偷子 / 封点不占自己的落子回合）：
+
+- **偷子**：从对方棋盘上拿走一颗子。通常用于拆掉对方已经做成的四。
+- **封点**：把一个空交叉点封死，对方永远不能下，自己可以。可以用来封掉五连点或活四要点。
+- **连手**：一回合连落两子。只在能做出「两个成五点」（对方堵不过来）时使用。
+
+破规则只在 `allowCheat` 打开时生效；界面上的「允许它破规则」可以关掉，关掉后它只比棋力。
+自检会验证三种能力各只能用一次、封点只锁对方、偷子真的把棋子拿掉。
+
+**两种模式**
+
+- **人机对战**：你执黑或执白，对手从四位 bot 里选；点击 / 触屏落子，键盘 `←↑→↓` 移动、
+  空格或回车落子、`U` 悔棋（每局 3 次）、`R` 重开。悔棋会把「你上一手之后」的落子全部撤回，
+  回到你的回合；已经用掉的破规则能力和被偷走的棋子不会回滚。
+- **AI 观战**：黑方白方各选一位 bot，**可以选同一个**（同名对局）；进板块 / 换 bot 后
+  先停在等待状态，点「开始观战」才开下，之后支持暂停 / 单步 / 1× 2× 4×。
+  速度会同时缩短落子间隔和 AI 的思考预算。人类只负责看，不能替它们落子。
+
+棋谱把落子和破规则事件按顺序排在一起：落子用「手数」编号，破规则事件用能力字形占位，
+所以「19 手」的标题和最后一行的 019 是对得上的。四位 bot 每落一手会随机说一句自己的台词
+（人机与观战都有，连着下两手就说两句），台词同时写进棋谱；数据在 `plugins/gomoku.js` 的
+`BOTS[].quotes`，视图只负责挑一句显示。人机战绩（胜 / 负 / 和）与观战比分
+都存在本机 `localStorage`，不上传。
+
+**AI 是怎么跑的**
+
+- **落子评分**：以候选点为中心取四个方向各 9 格，编码成三进制（空 / 己 / 挡），
+  预计算 3^9 = 19683 个形状分，落子点评分时只查表；再叠双活三 / 双冲四 / 活四的威胁加成。
+- **静态评估**：增量维护所有长度 ≥ 5 的线（一子最多影响 4 条线），
+  评估时把「自己的线分 − 1.12 × 对方的线分」当作局面分。
+- **搜索**：候选点按「进攻分 + 1.12 × 防守分」排序，α-β + 迭代加深；时间预算到了就退回
+  上一层完整结果，谁先成五谁拿 `WIN - ply`（越快赢分越高）。
+- **不做的事**：没有开局库、没有神经网络、没有 Worker。搜索是同步的，单步预算封顶 720ms，
+  低端设备也不会卡太久；代价是思考那一瞬间页面不能滚动。
+- **去套路化**：每局给每只 bot 抽一组性格参数（攻防权重 / 中心偏好 / 评估权重 / 排序抖动 /
+  掀桌心情 / 偏好能力）；空盘第一手不再固定 H8，而是按档位在中心 / 邻圈 / 外圈加权随机，
+  并避开上一局的第一手；根节点只在分差接近的候选里随机，档位越高越贴近最强手；
+  破规则能力也按心情随机触发（对方真的有两个成五点、普通堵一手挡不住时仍必定出手）。
+  同一只 bot 连续两局不会走同一个剧本，但强度阶梯仍然成立。
+
+> 破规则能力不是随机送的：`planAbilities()` 只在「对方已经有成五点」「对方下一步能做活四」
+> 「连手能直接做出双威胁」这些条件下才会用，并且用克隆盘先验算一遍。所以它掀桌归掀桌，
+> 每一张牌都有理由。
+
+### 7. 工具台（`#/tools`）
 
 三件主力工具 + 两个独立页签（`?tab=audio` / `?tab=vocal`），**全部在浏览器里跑，文件不上传**：
 没有后端，所以也不需要把文件交给谁。内核是 `src/plugins/tools/`（纯函数 + 浏览器 API），
@@ -1265,7 +1330,7 @@ src/views/mine.js            画面与交互：HUD、棋盘、动效、键盘、
 > 另外用 `python-docx` 独立读过生成的文件：`[Heading 1] / [Normal] / [Heading 2] / [List Paragraph]`
 > 与表格都识别正确 —— 说明生成的不是"能下载但打不开"的空壳。
 
-### 7. 文娱（`#/leisure`）
+### 8. 文娱（`#/leisure`）
 
 站点自己的番剧档案：**当季新番 + 推荐动漫 + 本机追番**。信息结构参考常见的番剧目录
 （卡片网格、标题、一句短评），视觉沿用 FISH 的纸 / 墨 / 信号黄。
@@ -1980,7 +2045,7 @@ Auth0 的真实登录要真人点（要跳转、要收验证邮件），没法�
 ```bash
 node tools/verify-all.mjs                 # 一条命令串行跑齐六套（自己起服务、套件间冷却、汇总通过数）
 node tools/test-markdown.mjs              # Markdown 渲染器单元测试（33 项）
-node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 文娱（路由 / 导航）+ 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ 工具台（含分离纯音乐/人声的 AI 入口与人声残留清理）+ XSS（含 Markdown 危险协议链接）（222 项）
+node tools/verify.mjs                     # 全站自检：路由 + 交互 + 导航高亮 + 首页入口 + 相册/灯箱/展开 + 文娱（路由 / 导航）+ 插件 + 网易云 + 歌单导入/短链 + 播放控制/不断播回归 + 底栏封面播放 + 歌词跟唱 + 换句动效 + 版面精简 + 波浪音浪 + 扫雷 + 五子棋（AI / 破规则 / 观战 / 同名对局）+ 黄历小组件（懒加载 / 判吉规则 / 吉日之歌）+ 工具台（含分离纯音乐/人声的 AI 入口与人声残留清理）+ XSS（含 Markdown 危险协议链接）（241 项）
 node tools/responsive.mjs http://localhost:5173 '#/'   # 逐档断点布局溢出检查（1920→360）+ 截图
 node tools/verify-playback.mjs            # 播放链路 + 移动端自检：直放 provider / 真实时长 / 后台自动切歌 / 顶栏图标不被裁切（53 项）
 node tools/netlify-dev.mjs 5199           # 本地模拟 Netlify（静态无兜底 + 真实调用 netlify/functions/api.mjs + Blobs 替身）
@@ -2002,7 +2067,7 @@ node tools/eval.mjs "http://localhost:5173/#/gallery" @.shots/check.js
 黄历小组件另有 12 条：懒加载、按钮位置、真实鼠标点击打开、今天/明天两张卡、
 每张卡都有标签 + 宜 + 忌 + 依据、可信手势证据、出现吉日才自动播、
 已知凶日 2026-10-09 判凶（忌「诸事不宜」）、已知吉日 2026-10-10 判吉（危日 · 明堂黄道）、
-查询吉日会自动播 `id=1345751384`、Esc 关闭、点面板内部不关（全站自检现为 **222 项**，含沉浸舞台的 5 条）。
+查询吉日会自动播 `id=1345751384`、Esc 关闭、点面板内部不关（全站自检现为 **241 项**，含沉浸舞台的 5 条与五子棋的 13 条）。
 `responsive.mjs` 在 1920→360px 之间逐档检查横向滚动与导航重叠，并把截图存到
 `.shots/responsive/`。
 `verify-playback.mjs [baseUrl]` 用无头 Edge/Chrome（CDP）种入 3 首匿名可播的曲目，断言
@@ -2089,9 +2154,11 @@ manifest / iOS 全屏；新增 11 条：顶栏内容不溢出且最后一个图�
 | `test-markdown.mjs`（不在 `verify-all` 里，单独跑） | 33 / 33 | — | ✅ |
 
 > 2026-10-24 移除 M/S 两种做法后，自检里只留 AI 分轨入口（不再跑 64MiB 模型）与
-> 人声残留清理的数值断言；`verify.mjs` 现为 **222 项**，本次在本机跑出 **222 / 222**。
-> 之前几轮失败的都是网易云网络相关用例（播放器槽位对齐 / 站内直放真实时长 /
-> 163cn.tv 短链展开超时之间轮换），随网络状况变化；分离页签的两条每次都过。
+> 人声残留清理的数值断言；`verify.mjs` 现为 **241 项**。
+> 2026-11-10 五子棋上线后本机跑出 **234 / 240**（之后又补了 1 条「开局不固定」的随机性断言，
+> 现为 241 项）：失败的 6 项全部是网易云 / 播放器网络相关用例（播放器槽位对齐、会员曲目站内直放、切歌秒表与关播停住），
+> 与新增的 GAME 页无关；五子棋的路由与 11 条交互/引擎断言全过。
+> 之前几轮失败的都是网易云网络相关用例，随网络状况变化；分离页签的两条每次都过。
 
 #### 未通过的那一项
 

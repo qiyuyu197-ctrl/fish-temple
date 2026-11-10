@@ -9,7 +9,7 @@ import { promises as fs } from 'node:fs';
 
 const ORDER = [
   'tokens.css', 'base.css', 'components.css', 'almanac.css', 'mobile.css',
-  'authpanel.css', 'mine-room.css', 'leisure.css', 'download.css', 'ef.css',
+  'authpanel.css', 'mine-room.css', 'gomoku.css', 'leisure.css', 'download.css', 'ef.css',
   'comments.css', 'leaderboard.css', 'background-picker.css', 'patterns.css', 'saucenao.css',
   'music-compact.css',
   // 琉璃主题层必须排最后：它靠顺序 + html[data-theme^="liuli"] 覆盖前面所有表面配方，

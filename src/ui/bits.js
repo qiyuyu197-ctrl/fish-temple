@@ -57,6 +57,23 @@ export const viewhead = ({ title, idx, meta = [], actions = '' }) => `  <!-- met
 export const tagRow = (tags = [], cls = '') =>
   tags.length ? `<div class="track__tags ${cls}">${tags.map((t) => `<span class="tag tag--muted">${esc(t)}</span>`).join('')}</div>` : '';
 
+/**
+ * GAME 板块的公共页签：扫雷 / 五子棋 / 像素小鱼。
+ * 三个视图各画各的会让新游戏永远漏在某一页 —— 统一从这里出，
+ * active 传 'mine' | 'gomoku' | 'fishrun'。联机扫雷共用 'mine'。
+ */
+export function gameTabs(active = '') {
+  const tabs = [
+    { id: 'mine', href: '#/mine', label: '扫雷' },
+    { id: 'gomoku', href: '#/gomoku', label: '五子棋' },
+    { id: 'fishrun', href: '#/fishrun', label: '像素小鱼' },
+  ];
+  return `<div class="mr-tabs" role="tablist" aria-label="游戏板块">
+    ${tabs.map((t) => `<a class="mr-tab${t.id === active ? ' is-on' : ''}" href="${t.href}" role="tab"
+      ${t.id === active ? 'aria-selected="true"' : ''}>${esc(t.label)}</a>`).join('')}
+  </div>`;
+}
+
 export const emptyState = ({ title = '暂无内容', desc = '', icon = '▤' } = {}) => `
   <div class="empty">
     <div class="mono" style="font-size:28px;color:var(--ink-25)">${esc(icon)}</div>

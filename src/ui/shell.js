@@ -540,9 +540,13 @@ export const Shell = {
   paintNav(current) {
     const nav = $('#nav');
     const drawer = $('#drawerNav');
+    // GAME 板块底下的小游戏是独立路由（#/gomoku、#/fishrun），
+    // 顶栏仍然只高亮 GAME 这一个入口，不然一进小游戏导航就"失去当前位置"。
+    const GAME_VIEWS = new Set(['gomoku', 'fishrun', 'mine-room']);
+    const activeView = current?.view && GAME_VIEWS.has(current.view) ? 'mine' : current?.view;
     if (nav) {
       nav.innerHTML = navItems().map((n, i) => {
-        const active = current?.view === n.id || (n.id === 'posts' && current?.view === 'post') ? ' is-active' : '';
+        const active = activeView === n.id || (n.id === 'posts' && activeView === 'post') ? ' is-active' : '';
         const badge = n.badgeKey === 'unreadNews'
           ? unreadBadge()
           : (n.badge ? `<span class="nav__badge">${esc(n.badge)}</span>` : '');
@@ -553,7 +557,7 @@ export const Shell = {
     }
     if (drawer) {
       drawer.innerHTML = navItems().map((n, i) => {
-        const active = current?.view === n.id ? ' class="is-active"' : '';
+        const active = activeView === n.id ? ' class="is-active"' : '';
         const badge = n.badgeKey === 'unreadNews' ? unreadBadge() : '';
         return `<a href="${n.path}"${active} data-nav><span>${esc(n.label)} · ${esc(n.cn || '')}</span>
           <span class="mono faint">${String(i + 1).padStart(2, '0')}${badge}</span></a>`;

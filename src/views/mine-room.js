@@ -21,7 +21,7 @@
 
 import { esc } from '../util/dom.js';
 import { Toast } from '../ui/toast.js';
-import { viewhead } from '../ui/bits.js';
+import { viewhead, gameTabs } from '../ui/bits.js';
 import { Auth } from '../plugins/auth.js';
 import { MineRoom } from '../plugins/mine-room.js';
 import { LEVELS, getLevel } from '../plugins/minesweeper.js';
@@ -330,7 +330,8 @@ export default {
       title: 'MINESWEEPER · 联机',
       idx: 'MINES / ONLINE',
     })}
-    <div class="mr-tabs" role="tablist" aria-label="扫雷模式">
+    ${gameTabs('mine')}
+    <div class="mr-tabs mr-tabs--sub" role="tablist" aria-label="扫雷模式">
       <a class="mr-tab" href="#/mine" role="tab">单人</a>
       <a class="mr-tab is-on" href="#/mine?room=1" role="tab" aria-selected="true">联机</a>
     </div>
